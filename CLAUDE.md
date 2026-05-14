@@ -38,6 +38,43 @@ re, deflate, hashlib, uctypes; enables gc.add_heap and ffi.
 Closes: FR-RT-3, FR-RT-4, FR-RT-5.
 ```
 
+## Dev branch as investigation log
+
+The `dev` branch doubles as the engineering notebook for the build-out
+period. Anything worth remembering — a working approach, a dead end, a
+non-obvious constraint surfaced by experimentation, a decision between
+two options — lands as a commit on `dev` with the detail in the
+message body. No separate markdown log file.
+
+Empty commits are first-class for log entries that have no code change
+attached:
+
+```
+git commit --allow-empty -s -m "[PHnn] Note: ..." -m "<body...>"
+```
+
+Subject conventions for log-only commits:
+
+- `[PHnn] Note: <observation>` — fact, measurement, dead end documented.
+- `[PHnn] Decision: <choice>` — alternative chosen, with rationale in body.
+- `[PHnn] Caveat: <gotcha>` — non-obvious constraint surfaced.
+
+The body carries the engineering content. Why it came up, what was
+tried, what worked or didn't, what the implication is for later
+phases. Treat it the way you would a notebook entry.
+
+Why this shape rather than a growing markdown log file:
+
+- `git log --oneline` is a queryable date + heading index; `git show
+  <sha>` pulls full detail on demand. The index stays compact.
+- The note lives next to the code state it concerns. `git log -p` over
+  a phase range surfaces both the work and the reasoning together.
+- A markdown log file accumulates conflict-prone edits and grows
+  unbounded; commits don't.
+
+When in doubt, write the empty commit. Future-you reading `git log`
+will thank present-you.
+
 ## Build and test policy
 
 - Host is WSL2 on Windows 11. Linux builds run natively; Windows
