@@ -1,0 +1,3 @@
+[submodule "packages/picolet-runtime/micropython"]
+	path = packages/picolet-runtime/micropython
+	url = https://github.com/andrewleech/micropython.git
