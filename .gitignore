@@ -1,0 +1,24 @@
+# Build output
+target/
+build/
+build-*/
+*.exe
+*.pyc
+__pycache__/
+
+# Cached runtime artifacts downloaded by `picolet build`
+.picolet-cache/
+
+# Dependencies / caches
+node_modules/
+.venv/
+.uv-cache/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

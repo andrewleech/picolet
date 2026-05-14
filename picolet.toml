@@ -1,0 +1,13 @@
+# Picolet workspace metadata.
+# Marks the repo root and lists the framework packages.
+# Application-level picolet.toml files (in user projects) use a different
+# schema — see docs/architecture.md.
+
+[workspace]
+name = "picolet"
+packages = [
+    "packages/picolet-cli",
+    "packages/picolet-runtime",
+    "packages/picolet-bridge-js",
+    "packages/picolet-templates",
+]

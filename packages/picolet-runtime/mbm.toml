@@ -1,0 +1,59 @@
+# micropython-branch-manager (mbm)
+# Install: pip install micropython-branch-manager
+#          or: uv tool install micropython-branch-manager
+# Usage:   mbm --help
+
+[[submodules]]
+path = "micropython"
+integration_branch = "integration"
+
+# --- Base set inherited from pydfu-win ---
+
+[[submodules.branches]]
+name = "pr/lib-pyusb-windows"
+pr_url = "https://github.com/andrewleech/micropython/pull/38"
+pr_number = 38
+title = "lib/micropython-lib: Update pyusb with Windows support."
+
+[[submodules.branches]]
+name = "pr/mkrules-exe-fix"
+pr_url = "https://github.com/andrewleech/micropython/pull/39"
+pr_number = 39
+title = "py/mkrules.mk: Allow PROG to be set on the command line for .exe targets."
+
+[[submodules.branches]]
+name = "pr/mkrules-frozen-str"
+pr_url = "https://github.com/andrewleech/micropython/pull/40"
+pr_number = 40
+title = "py/mkrules.mk: Make MICROPY_MODULE_FROZEN_STR conditional on compiler."
+
+[[submodules.branches]]
+name = "pr/gc-add-heap"
+pr_url = "https://github.com/andrewleech/micropython/pull/41"
+pr_number = 41
+title = "py/modgc: Add gc.add_heap() function for runtime heap expansion."
+
+[[submodules.branches]]
+name = "pr/ports-windows-ffi"
+pr_url = "https://github.com/andrewleech/micropython/pull/42"
+pr_number = 42
+title = "ports/windows: Add FFI module support with libffi."
+
+[[submodules.branches]]
+name = "pr/unix-windows-romfs"
+pr_url = "https://github.com/andrewleech/micropython/pull/43"
+pr_number = 43
+title = "ports/unix,windows: Add embedded romfs support with auto-mount."
+
+[[submodules.branches]]
+name = "pr/ports-windows-variant-overrides"
+pr_url = "https://github.com/andrewleech/micropython/pull/44"
+pr_number = 44
+title = "ports/windows: Allow variant override of common config defines."
+
+# --- Renderer-specific PRs added here as they're written ---
+# - picolet webview bridge bootstrap
+# - LVGL binding integration
+# - picolet IPC C module
+# - picolet window C module
+# - macOS port (when added)
