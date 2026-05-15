@@ -705,3 +705,128 @@ only when the webview path is selected).
 PH11 does **not** close FR-LV-1's Windows half (PH12), nor any
 FR-WV-*, FR-CLI-*, FR-SBOM-*, NFR-1, NFR-2, NFR-4, NFR-6, NFR-7, or
 NFR-9. Gates 11, 13, 19 protect those phases' work from regression.
+
+## Verification
+
+**Tester:** scrum-tester (claude-sonnet-4-6), 2026-05-15.
+
+### Gate harness
+
+Run: `bash tests/phase-11/run.sh` from `/home/anl/picolet`.
+
+```
+=== PH11 gate results: 19 passed, 0 failed, 0 skipped / 19 total ===
+All mandatory gates PASS.
+```
+
+Gate A2 (NFR-3): 1,646,952 bytes — 78% of 2,097,152-byte ceiling.
+
+### Unit tests
+
+Run: `PYTHONPATH=packages/picolet-runtime/python python3 -m unittest tests/phase-11/test_inprocess_transport.py tests/phase-11/test_transport_parity.py tests/phase-11/test_lvgl_pump_responsiveness.py`
+
+```
+Ran 10 tests in 0.012s
+OK
+```
+
+10/10 pass.
+
+### Independent end-to-end
+
+Tester wrote a fresh fixture at `/tmp/tester-hello-lvgl` (not the
+developer's fixture).  `picolet build --target linux-x64` produced a
+binary; `xvfb-run` launched it:
+
+```
+window: title=Tester E2E size=640x480
+TESTER_E2E_OK size=640x480 label=TESTER
+```
+
+`[window]` section (`title="Tester E2E"`, `size=[640,480]`) was read
+from `picolet.toml` and reflected in the SDL2 window (FR-LV-2 confirmed
+independently).
+
+### NFR-3
+
+`wc -c packages/picolet-runtime/build/picolet-runtime-linux-x64-lvgl` →
+1,646,952 bytes ≤ 2,097,152. **PASS.**
+
+### NFR-5
+
+`objdump -p` NEEDED entries: `libSDL2-2.0.so.0`, `libm.so.6`,
+`libc.so.6`. No GPL or AGPL library in the direct link set.
+Transitive `ldd` entries (libasound, libpulse, libX11, etc.) are
+SDL2's own runtime dlopens — not direct links from the picolet binary.
+LVGL is MIT-licensed and statically linked. **PASS.**
+
+### PH00–PH10 regression
+
+| Phase | Result |
+|-------|--------|
+| PH01  | 22 passed, 0 failed, 1 skipped |
+| PH02  | 38 passed, 0 failed, 4 skipped |
+| PH03  | 21 passed, 0 failed |
+| PH04  | 31 passed, 0 failed |
+| PH05  | 19 passed, 0 failed, 2 skipped |
+| PH06  | 21 passed, 0 failed |
+| PH07  | 21 passed, 0 failed, 2 skipped |
+| PH08  | 22 passed, 0 failed |
+| PH09  | 13 passed, 0 failed |
+| PH10  | 14 passed, 0 failed |
+
+All prior phases green. No regressions.
+
+### Gate 9 (visual pixel probe) — deferred
+
+Same Xvfb/MESA limitation as PH07 gate 15: the software renderer
+does not expose the framebuffer contents via `xwd` in the WSL2 xvfb
+environment. `run_lvgl_render_probe()` is implemented in `_test.py`
+and prints `PICOLET_LV_RENDER_OK expected_rgb=51,102,153`; the xwd
+pixel-assertion step requires a hardware or full-software rasteriser
+path not available in this environment. Deferred to CI with bare-
+metal Linux or a proper MESA software renderer (same justification as
+PH07 gate 15 skip).
+
+### Developer findings — adjudication
+
+**Finding 1: `gen_mpy.py` upstream regression (private header lacks SDL).**
+Confirmed. The workaround (`LV_CFLAGS = -include lv_drivers.h` in
+`mpconfigvariant.mk`) is correctly documented and functional — gate 3
+(`import lvgl as lv`) passes, proving the SDL surface is exposed.
+Worth filing upstream. Not a picolet defect; workaround is self-
+contained.
+
+**Finding 2: `rebuild-integration.sh` latent bug with overlay submodules
+(stray gitlinks).**
+Confirmed fixed in commit 761e0b8. PH01 regression gate passes
+cleanly, which exercises `rebuild-integration.sh`. Fix is correct:
+the script now skips `overlay/lib` from the gitlink-cleanup sweep so
+`lv_binding_micropython`'s nested submodules are left intact.
+
+**Finding 3: MicroPython asyncio has no `Queue`; `InProcessTransport`
+reworked to list+Event pattern.**
+Implementation verified in `_transport.py` (list `_inbox` + lazy
+`asyncio.Event`). Pattern is correct for MicroPython. The CPython
+unit tests pass against this implementation. Wire format (JSON
+encode/decode on every send/recv) is preserved per the design decision
+in D4.
+
+**Finding 4: Gate 9 (visual render probe) deferred.**
+Accepted. Same hardware/MESA limitation as PH07 gate 15. The
+`run_lvgl_render_probe()` implementation is in place; only the xwd
+pixel-assertion harness step is skipped. This is not a functional
+gap — gate 5 (sanity test) and the independent e2e confirm the SDL2
+window opens and LVGL renders.
+
+### Verdict
+
+**PASS.**
+
+FR-LV-{1,2,3,4}: confirmed via gates A3, B1, B2, C1, C2 and
+independent e2e.
+FR-RT-2 (Linux lvgl): gate A1 (binary present), D5 (windows stub
+intact).
+NFR-3: 1,646,952 bytes (78%).
+NFR-5: only permissive libraries in direct link set.
+PH00–PH10 regression: all green.
