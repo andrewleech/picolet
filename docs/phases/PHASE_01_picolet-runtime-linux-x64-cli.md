@@ -815,3 +815,58 @@ requirements are consistent; the build host's glibc 2.39 is simply
 higher than the target and the compiler defaults to the host's glibc
 version unless told otherwise. This is a standard cross-compilation
 concern, not a spec ambiguity.
+
+## BLK-01 Resolution
+
+**Status: RESOLVED** — commits `e674b44` and `2c955f7` on `dev`.
+
+### Fix: Containerised Linux build (NFR-8)
+
+Added `packages/picolet-runtime/scripts/dockerfiles/linux-x64-build/Dockerfile`
+based on `ubuntu:22.04` (gcc 11.4.0 / glibc 2.35). Updated
+`build-runtime.sh` so the three compiler steps — mpy-cross, deplibs,
+and the unix port build — all run inside this container via `docker run`
+with the repo bind-mounted at the same absolute host path. The romfs
+assembly step (mpremote) remains on the host as it is pure Python.
+
+The `/tmp` romfs staging workaround was replaced by passing `ROMFS_IMG`
+as a relative path from the unix port working directory
+(`../../../build/romfs_staging/picolet_romfs_*.romfs`). This path contains
+no hyphens, satisfying the objcopy symbol rename constraint while also
+being accessible inside the build container (unlike `/tmp`).
+
+Image is built idempotently on first run; Docker layer caching skips
+apt-get on subsequent runs. Build outputs persist in the bind-mounted
+tree so incremental make works across container invocations.
+
+### Fix: Mandatory ubuntu:22.04 runtime subtest (A5)
+
+Added subtest A5 to `tests/phase-01/run.sh`. It runs the binary inside
+`ubuntu:22.04` and asserts `print("ok")` returns `ok` and exit 0. This
+is the authoritative NFR-8 gate; A4's ldd-name-only check is insufficient
+as it does not detect versioned GLIBC symbol requirements. A5 skips
+cleanly when Docker is unavailable rather than failing.
+
+Group D's internal make invocations were also updated to use the
+`picolet-linux-x64-build:22.04` container so the rebuilt binaries for the
+romfs fallback test maintain the same glibc baseline.
+
+### Verification results (post-fix)
+
+- Binary size: 620,848 bytes (same as before; older toolchain does not
+  change the stripped size for this configuration).
+- Maximum GLIBC version required: 2.34 (pthread functions merged into
+  libc in 2.34; Ubuntu 22.04 ships 2.35, fully satisfying this).
+- No GLIBC_2.38 symbols (`__isoc23_sscanf`, `fmod` absent).
+- Ubuntu 22.04 smoke test: `print("ok")` → `ok`, exit 0.
+- Test suite: 22 passed, 0 failed, 1 skipped (B3 gap unchanged).
+
+Gate 13 ldd output:
+```
+linux-vdso.so.1
+libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6
+libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
+/lib64/ld-linux-x86-64.so.2
+```
+
+All gates now pass. NFR-8 is satisfied.
