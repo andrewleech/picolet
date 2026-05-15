@@ -1,0 +1,13 @@
+{
+  "name": "picolet-bridge-js",
+  "version": "0.1.0",
+  "description": "JS bridge that exposes window.picolet for user frontend code in picolet webview apps",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "build:dev": "node build.mjs --no-minify"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.4"
+  }
+}
