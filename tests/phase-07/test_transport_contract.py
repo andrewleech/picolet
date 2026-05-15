@@ -81,11 +81,15 @@ class WebviewTransportContractTest(unittest.TestCase):
         self.assertEqual(len(evals), 1, "send() should issue one eval_js")
         # The script must call window.__picolet_recv with the JSON-encoded msg.
         self.assertIn("__picolet_recv", evals[0])
-        # The payload inside the call must round-trip through JSON.
+        # transport.send now double-encodes the payload so __picolet_recv
+        # receives a JSON string (matching its string parameter type).
+        # Unwrap: outer json.loads decodes the JS string literal,
+        # inner json.loads parses the embedded JSON object.
         payload_start = evals[0].find("(") + 1
         payload_end = evals[0].rfind(")")
         payload = evals[0][payload_start:payload_end]
-        parsed = json.loads(payload)
+        outer = json.loads(payload)
+        parsed = json.loads(outer) if isinstance(outer, str) else outer
         self.assertEqual(parsed, {"id": 1, "ok": True, "result": "hi"})
 
     def test_send_after_close_is_silently_dropped(self):
@@ -185,10 +189,12 @@ class WebviewTransportDispatcherIntegrationTest(unittest.TestCase):
         evals = asyncio.run(runner())
         self.assertEqual(len(evals), 1, "dispatcher should have sent a reply")
         # Extract the JSON the reply contains.
+        # transport.send double-encodes: window.__picolet_recv("{\\"id\\":1,...}")
         s = evals[0]
         start = s.find("(") + 1
         end = s.rfind(")")
-        reply = json.loads(s[start:end])
+        outer = json.loads(s[start:end])
+        reply = json.loads(outer) if isinstance(outer, str) else outer
         self.assertEqual(reply.get("id"), 1)
         self.assertTrue(reply.get("ok"))
         self.assertEqual(reply.get("result"), {"hello": "world"})

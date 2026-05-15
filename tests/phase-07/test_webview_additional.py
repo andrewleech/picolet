@@ -395,12 +395,17 @@ class ConcurrentRapidDeliveryTest(unittest.TestCase):
         self.assertGreaterEqual(len(evals), 2, "both messages must produce a reply")
 
         # Extract IDs and results from the JS calls.
+        # transport.send now double-encodes: window.__picolet_recv("{\\"id\\":1,...}")
+        # so the argument between ( and ) is a JSON-encoded string.
         import json
         replies = []
         for e in evals:
             start = e.find("(") + 1
             end = e.rfind(")")
-            replies.append(json.loads(e[start:end]))
+            # First json.loads unwraps the outer JS string literal.
+            # Second json.loads parses the inner JSON object.
+            raw = json.loads(e[start:end])
+            replies.append(json.loads(raw) if isinstance(raw, str) else raw)
 
         # The first reply must be for id=1, the second for id=2 (FIFO).
         ids = [r["id"] for r in replies]

@@ -4,8 +4,11 @@
 #   greet(args) -> "Hello, <name>"  (gate 11)
 #   boom()      -> raises ValueError("bad input")  (gate 13)
 #
-# Waits for two postMessage events posted by index.html after both
-# invoke() calls complete, then prints the gate tokens and exits.
+# JS calls both via window.picolet.invoke() and posts results back via
+# window.picolet.emit() / window.webkit.messageHandlers.picolet.postMessage().
+# Python uses picolet.on() to receive those result events — the dispatcher
+# routes incoming event messages to picolet.on() handlers without stealing
+# them from user code.
 
 import sys
 import asyncio
@@ -23,32 +26,38 @@ async def boom(args):
     raise ValueError("bad input")
 
 
-async def watcher(transport):
-    results = {}
-    # Collect up to 2 events with a combined timeout.
-    deadline = asyncio.get_event_loop().time() + 10.0
-    while len(results) < 2:
-        remaining = deadline - asyncio.get_event_loop().time()
-        if remaining <= 0:
-            break
-        try:
-            msg = await asyncio.wait_for(transport.recv(), remaining)
-        except asyncio.TimeoutError:
-            break
-        if not isinstance(msg, dict):
-            continue
-        ev = msg.get("event")
-        if ev in ("result", "err"):
-            results[ev] = msg.get("data")
+async def watcher():
+    result_evt = asyncio.Event()
+    err_evt = asyncio.Event()
+    result_holder = [None]
+    err_holder = [None]
 
-    if "result" not in results:
-        sys.stderr.write("invoke-roundtrip: did not receive 'result' event\n")
-        sys.exit(1)
-    if "err" not in results:
-        sys.stderr.write("invoke-roundtrip: did not receive 'err' event\n")
+    def on_result(data):
+        sys.stderr.write("DEBUG on_result: " + str(data) + "\n")
+        result_holder[0] = data
+        result_evt.set()
+
+    def on_err(data):
+        sys.stderr.write("DEBUG on_err: " + str(data) + "\n")
+        err_holder[0] = data
+        err_evt.set()
+
+    picolet.on("result", on_result)
+    picolet.on("err", on_err)
+
+    try:
+        await asyncio.wait_for(result_evt.wait(), 10.0)
+    except asyncio.TimeoutError:
+        sys.stderr.write("invoke-roundtrip: timed out waiting for 'result' event\n")
         sys.exit(1)
 
-    r = results["result"]
+    try:
+        await asyncio.wait_for(err_evt.wait(), 10.0)
+    except asyncio.TimeoutError:
+        sys.stderr.write("invoke-roundtrip: timed out waiting for 'err' event\n")
+        sys.exit(1)
+
+    r = result_holder[0]
     if r.get("value") != "Hello, World":
         sys.stderr.write(
             "invoke-roundtrip: unexpected greet result: {}\n".format(r)
@@ -56,7 +65,7 @@ async def watcher(transport):
         sys.exit(1)
     print("PICOLET_WV_INVOKE_OK")
 
-    e = results["err"]
+    e = err_holder[0]
     if e.get("name") != "ValueError" or e.get("message") != "bad input":
         sys.stderr.write(
             "invoke-roundtrip: unexpected error result: {}\n".format(e)
@@ -68,7 +77,7 @@ async def watcher(transport):
 
 def main():
     app = picolet_ui.Application()
-    return app.run(main=lambda: watcher(app.transport))
+    return app.run(main=watcher)
 
 
 main()

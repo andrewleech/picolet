@@ -3,7 +3,7 @@
 <head><meta charset="utf-8"><title>PH08 InvokeRoundtrip</title></head>
 <body>
 <script>
-  // Gate 11 + 13: invoke greet (success) and boom (error) in parallel,
+  // Gate 11 + 13: invoke greet (success) and boom (error) sequentially,
   // post results back to Python via postMessage.
   (async function() {
     // Gate 11: successful invoke.

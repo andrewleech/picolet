@@ -323,10 +323,13 @@ class WebviewTransport:
             # Standalone (test) mode — just record outbox.
             self._outbox_append(msg)
             return
+        # Encode the message as a JSON string, then JSON-encode that string
+        # so it becomes a quoted JS string literal.  window.__picolet_recv
+        # expects a JSON string argument and calls JSON.parse() on it;
+        # passing a JS object literal (the JSON without quotes) would cause
+        # JSON.parse to receive "[object Object]" and silently fail.
         encoded = json.dumps(msg)
-        # JSON is already a valid JS literal — except for unpaired surrogates,
-        # which we do not produce.  Wrap in __picolet_recv(<literal>).
-        js = "window.__picolet_recv(" + encoded + ")"
+        js = "window.__picolet_recv(" + json.dumps(encoded) + ")"
         self._webview.eval_js(js)
         self._outbox_append(msg)
         self.send_count += 1
