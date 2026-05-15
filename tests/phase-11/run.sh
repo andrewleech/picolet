@@ -314,13 +314,17 @@ else
     fi
 fi
 
-NAME="D5 windows-lvgl-stub-intact (gate 13)"
-# PH11 must not accidentally enable the windows-x64/lvgl branch.
+NAME="D5 windows-lvgl-variant-accepted (gate 13)"
+# PH12 removed the error stub for windows-x64/lvgl; the branch is now real.
+# This gate verifies the variant is accepted by build-runtime.sh (i.e. it
+# does not error with "not implemented").  It will start a real build
+# attempt, which may fail for other reasons (no docker, MXE not built, etc.)
+# — but must NOT produce the old "windows-x64 not implemented" message.
 WIN_LVGL_OUT="$(bash "$PKG_ROOT/scripts/build-runtime.sh" --target windows-x64 --variant lvgl 2>&1 || true)"
-if echo "$WIN_LVGL_OUT" | grep -q "windows-x64 not implemented"; then
-    pass "$NAME"
+if echo "$WIN_LVGL_OUT" | grep -q "not implemented.*see PH12"; then
+    fail "$NAME" "windows-x64/lvgl is still stub-erroring; PH12 not applied?"
 else
-    fail "$NAME" "windows-x64/lvgl branch should still stub-error; got: $WIN_LVGL_OUT"
+    pass "$NAME"
 fi
 
 echo

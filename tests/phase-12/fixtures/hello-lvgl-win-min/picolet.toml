@@ -1,0 +1,19 @@
+# PH12 gate-6 fixture: minimal hello-lvgl app for Windows.
+# Tests the full picolet build pipeline for the windows-x64 lvgl variant:
+# variant resolution, romfs assembly, [window] config consumption.
+
+[app]
+name = "hello-lvgl-win-min"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "lvgl"
+
+[window]
+title = "PH12 Sanity"
+size = [800, 600]
+resizable = false
+
+[romfs]
+include = []
