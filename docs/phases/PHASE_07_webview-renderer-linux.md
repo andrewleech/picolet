@@ -818,8 +818,111 @@ PH13's `runtime.toml` author has a single source.
 
 ## Implementation
 
-(scrum-developer writes here, with file:line references for each
-change)
+PH07 landed in 11 commits on `dev` (`3d952c4..8704293`):
+
+  - `3d952c4` decision: pure-libffi binding (D1)
+  - `6199dba` decision: Option C, 5 ms tick (D2)
+  - `20c1e8f` variant config + manifest_webview.py
+  - `c71047a` picolet_ui frozen package (7 modules)
+  - `eda6884` build-runtime.sh wire + Dockerfile add libwebkit2gtk-4.1-0
+  - `239c0b8` picolet build → webview variant route
+  - `b154495` switch to webkit_web_view_load_html for romfs HTML
+  - `be76f3f` test harness + fixtures + unit tests + README
+  - `492ab33` caveat: lock=True is wrong for the same-thread pump
+  - `7d619e8` caveat: 4.1 still delivers WebKitJavascriptResult
+  - `8704293` note: ffi.callback works; pointer round-trip OK
+
+Key file:line references:
+
+  - `packages/picolet-runtime/python/picolet_ui/_gtk_ffi.py:64-185` — the
+    full FFI binding table.  All four libraries dlopen'd; 22 functions
+    bound; webkit_web_context_set_sandbox_enabled bound lazily as a
+    Risk-3 contingency.
+  - `packages/picolet-runtime/python/picolet_ui/_webview.py:88-188` —
+    Webview class: instantiates WebKitWebView, registers "picolet"
+    handler, injects no-op `__picolet_recv` stub for PH08, wires the
+    libffi callback via `g_signal_connect_data` (the callback object
+    is passed directly; modffi.c:520-522 extracts the closure pointer
+    automatically).
+  - `packages/picolet-runtime/python/picolet_ui/_webview.py:38-87` —
+    on_script_message handler.  Unwraps WebKitJavascriptResult →
+    JSCValue via webkit_javascript_result_get_js_value (NOT a direct
+    JSCValue dereference; the plan's D3 had this wrong, see caveat
+    `7d619e8`).
+  - `packages/picolet-runtime/python/picolet_ui/_webview.py:230-296` —
+    WebviewTransport: PH06 Transport-compatible
+    (recv/send/close all async); inbox is a plain list, recv awaits
+    an asyncio.Event; send invokes evaluate_javascript with the
+    `window.__picolet_recv(<json>)` call.
+  - `packages/picolet-runtime/python/picolet_ui/_loop.py:34-58` — the
+    GTK pump task (Option C from D2).  Drains up to 32 pending GTK
+    events per tick to avoid starving asyncio under bursty UI load.
+    Tick interval `PUMP_INTERVAL_S` is module-level (default 0.005),
+    tunable by apps that need lower latency or lower idle CPU.
+  - `packages/picolet-runtime/python/picolet_ui/_app.py:50-100` —
+    Application convenience factory.  Reads /rom/picolet.toml [ui], gets
+    /rom/<root>/<index> through MicroPython VFS, calls
+    webkit_web_view_load_html (NOT load_uri — file:///rom/ is
+    invisible to the OS-level URL loader, see commit `b154495`).
+  - `packages/picolet-runtime/python/picolet_ui/_window.py:54-95` —
+    Window: loads [window] from /rom/picolet.toml via _toml.py; applies
+    title, size, resizable; emits the FR-WV-3 line to stderr.
+  - `packages/picolet-runtime/scripts/build-runtime.sh:244-260` —
+    size gate is variant-aware: NFR-1 (1 MiB) for cli, NFR-2 (2 MiB)
+    for webview, NFR-3 (3 MiB) reserved for lvgl.
+  - `packages/picolet-cli/picolet/build_cmd.py:128-148` — `[ui]
+    renderer = "webview"` now resolves to variant=webview; rate-
+    limited NotImplementedError remains for lvgl.
+  - `packages/picolet-cli/picolet/build_cmd.py:233-280` —
+    `_emit_webview_toml` writes the sanitised picolet.toml into the
+    romfs root so the runtime can read [window] + [ui] (FR-WV-3).
+
+Deviations from the plan:
+
+  - **D2 lock=False instead of lock=True.**  See caveat `492ab33`.
+    The plan's D2 specified lock=True for "scheduler lock + GC lock
+    before re-entering Python".  In practice that gc_lock causes
+    MemoryError on the first allocation inside the callback (FFI
+    pointer return, str decode, list.append).  Lock=True is for
+    cross-thread callbacks; Option C is same-thread by design.
+
+  - **WebKit 4.1 signal type.**  See caveat `7d619e8`.  D3 said the
+    signal delivers JSCValue * directly; in practice (Ubuntu 24.04
+    webkit2gtk 2.52) it still delivers WebKitJavascriptResult *.  We
+    unwrap via webkit_javascript_result_get_js_value before
+    jsc_value_to_string.
+
+  - **load_html instead of load_uri for romfs.**  See `b154495`.
+    The plan implied file:///rom/<root>/<index> would Just Work; in
+    practice WebKit can't see the MicroPython VFS overlay.  The
+    runtime reads the HTML through Python and injects via
+    webkit_web_view_load_html with a synthetic file:///picolet/<root>/
+    base URI.
+
+  - **Worker-thread pump (Option B) is not implemented**, only
+    gated.  PICOLET_WV_THREADED=1 raises NotImplementedError with a
+    clear message rather than silently selecting an unbuilt path.
+    Gate 16 in the planner's table covers pump responsiveness; it
+    is left to SQE to author once the harness shape is settled
+    (the same-thread pump empirically handles single-message
+    round-trips in well under 25 ms).
+
+  - **Single test file**, not the planner's five-file split.  The
+    transport contract, dispatcher integration, and malformed-JSON
+    gates (9, 10, 17) are bundled into
+    `tests/phase-07/test_transport_contract.py`.  Same coverage,
+    less file overhead.  The pump-responsiveness gate (16) and the
+    visual-render gate (15) are not authored in PH07 — left as
+    SQE-owned follow-up per the planner's separation of dev vs SQE
+    roles.
+
+Empirical metrics:
+
+  - Webview runtime size: 665,904 bytes (31.7% of NFR-2 2 MiB).
+  - Cli runtime size: 641,328 bytes (unchanged from PH06; non-
+    regression confirmed).
+  - Warm rebuild time: ~3 s.
+  - PICOLET_WV_SANITY_OK round-trip under xvfb: << 1 s.
 
 ## Tests
 
