@@ -116,3 +116,52 @@ include = ["ui"]
 automatically and emits a self-contained binary with the romfs (UI
 assets + a sanitised `picolet.toml` for the runtime to read [window] and
 [ui] from at startup).
+
+## Webview variant (Windows)
+
+PH10.  Mirrors the linux-x64 webview variant; the renderer is
+Microsoft Edge WebView2 instead of WebKitGTK 4.1.
+
+```
+./packages/picolet-runtime/scripts/build-runtime.sh \
+    --target windows-x64 --variant webview
+```
+
+Produces `packages/picolet-runtime/build/picolet-runtime-windows-x64-webview.exe`,
+size budget NFR-2 (≤ 2 MiB; ~660 KB at PH10).
+
+### Host requirements (NFR-9)
+
+The Edge WebView2 Runtime must be installed on the host running the
+.exe.  It ships by default on Windows 11; Windows 10 21H2+ installs
+it via Microsoft Update.  Hosts without the runtime get a clear
+error at first window creation:
+
+```
+Edge WebView2 Runtime not installed; install from
+https://developer.microsoft.com/microsoft-edge/webview2/
+```
+
+### WebView2Loader.dll bundling
+
+The runtime calls into `WebView2Loader.dll` via `LoadLibraryW` at
+startup; the DLL is not in System32 so it must be bundled by the
+app.  `picolet build --target windows-x64` (with `[ui] renderer="webview"`)
+copies `WebView2Loader.x64.dll` from the runtime package's
+`overlay/.../redist/` directory into the app romfs at
+`/rom/picolet/WebView2Loader.dll`.  At runtime, the C overlay extracts
+the bytes to `%LOCALAPPDATA%\picolet\<pid>\WebView2Loader.dll` and
+`LoadLibraryW`s from there (parallel to the bridge JS distribution).
+
+If the DLL is missing at app build time, `picolet build` errors with
+the SDK NuGet fetch recipe.  Override with
+`PICOLET_WEBVIEW2_LOADER_DLL=<path>` for CI.
+
+### License footprint
+
+`WebView2Loader.dll` is redistributable under the Microsoft WebView2
+SDK License Terms.  The Edge WebView2 Runtime engine itself is
+system-installed and never redistributed by picolet.  NFR-5's no-static-
+GPL/LGPL constraint is satisfied: the loader is dynamically loaded
+and the Microsoft license is permissive.  PH13's SBOM will record
+both as runtime dependencies.
