@@ -16,7 +16,7 @@ Pipeline (FR-BP-1 through FR-BP-6):
   7. Zero mtimes for reproducibility (FR-BP-6).
   8. Build romfs image with mpremote (FR-BP-4).
   9. Append romfs + 24-byte trailer to runtime binary (FR-BP-5).
- 10. Write executable to target/<target>/<app.name>[.exe] (FR-CLI-3).
+ 10. Emit SBOM sibling .cdx.json (FR-SBOM-1, FR-SBOM-2, FR-SBOM-3).
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from picolet.runtime_resolver import (
     ResolvedRuntime,
     RuntimeNotFound,
 )
+from picolet.sbom_gen import emit_app_sbom, SbomViolation
 
 
 def add_parser(subparsers) -> None:
@@ -91,6 +92,13 @@ def add_parser(subparsers) -> None:
         default=False,
         dest="no_cache",
         help="skip the runtime artifact cache; always download fresh",
+    )
+    p.add_argument(
+        "--no-sbom",
+        action="store_true",
+        default=False,
+        dest="no_sbom",
+        help="skip SBOM emission (for tests that do not need the .cdx.json side-effect)",
     )
     p.set_defaults(func=run)
 
@@ -245,6 +253,23 @@ def run(args) -> None:
         if not args.keep_staging and staging.exists():
             shutil.rmtree(staging)
 
+    # Step 10 – Emit SBOM (FR-SBOM-1, FR-SBOM-2, FR-SBOM-3).
+    if not args.no_sbom:
+        sbom_path = output_path.parent / f"{output_path.name}.cdx.json"
+        if args.verbose:
+            print(f"  sbom: emitting {sbom_path}", file=sys.stderr)
+        violations = emit_app_sbom(
+            output_path=sbom_path,
+            runtime_sbom_path=resolved.sbom,
+            app_data=data,
+            target=target,
+            variant=variant,
+            repo_root=_find_repo_root(),
+        )
+        _handle_sbom_violations(violations, data, args.verbose)
+        if args.verbose:
+            print(f"  sbom: written {sbom_path}", file=sys.stderr)
+
     print(f"Built {output_path}")
 
 
@@ -261,6 +286,51 @@ def _find_picolet_toml(start: Path) -> Path | None:
     if parent == start:
         return None
     return _find_picolet_toml(parent)
+
+
+def _find_repo_root() -> Path:
+    """Return the repository root (three levels up from this file).
+
+    This file lives at packages/picolet-cli/picolet/build_cmd.py.
+    """
+    here = Path(__file__).parent      # packages/picolet-cli/picolet/
+    return here.parent.parent.parent  # repo root
+
+
+def _handle_sbom_violations(
+    violations: list[SbomViolation],
+    app_data: dict,
+    verbose: bool,
+) -> None:
+    """Print warnings and exit 1 on policy failures.
+
+    The SBOM file is always written before this is called, so downstream
+    tooling can inspect the document even when the build fails.
+    """
+    if not violations:
+        return
+
+    has_fail = any(v.severity == "fail" for v in violations)
+
+    for v in violations:
+        if v.severity == "fail":
+            print(
+                f"error: sbom policy violation in {v.component!r}: {v.reason}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"warn: sbom policy: {v.component!r}: {v.reason}",
+                file=sys.stderr,
+            )
+
+    if has_fail:
+        print(
+            "error: sbom policy — build failed due to licence policy violations; "
+            "see [sbom] allow_licences / allow_dynamic / fail_unknown in picolet.toml",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _host_target() -> str:
