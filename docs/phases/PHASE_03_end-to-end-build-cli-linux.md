@@ -756,7 +756,28 @@ docker run --rm \
 
 ## Implementation
 
-(scrum-developer writes here.)
+scrum-developer's detailed write-up lives at
+[PHASE_03_DEV_REPORT.md](PHASE_03_DEV_REPORT.md). Headline outcomes:
+
+- Trailer-detection C code in
+  `overlay/ports/unix/variants/picolet-cli/romfs_trailer.{h,c}`, gated
+  on `MICROPY_VFS_ROM_TRAILER=1`. Magic `"PYLT"`, version 1, payload
+  size u64, CRC32 (zlib polynomial 0xEDB88320).
+- Overlay also carries a full patched `overlay/ports/unix/main.c` —
+  the planner's "header-include" pattern was incompatible with
+  `rebuild-integration.sh`'s copy-overlay model, so the patched
+  main.c is shipped verbatim (commit `e161c13`).
+- `picolet build` subcommand in `packages/picolet-cli/picolet/build_cmd.py`
+  (480 lines, 10 steps): runtime resolve → mpy-cross version check →
+  variant inference → .py→.mpy compile → asset include →  mtime zero
+  for FR-BP-6 → romfs build via mpremote → trailer append → output.
+- mpy-cross version sidecar written by `build-runtime.sh` next to the
+  runtime; `picolet build` verifies it matches before proceeding.
+- Empty romfs shipped by default with the runtime so it remains
+  bootable when no trailer is present.
+
+Test harness `tests/phase-03/run.sh` lands 14 gates (16 subtests with
+6a/6b split). All 16 pass on the developer's machine.
 
 ## Tests
 
