@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["mpremote"]
 # ///
 """
 picolet — the Picolet framework CLI.
@@ -49,10 +49,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # Register subcommands.
-    from picolet import init_cmd, validate_cmd
+    from picolet import build_cmd, init_cmd, validate_cmd
 
     init_cmd.add_parser(subparsers)
     validate_cmd.add_parser(subparsers)
+    build_cmd.add_parser(subparsers)
 
     return parser
 
