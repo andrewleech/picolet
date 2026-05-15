@@ -227,7 +227,11 @@ static ULONG STDMETHODCALLTYPE handler_Release(void *self) { (void)self; return 
  * Environment-created handler
  * ---------------------------------------------------------------------- */
 
+/* Layout: PicoletWv2EnvCreatedHandler base first so casting (Ctx*)self works.
+ * `base.lpVtbl` is set to point at this struct's own `vtbl`.  The Invoke
+ * thunk then casts self -> Ctx* directly. */
 typedef struct {
+    PicoletWv2EnvCreatedHandler base;
     PicoletWv2EnvCreatedHandlerVtbl vtbl;
     HANDLE event;
     HRESULT result;
@@ -249,7 +253,7 @@ static HRESULT STDMETHODCALLTYPE env_handler_Invoke(
 
 void *picolet_wv2_create_environment_blocking(int32_t timeout_ms) {
     if (g_pfn_create_env == NULL) {
-        set_last(E_NOT_VALID_STATE);
+        set_last(HRESULT_FROM_WIN32(ERROR_INVALID_STATE));
         return NULL;
     }
     EnvHandlerCtx ctx;
@@ -258,15 +262,14 @@ void *picolet_wv2_create_environment_blocking(int32_t timeout_ms) {
     ctx.vtbl.AddRef = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2EnvCreatedHandler *))handler_AddRef;
     ctx.vtbl.Release = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2EnvCreatedHandler *))handler_Release;
     ctx.vtbl.Invoke = env_handler_Invoke;
-    PicoletWv2EnvCreatedHandler handler;
-    handler.lpVtbl = &ctx.vtbl;
+    ctx.base.lpVtbl = &ctx.vtbl;
     ctx.event = CreateEventW(NULL, TRUE, FALSE, NULL);
     if (ctx.event == NULL) {
         set_last(HRESULT_FROM_WIN32(GetLastError()));
         return NULL;
     }
 
-    HRESULT hr = g_pfn_create_env(NULL, NULL, NULL, (PicoletWv2EnvCreatedHandler *)&ctx);
+    HRESULT hr = g_pfn_create_env(NULL, NULL, NULL, &ctx.base);
     if (FAILED(hr)) {
         set_last(hr);
         CloseHandle(ctx.event);
@@ -292,6 +295,7 @@ void *picolet_wv2_create_environment_blocking(int32_t timeout_ms) {
  * ---------------------------------------------------------------------- */
 
 typedef struct {
+    PicoletWv2CtrlCreatedHandler base;
     PicoletWv2CtrlCreatedHandlerVtbl vtbl;
     HANDLE event;
     HRESULT result;
@@ -346,6 +350,7 @@ void *picolet_wv2_create_controller_blocking(void *env, void *hwnd, int32_t time
     ctx.vtbl.AddRef = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2CtrlCreatedHandler *))handler_AddRef;
     ctx.vtbl.Release = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2CtrlCreatedHandler *))handler_Release;
     ctx.vtbl.Invoke = ctrl_handler_Invoke;
+    ctx.base.lpVtbl = &ctx.vtbl;
     ctx.event = CreateEventW(NULL, TRUE, FALSE, NULL);
     if (ctx.event == NULL) {
         set_last(HRESULT_FROM_WIN32(GetLastError()));
@@ -354,7 +359,7 @@ void *picolet_wv2_create_controller_blocking(void *env, void *hwnd, int32_t time
 
     ICoreWebView2Environment *e = (ICoreWebView2Environment *)env;
     HRESULT hr = e->lpVtbl->CreateCoreWebView2Controller(
-        e, (HWND)hwnd, (PicoletWv2CtrlCreatedHandler *)&ctx);
+        e, (HWND)hwnd, &ctx.base);
     if (FAILED(hr)) {
         set_last(hr);
         CloseHandle(ctx.event);
@@ -445,6 +450,7 @@ static char *wide_to_utf8(LPCWSTR w) {
  * ---------------------------------------------------------------------- */
 
 typedef struct {
+    PicoletWv2AddScriptHandler base;
     PicoletWv2AddScriptHandlerVtbl vtbl;
     HANDLE event;
     HRESULT result;
@@ -481,6 +487,7 @@ int32_t picolet_wv2_add_script_to_execute_on_document_created(
     ctx.vtbl.AddRef = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2AddScriptHandler *))handler_AddRef;
     ctx.vtbl.Release = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2AddScriptHandler *))handler_Release;
     ctx.vtbl.Invoke = add_script_Invoke;
+    ctx.base.lpVtbl = &ctx.vtbl;
     ctx.event = CreateEventW(NULL, TRUE, FALSE, NULL);
     if (ctx.event == NULL) {
         free(jsW);
@@ -489,7 +496,7 @@ int32_t picolet_wv2_add_script_to_execute_on_document_created(
     }
 
     HRESULT hr = view->lpVtbl->AddScriptToExecuteOnDocumentCreated(
-        view, jsW, (PicoletWv2AddScriptHandler *)&ctx);
+        view, jsW, &ctx.base);
     if (FAILED(hr)) {
         free(jsW);
         CloseHandle(ctx.event);
@@ -753,7 +760,11 @@ static int register_window_class(void) {
     wc.lpfnWndProc = picolet_wv2_wndproc;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = PICOLET_WV2_WINDOW_CLASS;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    /* IDC_ARROW is defined as MAKEINTRESOURCE(32512), which on MSVC
+     * decays to wide via the *W resource macros.  Under MinGW the
+     * default IDC_ARROW expands to a CHAR* (32512), so we cast through
+     * intptr_t to LPCWSTR to satisfy LoadCursorW's signature. */
+    wc.hCursor = LoadCursorW(NULL, (LPCWSTR)(uintptr_t)32512);
     if (RegisterClassExW(&wc) == 0) {
         set_last(HRESULT_FROM_WIN32(GetLastError()));
         return -1;

@@ -11,25 +11,19 @@
 
 MICROPY_PY_FFI = 1
 
-# romfs_trailer.c is co-located in this variant directory and picked up
-# automatically via $(wildcard $(VARIANT_DIR)/*.c) — same trick the cli
-# variant uses.
-
-# --- picolet_webview2 C overlay -------------------------------------------
+# romfs_trailer.c and picolet_webview2.c both live alongside this .mk and
+# are picked up automatically via $(wildcard $(VARIANT_DIR)/*.c) in the
+# windows port's main Makefile.  We don't need an explicit SRC_C += line
+# (and could not use one anyway — the port's Makefile sets SRC_C with `=`
+# AFTER including this .mk, which would discard any append done here).
 #
-# The overlay sources live one level up under
-# overlay/modules/picolet_webview2/ — flattened into the windows port by
-# rebuild-integration.sh into ports/windows/modules/picolet_webview2/.
-# The overlay is windows-x64-webview-only; the cli variant does not
-# compile it.
+# The C overlay includes its companion header via "picolet_webview2.h" and
+# the vendored WebView2 header subset via "include/WebView2_min.h"; both
+# resolve relative to the .c file's directory, so no INC tweaks are needed.
 
-PICOLET_WEBVIEW2_DIR = modules/picolet_webview2
-SRC_C += $(PICOLET_WEBVIEW2_DIR)/picolet_webview2.c
-INC += -I$(PICOLET_WEBVIEW2_DIR) -I$(PICOLET_WEBVIEW2_DIR)/include
-
-# WebView2 SDK headers vendored under modules/picolet_webview2/include/
-# need a couple of MinGW-w64-compat shims to compile.  These are toggled
-# via predefines so the overlay .c stays clean of MSVC-isms.
+# WebView2 SDK headers are MinGW-compat already (the subset under
+# include/ is hand-written from the public SDK documentation rather
+# than copied from the MSVC-flavoured Microsoft headers).
 CFLAGS += -DPICOLET_WV2_MINGW=1
 
 # Export the flat C API symbols even though they're inside the .exe so

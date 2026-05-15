@@ -41,6 +41,15 @@
 extern "C" {
 #endif
 
+/* EventRegistrationToken — defined in EventToken.h on MSVC; MinGW
+ * doesn't always ship it.  The shape is a single int64 cookie. */
+#ifndef __EventToken_h__
+#define __EventToken_h__
+typedef struct EventRegistrationToken_struct {
+    INT64 value;
+} EventRegistrationToken;
+#endif
+
 /* Forward interface declarations.  Each interface struct's first member
  * is the vtable pointer (COM convention). */
 
