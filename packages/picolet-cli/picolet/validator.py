@@ -18,8 +18,11 @@ from pathlib import Path
 from typing import Any
 
 # Top-level sections the schema allows.
+# "dependencies" is a passthrough section (v1.1 feature, not yet type-checked;
+# see [PH13] Caveat commit — deferred to avoid manifest-parsing complexity).
 _ALLOWED_SECTIONS: frozenset[str] = frozenset(
-    {"app", "ui", "window", "build", "romfs", "sbom", "runtime"}
+    {"app", "ui", "window", "build", "romfs", "sbom", "runtime", "dependencies",
+     "dependency_meta"}
 )
 
 # Keys allowed in each section, with their expected Python types.
@@ -51,7 +54,12 @@ _ROMFS_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "include": list,
 }
 
-_SBOM_SCHEMA: dict[str, type | tuple[type, ...]] = {}
+_SBOM_SCHEMA: dict[str, type | tuple[type, ...]] = {
+    "allow_licences": list,   # list of SPDX ids allowed for static and dynamic
+    "allow_dynamic":  list,   # additional SPDX ids allowed for dynamic links only
+    "warn_unknown":   bool,
+    "fail_unknown":   bool,
+}
 
 _RUNTIME_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "source": str,
@@ -240,7 +248,7 @@ def validate_toml(path: Path) -> list[PicoletTomlError]:
         else:
             errors.extend(_check_section(file_str, "romfs", romfs, _ROMFS_SCHEMA))
 
-    # [sbom] — optional, no typed keys defined yet.
+    # [sbom] — optional; validate typed keys when present.
     if "sbom" in data:
         sbom = data["sbom"]
         if not isinstance(sbom, dict):
@@ -252,6 +260,8 @@ def validate_toml(path: Path) -> list[PicoletTomlError]:
                     reason='"[sbom]" must be a table',
                 )
             )
+        else:
+            errors.extend(_check_section(file_str, "sbom", sbom, _SBOM_SCHEMA))
 
     # [runtime] — optional; source (str URL) and tag (str).
     if "runtime" in data:
