@@ -1,0 +1,7 @@
+[app]
+name = "hello-cli-with-assets"
+version = "0.1.0"
+entry = "src/main.py"
+
+[romfs]
+include = ["assets"]
