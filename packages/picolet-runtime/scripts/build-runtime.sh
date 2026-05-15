@@ -124,17 +124,31 @@ fi
 # Ensure submodule working tree is on the integration tip.
 git -C "$SUBMODULE" checkout integration --quiet
 
+# Always ensure nested submodules (micropython-lib, libffi, etc.) are
+# initialised after a branch switch — the checkout above may re-point them.
+echo "  updating nested submodules"
+git -C "$SUBMODULE" submodule update --init --recursive --quiet
+
 # ---------------------------------------------------------------------------
 # Step 2 – Verify micropython-lib submodule is present
 # ---------------------------------------------------------------------------
 
-echo "[2/8] Verifying micropython-lib submodule"
+echo "[2/8] Verifying submodule presence"
 
+# asyncio is built into extmod in this MicroPython version (not micropython-lib).
+# Verify the extmod/asyncio directory is present.
+ASYNCIO_EXTMOD="$SUBMODULE/extmod/asyncio"
+if [[ ! -d "$ASYNCIO_EXTMOD" ]]; then
+    echo "error: $ASYNCIO_EXTMOD not found." >&2
+    echo "       The submodule checkout looks incomplete." >&2
+    exit 1
+fi
+
+# Verify os-path is in micropython-lib (python-stdlib is an external submodule).
 MPL_DIR="$SUBMODULE/lib/micropython-lib"
-ASYNCIO_DIR="$MPL_DIR/python-stdlib/asyncio"
-
-if [[ ! -d "$ASYNCIO_DIR" ]]; then
-    echo "error: $ASYNCIO_DIR not found." >&2
+OS_PATH_DIR="$MPL_DIR/python-stdlib/os-path"
+if [[ ! -d "$OS_PATH_DIR" ]]; then
+    echo "error: $OS_PATH_DIR not found." >&2
     echo "       The integration branch's lib/micropython-lib submodule is not initialised." >&2
     echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
     exit 1
@@ -174,7 +188,21 @@ ROMFS_STAGING="$BUILD_DIR/romfs_staging"
 mkdir -p "$ROMFS_STAGING"
 
 ROMFS_IMG="$ROMFS_STAGING/${TEST_ROMFS}.romfs"
-python3 -m mpremote romfs build --output "$ROMFS_IMG" "$ROMFS_FIXTURE"
+# Note: mpremote romfs requires --output before the 'build' subcommand.
+python3 -m mpremote romfs --output "$ROMFS_IMG" build "$ROMFS_FIXTURE"
+
+# The unix port Makefile's romfs_data.o objcopy rule derives the symbol name
+# by substituting / and . with _, but objcopy itself converts ALL
+# non-alphanumeric characters (including -) to _ in embedded binary symbols.
+# If the ROMFS_IMG path contains hyphens (e.g. from 'picolet-runtime'), the
+# Makefile's $(subst) would keep the hyphen while objcopy converts it, so
+# the --redefine-sym old name does not match and the rename silently fails.
+#
+# Fix: hard-link the romfs to a hyphen-free path in /tmp before passing it
+# to make. /tmp is a safe staging area with no project-specific path chars.
+ROMFS_IMG_SAFE="/tmp/picolet_romfs_${TEST_ROMFS}.romfs"
+cp "$ROMFS_IMG" "$ROMFS_IMG_SAFE"
+ROMFS_IMG="$ROMFS_IMG_SAFE"
 
 echo "  romfs image: $ROMFS_IMG ($(wc -c < "$ROMFS_IMG") bytes)"
 
@@ -183,6 +211,18 @@ echo "  romfs image: $ROMFS_IMG ($(wc -c < "$ROMFS_IMG") bytes)"
 # ---------------------------------------------------------------------------
 
 echo "[6/8] Building unix port variant=${VARIANT_NAME}"
+
+# Build libffi (and any other deplibs) first in a separate make invocation.
+# The unix port Makefile evaluates LIBFFI_CFLAGS at parse time via a shell
+# $(ls ...) of the build output dir.  That directory doesn't exist until
+# deplibs runs, so deplibs must complete before the main compile invocation
+# starts (which is when Make evaluates the $(shell ...) expression).
+make -C "$UNIX_PORT" \
+    -j \
+    VARIANT="${VARIANT_NAME}" \
+    MICROPY_STANDALONE=1 \
+    PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+    deplibs
 
 make -C "$UNIX_PORT" \
     -j \

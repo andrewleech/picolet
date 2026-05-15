@@ -33,34 +33,33 @@
 // Strategy:
 //   1. Pre-define macros that mpconfigvariant_common.h guards with
 //      #ifndef so they take effect before the include.
-//   2. Set ROM level to CORE_FEATURES (same as mpconfigport.h default)
-//      rather than EXTRA_FEATURES that "standard" uses — strips optional
-//      builtins at the feature-level layer.
-//   3. After the include, override the macros the common header forces
-//      on with plain #define (which wins over a prior #define).
+//   2. Set ROM level to EXTRA_FEATURES (same as 'standard') — CORE_FEATURES
+//      strips features that the unix port's own C source depends on
+//      (e.g. MICROPY_KBD_EXCEPTION used unconditionally in unix_mphal.c
+//      when MICROPY_ASYNC_KBD_INTR=1), causing build failures.
+//   3. After the include, use #undef + #define to override the macros that
+//      the common header sets unconditionally (plain #define, no #ifndef).
+//      This avoids the -Werror=macro-redefined build failure.
+//
+// Size reduction from CORE_FEATURES is therefore not taken; instead size
+// is recovered by disabling the set of optional modules and features that
+// mpconfigvariant_common.h enables on top of port defaults.
 //
 // Do NOT set MICROPY_VFS_ROM_IOCTL_USE_EXTERNAL — the unix port bakes
 // mp_vfs_rom_ioctl() directly into main.c; there is no vfs_rom_ioctl.c.
 
 // --- Pre-empt #ifndef-guarded macros in mpconfigvariant_common.h ----
 
-// Suppress debug printers before the common header sets them.
+// Suppress debug printers before the common header sets them via #ifndef guard.
 #define MICROPY_DEBUG_PRINTERS              (0)
-
-// Use single-precision float to save code size (double is the common default).
-// asyncio does not require double; leave as double if this causes issues.
-// Actually keep double for compatibility — most library code expects it.
-// (MICROPY_FLOAT_IMPL uses #ifndef guard so we can override here.)
-// Leave at default (double) by not defining it here.
 
 // --- ROM feature level ---------------------------------------------------
 
-// CORE_FEATURES gives us the essential Python subset without the heavy
-// optional extras that EXTRA_FEATURES enables (e.g. descriptors extras,
-// reverse special methods, etc.).  mpconfigport.h already defaults to
-// CORE_FEATURES; we make it explicit here so a future change to the
-// port default doesn't silently inflate this variant.
-#define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_CORE_FEATURES)
+// EXTRA_FEATURES is the same level 'standard' uses. CORE_FEATURES is not
+// safe for the unix port: it drops MICROPY_KBD_EXCEPTION which unix_mphal.c
+// references unconditionally when MICROPY_ASYNC_KBD_INTR=1 (i.e. when
+// threading is enabled and MICROPY_PY_THREAD_GIL=0, which is the default).
+#define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_EXTRA_FEATURES)
 
 // --- GC split heap (FR-RT-4) -------------------------------------------
 
@@ -73,33 +72,53 @@
 #include "../mpconfigvariant_common.h"
 
 // --- Override macros set unconditionally by mpconfigvariant_common.h ----
-// (The common header uses plain #define for these, so we re-define after.)
+// The common header uses plain #define (no #ifndef) for these, so we must
+// #undef first to avoid the -Werror=macro-redefined build failure.
 
 // Use terse error reporting to save several KB of error strings.
+#undef MICROPY_ERROR_REPORTING
 #define MICROPY_ERROR_REPORTING             (MICROPY_ERROR_REPORTING_TERSE)
+#undef MICROPY_WARNINGS
 #define MICROPY_WARNINGS                    (0)
+#undef MICROPY_PY_STR_BYTES_CMP_WARN
 #define MICROPY_PY_STR_BYTES_CMP_WARN       (0)
 
 // Disable REPL conveniences — the cli runtime doesn't host an interactive
 // REPL; only -c and script execution are needed.
+#undef MICROPY_REPL_EMACS_WORDS_MOVE
 #define MICROPY_REPL_EMACS_WORDS_MOVE       (0)
+#undef MICROPY_REPL_EMACS_EXTRA_WORDS_MOVE
 #define MICROPY_REPL_EMACS_EXTRA_WORDS_MOVE (0)
+#undef MICROPY_USE_READLINE_HISTORY
 #define MICROPY_USE_READLINE_HISTORY        (0)
 
 // Disable memory stats / debugging extras (save ~10 KB).
+#undef MICROPY_MALLOC_USES_ALLOCATED_SIZE
 #define MICROPY_MALLOC_USES_ALLOCATED_SIZE  (0)
+#undef MICROPY_MEM_STATS
 #define MICROPY_MEM_STATS                   (0)
 
+// Disable micropython.mem_info() — it uses mp_verbose_flag which is only
+// defined when MICROPY_DEBUG_PRINTERS=1. We pre-empt MICROPY_DEBUG_PRINTERS
+// with 0 via the #ifndef guard above, so MEM_INFO must also be off to avoid
+// an undefined symbol link error in main.c:915.
+#define MICROPY_PY_MICROPYTHON_MEM_INFO     (0)
+
 // Disable sys extras not needed by the cli variant.
+#undef MICROPY_PY_SYS_ATEXIT
 #define MICROPY_PY_SYS_ATEXIT               (0)
 // Keep MICROPY_PY_SYS_EXC_INFO=1 (asyncio uses it for traceback chaining).
 
 // Disable machine module (hardware-control API, not relevant for cli).
+#undef MICROPY_PY_MACHINE
 #define MICROPY_PY_MACHINE                  (0)
+#undef MICROPY_PY_MACHINE_PULSE
 #define MICROPY_PY_MACHINE_PULSE            (0)
+#undef MICROPY_PY_MACHINE_PIN_BASE
 #define MICROPY_PY_MACHINE_PIN_BASE         (0)
 
 // Disable websocket (no use case for the cli baseline).
+#undef MICROPY_PY_WEBSOCKET
 #define MICROPY_PY_WEBSOCKET                (0)
 
 // Disable builtins not used by the cli runtime.
@@ -119,7 +138,7 @@
 
 // Keep json, re, heapq, random ON:
 //   json   — built-in C module, gate 8 verifies.
-//   re     — os.path patterns; also asyncio touches it occasionally.
+//   re     — os.path patterns; asyncio touches it occasionally.
 //   heapq  — asyncio scheduler depends on it.
 //   random — tiny; several micropython-lib modules expect it.
 
