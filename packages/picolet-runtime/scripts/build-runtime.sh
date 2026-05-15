@@ -418,6 +418,18 @@ build_linux_x64() {
     echo "  artifact: $artifact"
 
     finish_artifact "$artifact"
+
+    # [PH13] Emit runtime SBOM sidecar (FR-SBOM-1, NFR-7).
+    # Called on the host shell after the container exits — see Decision commit
+    # (AD5 / Risk 1 mitigation).  The artifact is already in BUILD_DIR;
+    # picolet-cli is importable from the host Python via PYTHONPATH.
+    local sbom_out="${artifact}.cdx.json"
+    echo "[SBOM] Emitting runtime SBOM: $sbom_out"
+    PYTHONPATH="$REPO_ROOT/packages/picolet-cli" python3 -m picolet.sbom_gen emit-runtime \
+        --output "$sbom_out" \
+        --target "$TARGET" \
+        --variant "$VARIANT" \
+        --repo-root "$REPO_ROOT"
 }
 
 # ---------------------------------------------------------------------------
@@ -701,6 +713,15 @@ build_windows_x64() {
     echo "  artifact: $artifact"
 
     finish_artifact "$artifact"
+
+    # [PH13] Emit runtime SBOM sidecar (FR-SBOM-1, NFR-7).
+    local sbom_out="${artifact}.cdx.json"
+    echo "[SBOM] Emitting runtime SBOM: $sbom_out"
+    PYTHONPATH="$REPO_ROOT/packages/picolet-cli" python3 -m picolet.sbom_gen emit-runtime \
+        --output "$sbom_out" \
+        --target "$TARGET" \
+        --variant "$VARIANT" \
+        --repo-root "$REPO_ROOT"
 }
 
 # ---------------------------------------------------------------------------
