@@ -359,10 +359,12 @@ else
     fail "$NAME" "picolet init failed"
 fi
 
-# D5 — webview renderer + windows-x64 target: rejected with clear error.
-NAME="D5 webview-windows-rejected"
+# D5 — webview renderer + windows-x64 target: PH10 made this a real
+# build path. Verify `picolet build --target windows-x64 -v` reports
+# "runtime variant: webview" rather than the old not-implemented error.
+NAME="D5 webview-windows-builds (PH10)"
 D5_DIR="$WORKDIR/d5"
-mkdir -p "$D5_DIR/src"
+mkdir -p "$D5_DIR/src/ui"
 cat > "$D5_DIR/picolet.toml" << 'TOML'
 [app]
 name = "d5app"
@@ -370,13 +372,17 @@ version = "0.1.0"
 entry = "src/main.py"
 [ui]
 renderer = "webview"
+root = "ui"
+[romfs]
+include = ["ui"]
 TOML
-echo 'print("x")' > "$D5_DIR/src/main.py"
-D5_ERR="$(cd "$D5_DIR" && $PICOLET build --target windows-x64 2>&1 || true)"
-if echo "$D5_ERR" | grep -qi "not implemented\|webview"; then
+echo 'import picolet_ui_win' > "$D5_DIR/src/main.py"
+echo '<html><body>x</body></html>' > "$D5_DIR/src/ui/index.html"
+D5_OUT="$(cd "$D5_DIR" && $PICOLET build --target windows-x64 -v 2>&1 | grep "runtime variant:" || true)"
+if echo "$D5_OUT" | grep -q "runtime variant: webview"; then
     pass "$NAME"
 else
-    fail "$NAME" "expected not-implemented for webview; got: $D5_ERR"
+    fail "$NAME" "expected 'runtime variant: webview' in verbose output, got: $D5_OUT"
 fi
 
 echo

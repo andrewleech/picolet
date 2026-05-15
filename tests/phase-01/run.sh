@@ -120,6 +120,17 @@ if [[ ! -f "$BIN" ]]; then
     exit 1
 fi
 
+# Group C4 depends on the binary having the test_romfs fixture embedded.
+# Subsequent phases rebuild this same path with a different (empty) romfs,
+# so re-link the primary binary with test_romfs to guarantee C4 sees its
+# expected state.  Idempotent and fast on warm cache (~3 s).
+echo "[pre-flight] Re-linking $BIN with test_romfs embedded"
+"$BUILD_SCRIPT" --target linux-x64 --variant cli --test-romfs test_romfs \
+    >/dev/null 2>&1 || {
+    echo "warning: failed to re-link with test_romfs; C4 may fail" >&2
+}
+echo
+
 # ---------------------------------------------------------------------------
 # Group A: Build-time checks (binary properties)
 # ---------------------------------------------------------------------------
