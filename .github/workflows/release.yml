@@ -1,0 +1,221 @@
+# .github/workflows/release.yml
+#
+# Picolet runtime release pipeline.
+#
+# Trigger: push of a tag matching runtime-v* (e.g. runtime-v0.1.0).
+#
+# Produces the 3 × 2 runtime matrix (NFR-7):
+#   {linux-x64, windows-x64} × {cli, webview, lvgl}
+#
+# Each artifact is uploaded to a GitHub Release together with its
+# .sha256 and .cdx.json sidecars so PH05's runtime_resolver can
+# verify downloads and cache SBOMs automatically.
+#
+# Permissions: contents: write (to create/update releases and upload assets).
+# No registry login required — all Docker images are public.
+
+name: Release runtime artifacts
+
+on:
+  push:
+    tags:
+      - 'runtime-v*'
+
+permissions:
+  contents: write   # create releases + upload assets
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # build — 3 variants × 2 targets = 6 parallel jobs
+  # ---------------------------------------------------------------------------
+  build:
+    name: "build ${{ matrix.target }} / ${{ matrix.variant }}"
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target: [linux-x64, windows-x64]
+        variant: [cli, webview, lvgl]
+      fail-fast: false
+
+    steps:
+
+      # 1. Checkout with all submodules (micropython + nested deps).
+      #    lv_binding_micropython nested submodules are also required for
+      #    the lvgl variant; build-runtime.sh initialises them as needed.
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # 2. Restore caches.
+      #
+      #    a. Linux build Docker image layers (keyed on Dockerfile SHA).
+      #       Absent for windows targets but the cache-from is a no-op
+      #       when missed.
+      - name: Restore Docker layer cache (linux build image)
+        if: matrix.target == 'linux-x64'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/docker-cache-linux
+          key: docker-linux-build-${{ hashFiles('packages/picolet-runtime/scripts/dockerfiles/linux-x64-build/Dockerfile') }}
+          restore-keys: docker-linux-build-
+
+      #    b. SDL2 from-source build — only linux-x64/lvgl and
+      #       windows-x64/lvgl need it; the windows one is built inside
+      #       dockcross from a tarball.
+      - name: Restore SDL2 build cache
+        if: matrix.variant == 'lvgl'
+        uses: actions/cache@v4
+        with:
+          path: packages/picolet-runtime/build/sdl2-win64-ffs
+          key: sdl2-win64-ffs-${{ hashFiles('packages/picolet-runtime/scripts/build-runtime.sh') }}
+          restore-keys: sdl2-win64-ffs-
+
+      #    c. libffi build artifacts (keyed on micropython submodule SHA).
+      - name: Restore libffi build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/picolet-runtime/micropython/ports/unix/build-picolet-*/lib/libffi
+            packages/picolet-runtime/micropython/ports/windows/build-picolet-*/lib/libffi
+          key: libffi-${{ matrix.target }}-${{ matrix.variant }}-${{ hashFiles('packages/picolet-runtime/micropython/lib/libffi/**') }}
+          restore-keys: libffi-${{ matrix.target }}-${{ matrix.variant }}-
+
+      # 3. Install host prerequisites.
+      #    - docker is pre-installed on ubuntu-latest.
+      #    - python3 + mpremote for romfs assembly (host-side).
+      #    - gh CLI for release management (pre-installed on ubuntu-latest).
+      - name: Install host prerequisites
+        run: |
+          pip install --quiet mpremote
+          python3 -m mpremote --help > /dev/null   # smoke-test
+
+      # 4. Build the Docker image used for linux-x64 builds.
+      #    The image is picolet-linux-x64-build:22.04; build-runtime.sh
+      #    also builds it on first use, but building here with explicit
+      #    cache allows GitHub Actions to persist and restore image layers.
+      - name: Build linux build image (linux-x64 only)
+        if: matrix.target == 'linux-x64'
+        run: |
+          CACHE_DIR=/tmp/docker-cache-linux
+          mkdir -p "$CACHE_DIR"
+          docker buildx build \
+            --cache-from "type=local,src=$CACHE_DIR" \
+            --cache-to   "type=local,dest=$CACHE_DIR,mode=max" \
+            --load \
+            -t picolet-linux-x64-build:22.04 \
+            packages/picolet-runtime/scripts/dockerfiles/linux-x64-build
+
+      # 5. Pull dockcross image (windows-x64 only).
+      #    Pulling here rather than relying on build-runtime.sh means
+      #    the pull error surfaces as a named step rather than inside the
+      #    script's stderr.
+      - name: Pull dockcross image (windows-x64 only)
+        if: matrix.target == 'windows-x64'
+        run: |
+          docker pull dockcross/windows-static-x64-posix:latest
+
+      # 6. Invoke build-runtime.sh.
+      #    The script handles everything: mpy-cross, libffi, romfs,
+      #    make, strip, size gate, SBOM emission.
+      - name: Build runtime artifact
+        run: |
+          bash packages/picolet-runtime/scripts/build-runtime.sh \
+            --target "${{ matrix.target }}" \
+            --variant "${{ matrix.variant }}"
+
+      # 7. Compute SHA256 sidecar.
+      #    The resolver (PH05) verifies downloads against this sidecar.
+      #    The sidecar format is: <hex-digest>  <filename>  (sha256sum default).
+      - name: Compute SHA256 sidecar
+        run: |
+          cd packages/picolet-runtime/build
+          SUFFIX=""
+          if [[ "${{ matrix.target }}" == "windows-x64" ]]; then
+            SUFFIX=".exe"
+          fi
+          ARTIFACT="picolet-runtime-${{ matrix.target }}-${{ matrix.variant }}${SUFFIX}"
+          sha256sum "$ARTIFACT" > "${ARTIFACT}.sha256"
+          echo "sha256sum output:"
+          cat "${ARTIFACT}.sha256"
+
+      # 8. Upload all three files for this matrix cell as a job artifact
+      #    so the release job can download them all at once.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.target }}-${{ matrix.variant }}
+          path: |
+            packages/picolet-runtime/build/picolet-runtime-${{ matrix.target }}-${{ matrix.variant }}*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # release — runs once after all 6 build jobs complete
+  # ---------------------------------------------------------------------------
+  release:
+    name: "Publish GitHub Release"
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+
+      # 1. Lightweight checkout — only needs gh CLI and tag name.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # 2. Download all artifacts produced by the build matrix.
+      #    Each artifact is named runtime-<target>-<variant> and lands
+      #    under a subdirectory of the same name.
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      # 3. List what arrived (visible in the Actions log for debugging).
+      - name: List downloaded artifacts
+        run: find dist/ -type f | sort
+
+      # 4. Create the GitHub Release (idempotent: --notes-file is
+      #    optional; existing releases are updated, not duplicated).
+      #    The tag name is available as GITHUB_REF_NAME on tag push events.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; will add/update assets"
+          else
+            NOTES="Runtime artifacts for picolet ${TAG}."$'\n\n'
+            NOTES+="Each artifact is accompanied by:"$'\n'
+            NOTES+="- \`.sha256\` — SHA256 digest for integrity verification by \`picolet build\`."$'\n'
+            NOTES+="- \`.cdx.json\` — CycloneDX 1.5 SBOM listing all statically-linked components."$'\n\n'
+            NOTES+="See [RELEASING.md](https://github.com/${REPO}/blob/main/RELEASING.md) for the release process."
+            gh release create "$TAG" \
+              --title "Picolet runtime ${TAG}" \
+              --notes "${NOTES}" \
+              --draft=false \
+              --prerelease=false
+          fi
+
+      # 5. Upload all artifacts to the release.
+      #    gh release upload supports globs and multiple paths.
+      #    --clobber replaces any existing asset of the same name so
+      #    re-running the workflow on the same tag is idempotent.
+      - name: Upload artifacts to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Collect every file under dist/ into a flat list.
+          # The download-artifact step creates one subdirectory per artifact name.
+          mapfile -t FILES < <(find dist/ -type f | sort)
+          echo "Uploading ${#FILES[@]} files to release $TAG"
+          gh release upload "$TAG" "${FILES[@]}" --clobber
