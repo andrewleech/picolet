@@ -358,17 +358,20 @@ else
 fi
 
 # F2: manifest isolation — manifest_cli.py must NOT mention picolet_ui.
+# PH10 renamed manifest_webview.py -> manifest_webview_unix.py to make
+# room for manifest_webview_windows.py (which freezes picolet_ui_win
+# instead).  Updated to reference the new filename.
 NAME="F2 manifest-isolation"
 CLI_MANIFEST="$PKG_ROOT/manifests/manifest_cli.py"
-WV_MANIFEST="$PKG_ROOT/manifests/manifest_webview.py"
+WV_MANIFEST="$PKG_ROOT/manifests/manifest_webview_unix.py"
 if [[ ! -f "$CLI_MANIFEST" ]]; then
     fail "$NAME" "manifest_cli.py not found at $CLI_MANIFEST"
 elif grep -q "picolet_ui" "$CLI_MANIFEST"; then
     fail "$NAME" "manifest_cli.py mentions picolet_ui — cli variant would pull in webview code"
 elif [[ ! -f "$WV_MANIFEST" ]]; then
-    fail "$NAME" "manifest_webview.py not found at $WV_MANIFEST"
+    fail "$NAME" "manifest_webview_unix.py not found at $WV_MANIFEST"
 elif ! grep -q "picolet_ui" "$WV_MANIFEST"; then
-    fail "$NAME" "manifest_webview.py does not freeze picolet_ui"
+    fail "$NAME" "manifest_webview_unix.py does not freeze picolet_ui"
 else
     pass "$NAME"
 fi
