@@ -213,6 +213,11 @@ def run(args) -> None:
         # to [romfs] include manually.
         if variant == "webview":
             _emit_webview_toml(data, romfs_root, args.verbose)
+            # Step 6c – Copy the picolet-bridge-js bundle into the romfs
+            # at picolet/picolet-bridge.js (FR-BP-4, FR-WV-4).  The runtime
+            # reads it from /rom/picolet/picolet-bridge.js and injects it
+            # at DOCUMENT_START so window.picolet is available to user JS.
+            _copy_bridge_js(romfs_root, args.verbose)
 
         # Step 7 – Zero mtimes for reproducibility (FR-BP-6).
         _zero_mtimes(romfs_root)
@@ -346,6 +351,46 @@ def _guess_variant(runtime_path: Path) -> str:
     if len(parts) >= 5:
         return parts[4]
     return "cli"
+
+
+def _copy_bridge_js(romfs_root: Path, verbose: bool) -> None:
+    """Copy picolet-bridge.js into the romfs at picolet/picolet-bridge.js.
+
+    The bundle is located relative to this module's package root so no
+    Python package installation is needed for development (AD4).  The
+    canonical source is packages/picolet-bridge-js/dist/picolet-bridge.js.
+
+    Inside the frozen runtime the file is accessible at
+    /rom/picolet/picolet-bridge.js.  _webview.py reads it at Webview
+    construction time and injects it via webkit_user_script_new at
+    DOCUMENT_START.
+    """
+    # Resolve relative to this file: build_cmd.py is in
+    # packages/picolet-cli/picolet/; the bridge dist is at
+    # packages/picolet-bridge-js/dist/picolet-bridge.js.
+    here = Path(__file__).parent            # packages/picolet-cli/picolet/
+    bridge_src = (
+        here.parent.parent                  # packages/
+        / "picolet-bridge-js"
+        / "dist"
+        / "picolet-bridge.js"
+    )
+    if not bridge_src.is_file():
+        print(
+            f"error: picolet-bridge.js not found at {bridge_src}; "
+            "run: cd packages/picolet-bridge-js && node build.mjs",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    dest = romfs_root / "picolet" / "picolet-bridge.js"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bridge_src, dest)
+    if verbose:
+        print(
+            f"  bridge: {bridge_src.name} → romfs/picolet/picolet-bridge.js "
+            f"({bridge_src.stat().st_size} bytes)",
+            file=sys.stderr,
+        )
 
 
 def _emit_webview_toml(
