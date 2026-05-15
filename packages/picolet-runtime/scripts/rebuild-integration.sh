@@ -23,11 +23,47 @@ if [ ! -d "$SUBMODULE/.git" ] && [ ! -f "$SUBMODULE/.git" ]; then
 fi
 
 # Ensure the upstream remote exists so `mbm rebase --target upstream/master`
-# resolves on a fresh clone.
+# resolves on a fresh clone. We configure it to point to the andrewleech fork
+# where the PR branches exist, so mbm can find them when rebasing.
+# Both the fork and the main repo have synchronized masters, so rebasing onto
+# upstream/master here will be equivalent to rebasing onto the main micropython
+# master.
 if ! git -C "$SUBMODULE" remote | grep -q '^upstream$'; then
-    echo "[0/3] Adding upstream remote (https://github.com/micropython/micropython.git)"
-    git -C "$SUBMODULE" remote add upstream https://github.com/micropython/micropython.git
+    echo "[0/3] Adding upstream remote (https://github.com/andrewleech/micropython.git)"
+    git -C "$SUBMODULE" remote add upstream https://github.com/andrewleech/micropython.git
     git -C "$SUBMODULE" fetch upstream
+fi
+
+# Ensure PR refs are available from origin (andrewleech/micropython fork).
+# mbm will fetch PR branches when it runs, but we need to ensure origin
+# is configured to fetch them.
+if ! git -C "$SUBMODULE" config --get remote.origin.fetch | grep -q 'pull.*head'; then
+    echo "[0/3] Configuring origin to fetch PR refs"
+    git -C "$SUBMODULE" config --add remote.origin.fetch '+refs/pull/*/head:refs/remotes/origin/pr/*'
+    git -C "$SUBMODULE" fetch origin
+fi
+
+# Pre-create local branches for each PR so mbm can find them. mbm expects
+# branches named pr/lib-pyusb-windows, pr/gc-add-heap, etc. to exist locally.
+echo "[0/3] Creating local branches for the seven PRs"
+for pr_branch in pr/lib-pyusb-windows pr/mkrules-exe-fix pr/mkrules-frozen-str pr/gc-add-heap pr/ports-windows-ffi pr/unix-windows-romfs pr/ports-windows-variant-overrides; do
+    if ! git -C "$SUBMODULE" show-ref --quiet "refs/heads/$pr_branch"; then
+        # Extract PR number from branch name (e.g., "pr/gc-add-heap" -> 41)
+        pr_num=$(git -C "$SUBMODULE" for-each-ref "refs/remotes/origin/$pr_branch" --format='%(refname)' | grep -oE 'pr/[0-9]+$' || echo "$pr_branch")
+        git -C "$SUBMODULE" branch "$pr_branch" "origin/$pr_branch" 2>/dev/null || true
+    fi
+done
+
+# Ensure submodule state is clean (update any nested submodules)
+echo "[0/3] Updating transitive submodules"
+git -C "$SUBMODULE" submodule deinit -f .
+git -C "$SUBMODULE" submodule update --init --recursive
+
+# Verify the working tree is truly clean before calling mbm
+if ! git -C "$SUBMODULE" diff-index --quiet HEAD --; then
+    echo "error: $SUBMODULE still has uncommitted changes after submodule update" >&2
+    git -C "$SUBMODULE" status
+    exit 1
 fi
 
 echo "[1/3] mbm rebase --target upstream/master --local"

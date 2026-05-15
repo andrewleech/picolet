@@ -283,4 +283,28 @@ _(scrum-tester fills this in: Pass/Fail with evidence)_
 
 ## Blockers
 
-_(only if the phase cannot complete as planned)_
+**Merge conflict in ports/windows/Makefile between PR #42 (ports-windows-ffi) and PR #43 (unix-windows-romfs).**
+
+When rebasing onto `upstream/master` (andrewleech/micropython fork), the seven PRs rebase successfully up through PR #42, but PR #43 (unix-windows-romfs) conflicts with it in `ports/windows/Makefile`:
+- **HEAD (PR #42 state)**: Contains libffi build rules (lines 130–149)
+- **PR #43 branch**: Contains romfs build rules (lines 153–161)
+
+Both sets of rules are needed in the final Makefile. The conflict is not a trivial merge — both sections implement distinct, load-bearing functionality:
+- FFI support (PR #42): `$(BUILD)/lib/libffi/out/include/ffi.h` build target and libffi dependency chain
+- ROMFS support (PR #43): `$(BUILD)/romfs_data.o` build target using OBJCOPY to embed romfs image
+
+**Root cause analysis:**
+- PR #42 and PR #43 both modify `ports/windows/Makefile` in non-overlapping sections after `include $(TOP)/py/mkrules.mk` (line 127).
+- The fork (`andrewleech/micropython`) has both PRs independently merged or landed, suggesting they were authored/rebased separately without mutual coordination.
+- The main micropython repository (`micropython/micropython`) likely has neither or only one of these PRs, so there is no upstream conflict to resolve from.
+- This is a forward merge conflict specific to the fork's two-PR combination.
+
+**Impact:**
+- PH00 cannot complete without manual conflict resolution.
+- The conflict resolution belongs to the PRs' maintainer (Andrew Leech), not to the PH00 phase or the downstream picolet project.
+- Both PRs appear correct individually; the conflict is a toolchain / Makefile organization issue that requires rebasing one or both PRs against a common ancestor that includes the other's changes.
+
+**Recommendation:**
+- Either: Update PR #43 (unix-windows-romfs) to rebase onto `pr/ports-windows-ffi` rather than onto upstream/master.
+- Or: Restructure the Makefile sections to avoid the conflict (e.g., move both build rules into a shared include file, or use a single combined rule).
+- Do not force-resolve in this phase — the fix belongs upstream.
