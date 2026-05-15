@@ -130,10 +130,8 @@ def run(args) -> None:
     else:
         renderer = data["ui"].get("renderer", "")
         if renderer == "webview":
-            raise NotImplementedError(
-                "webview variant builds land in PH09; "
-                "remove [ui] from picolet.toml to build a cli app"
-            )
+            # PH07: linux-x64 webview variant.  Windows webview is PH10.
+            variant = "webview"
         elif renderer == "lvgl":
             raise NotImplementedError(
                 "lvgl variant builds land in PH11; "
@@ -208,6 +206,13 @@ def run(args) -> None:
 
         # Step 6 – Copy [romfs] include dirs (FR-BP-4).
         _copy_includes(app_root, romfs_includes, romfs_root, args.verbose)
+
+        # Step 6b – Webview variant: drop a sanitised picolet.toml at the
+        # romfs root so the runtime can read [window] and [ui] at
+        # startup (FR-WV-3).  The user does not need to add picolet.toml
+        # to [romfs] include manually.
+        if variant == "webview":
+            _emit_webview_toml(data, romfs_root, args.verbose)
 
         # Step 7 – Zero mtimes for reproducibility (FR-BP-6).
         _zero_mtimes(romfs_root)
@@ -341,6 +346,59 @@ def _guess_variant(runtime_path: Path) -> str:
     if len(parts) >= 5:
         return parts[4]
     return "cli"
+
+
+def _emit_webview_toml(
+    data: dict, romfs_root: Path, verbose: bool
+) -> None:
+    """Write a sanitised picolet.toml into the romfs root for the runtime.
+
+    The webview runtime reads /rom/picolet.toml at startup to apply
+    [window] (title, size, resizable) and [ui] (root, index) — FR-WV-3
+    and FR-WV-2.  Users do not need to add picolet.toml to [romfs] include
+    themselves; we emit a minimal subset automatically.
+
+    Only [window] and [ui] are emitted — host-only sections like [app],
+    [build], [runtime] are deliberately dropped.  The runtime's
+    picolet_ui._toml is a small subset reader; it tolerates extra keys
+    but the surface area is minimal by design.
+    """
+    out_path = romfs_root / "picolet.toml"
+    lines = []
+    window = data.get("window") or {}
+    if window:
+        lines.append("[window]")
+        if "title" in window:
+            lines.append('title = "{}"'.format(_escape_toml_string(window["title"])))
+        if "size" in window and isinstance(window["size"], list):
+            sz = window["size"]
+            if len(sz) == 2:
+                lines.append("size = [{}, {}]".format(int(sz[0]), int(sz[1])))
+        if "resizable" in window:
+            lines.append("resizable = {}".format("true" if window["resizable"] else "false"))
+        lines.append("")
+    ui = data.get("ui") or {}
+    if ui:
+        lines.append("[ui]")
+        if "renderer" in ui:
+            lines.append('renderer = "{}"'.format(_escape_toml_string(ui["renderer"])))
+        if "root" in ui:
+            lines.append('root = "{}"'.format(_escape_toml_string(ui["root"])))
+        if "index" in ui:
+            lines.append('index = "{}"'.format(_escape_toml_string(ui["index"])))
+        lines.append("")
+    romfs_root.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(lines))
+    if verbose:
+        print(
+            f"  emitted webview picolet.toml at {out_path}",
+            file=sys.stderr,
+        )
+
+
+def _escape_toml_string(s: str) -> str:
+    """Minimal TOML string escape: backslash and double-quote."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _compile_mpy(
