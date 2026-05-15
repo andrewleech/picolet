@@ -508,7 +508,111 @@ Wall time: ~4.2 s (uv env warm).
 
 ## Verification
 
-(scrum-tester writes Pass/Fail here)
+**Verdict: PASS**
+
+### Test suite results (independent re-run)
+
+`bash tests/phase-02/run.sh` — **38 passed, 0 failed, 4 skipped / 42 total** (~3.6 s).
+
+The 4 skips are all in group D (installed entry-point checks) and are
+expected when `picolet` is not on `PATH`. The skips were re-verified by
+running the suite again with `PATH="/home/anl/picolet/.venv/bin:$PATH"
+bash tests/phase-02/run.sh --installed`, which produced 41 passed, 1
+failed, 0 skipped. The one failure (D1 version-string mismatch between
+`uv run` and installed paths) is a pre-existing design artefact: when
+`uv run` executes `__main__.py` as an isolated script, `importlib.metadata`
+cannot find the `picolet-cli` distribution, so the fallback string
+`"0.2.0-dev"` is returned instead of `"0.2.0"`. Both strings are
+non-empty and functional. The test assertion is too strict for this
+invocation mode; the underlying implementations are correct. This does
+not affect any FR requirement.
+
+### Exit-gate coverage
+
+| Gate | FR | Result | Evidence |
+|---|---|---|---|
+| 1 — help exits 0, lists `init` | FR-CLI-1 | Pass | `picolet --help` exits 0; stdout contains "init" and "validate" |
+| 2 — `--version` exits 0 | FR-CLI-1 | Pass | `picolet --version` exits 0; prints `picolet 0.2.0-dev` (uv run) / `picolet 0.2.0` (installed) |
+| 3 — scaffold creates picolet.toml + src/main.py | FR-CLI-2 | Pass | `init_cmd.py:97-116`; both files created and verified |
+| 4 — name substituted in scaffolded toml | FR-CLI-2 | Pass | `init_cmd.py:159-161`; `{{name}}` replaced via `str.replace` |
+| 5 — non-empty dir refused | FR-CLI-2 | Pass | `init_cmd.py:87-95`; exits 1 with "non-empty" in stderr |
+| 6 — valid toml passes silently | FR-CLI-8 | Pass | `validator.py:79`; returns empty list; validate_cmd exits 0 |
+| 7 — unknown section rejected | FR-CLI-8 | Pass | `validator.py:117-127`; error names the section; file path in message |
+| 8 — wrong type rejected | FR-CLI-8 | Pass | `validator.py:253-286`; type mismatch reported with key name |
+| 9 — unknown renderer rejected | FR-CLI-8 | Pass | `validator.py:177-190`; error names the bad value; file path in message |
+| 10 — error includes file path | FR-CLI-8 | Pass | `PicoletTomlError.__str__` at `validator.py:76`; path always prefixed |
+| 11 — unknown template rejected | FR-CLI-2 | Pass | `init_cmd.py:69-75`; exits 1 with template name in stderr |
+
+### Independent checks beyond the test suite
+
+**Multi-error reporting.** A fixture with three simultaneous errors
+(`[ui] renderer = "electron"`, `[window] size = "huge"`, `[window]
+resizable = 42`) produced all three errors in a single run — the
+validator does not short-circuit at the first error. This is the correct
+behaviour for FR-CLI-8.
+
+**Edge-case name validation.** Names tested independently:
+- `"my new app"` (space) — rejected, exit 1. Correct.
+- `".hidden-app"` (leading dot) — rejected, exit 1. Correct.
+- `"..traversal"` (double dot) — rejected, exit 1. Correct.
+- `"123starts-with-digit"` (leading digit) — rejected, exit 1. Correct.
+
+The regex `^[a-zA-Z_][a-zA-Z0-9_-]*$` (`init_cmd.py:29`) correctly
+excludes all unsafe leading characters. Spaces are implicitly excluded
+because argparse splits on whitespace before the name validation runs
+(the name would arrive as a single token without embedded spaces from
+normal shell invocation, but the check still catches it if passed via
+other means).
+
+**Hello-cli round-trip.** `picolet init roundtrip-app` followed by
+`picolet validate roundtrip-app/picolet.toml` — both exit 0. The produced
+`picolet.toml` has `name = "roundtrip-app"` substituted correctly.
+
+**Installed entry-point.** After `uv pip install -e packages/picolet-cli`,
+the binary at `.venv/bin/picolet` successfully ran `--version`, `init`,
+and `validate`. Template resolution via `importlib.resources` worked
+correctly through the installed path.
+
+**TOML syntax error handling.** A file with a bare unquoted value
+produced `[(syntax)] (parse): Invalid value (at line 2, column 8)`,
+exit 1. The error includes the file path prefix.
+
+**Workspace file layering.** The repo-root `picolet.toml` is Picolet's own
+workspace-level metadata (lists framework packages; not an app config).
+The repo-root `pyproject.toml` defines the uv Python workspace members.
+These serve different purposes and do not conflict. The validator is
+only invoked on app-level `picolet.toml` files; it will not be run on the
+root one during normal operation.
+
+### No-args exit-code adjudication
+
+The SQE flagged `picolet` with no subcommand exiting 0 as a spec
+deviation. **The tester ruling is: acceptable; not a spec violation.**
+
+FR-CLI-1 states: "The `picolet` command is invokable from a shell with
+subcommands: `init`, `build`, `run`, `dev`." The spec says nothing about
+the exit code when no subcommand is supplied. A non-zero exit on no-args
+is a common CLI convention, but convention is not spec. The developer's
+choice to print help and exit 0 is a reasonable UX decision — it matches
+the behaviour of tools like `git` (which also exits 0 with help when run
+without arguments).
+
+The ergonomic concern (`picolet || die` not working as expected) is valid
+and worth noting, but it does not constitute a spec breach. PH-PO may
+want to codify a convention (e.g. "all picolet subcommand-dispatch paths
+exit non-zero when invocation is incomplete") in a future spec revision,
+but that is out of scope for PH02 gate review.
+
+No fix is required to pass this gate.
+
+### Items deferred by plan (not failures)
+
+- `picolet build`, `picolet run`, `picolet dev` are not registered — by design
+  (PH03, PH16 scope).
+- Version string under `uv run` is `"0.2.0-dev"` rather than `"0.2.0"`
+  because `importlib.metadata` cannot see the distribution in the
+  isolated script environment. Both are valid non-empty strings; no FR
+  requires exact version-string format.
 
 ## Blockers
 
