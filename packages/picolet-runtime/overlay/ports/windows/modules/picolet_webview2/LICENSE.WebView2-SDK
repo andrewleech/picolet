@@ -1,0 +1,18 @@
+Microsoft WebView2 SDK License Terms — applies to:
+
+  WebView2Loader.dll (the redistributable loader)
+  The WebView2 SDK header subset implemented in include/WebView2_min.h
+    (declared symbols/IIDs are factual ABI identifiers; the layout is
+    hand-written from the public SDK documentation, not copied from the
+    Microsoft headers).
+
+Full license text:
+  https://github.com/MicrosoftEdge/WebView2Feedback/blob/main/LICENSE.md
+  https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution
+
+Summary:
+  * Permissive distribution of WebView2Loader.dll is granted under
+    Microsoft Edge WebView2 SDK License Terms.
+  * The Edge WebView2 Runtime engine itself is system-installed on the
+    host; we redistribute only the loader stub that talks to it.
+  * No GPL / LGPL / AGPL contact (NFR-5 satisfied).
