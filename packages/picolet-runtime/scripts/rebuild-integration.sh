@@ -90,6 +90,32 @@ if ! git -C "$SUBMODULE" show-ref --quiet refs/heads/integration; then
     git -C "$SUBMODULE" branch integration upstream/master
 fi
 
+# Reset to upstream/master before the submodule walk.  A previous run
+# may have left integration HEAD at a state that references submodule
+# paths not present in upstream/master's .gitmodules (e.g. an overlay
+# commit added a gitlink for an embedded directory that wasn't a real
+# submodule).  Without this reset, submodule update --init --recursive
+# fails on the stray path.
+git -C "$SUBMODULE" checkout upstream/master --quiet
+
+# Clean any unregistered embedded git directories left over from a
+# previous overlay copy.  Specifically: an earlier rebuild-integration
+# applied an overlay that included overlay/lib/lv_binding_micropython,
+# which left a .git-bearing directory in the inner tree.  Re-running
+# rebuild now (with the fixed overlay that excludes ./lib/) would still
+# trip over the stray directory because git submodule update --init
+# --recursive walks the working tree.  Nuke any non-upstream directories
+# under lib/ that have a .git file/dir but no entry in upstream's
+# .gitmodules.
+for stray in "$SUBMODULE"/lib/*/; do
+    [ -d "$stray" ] || continue
+    name="$(basename "$stray")"
+    if [ -e "$stray/.git" ] && ! git -C "$SUBMODULE" config --file .gitmodules --get-regexp "submodule\..*\.path" 2>/dev/null | grep -q "lib/$name\$"; then
+        echo "[0/3] Removing stray embedded repo: lib/$name"
+        rm -rf "$stray"
+    fi
+done
+
 # Ensure submodule state is clean (update any nested submodules)
 echo "[0/3] Updating transitive submodules"
 git -C "$SUBMODULE" submodule deinit -f .
@@ -165,7 +191,13 @@ git -C "$SUBMODULE" submodule update --init --recursive
 echo "[3/3] Apply picolet overlay (variants + native modules)"
 if [ -d "$OVERLAY" ] && [ -n "$(ls -A "$OVERLAY" 2>/dev/null)" ]; then
     cd "$OVERLAY"
-    find . -type f -print0 | while IFS= read -r -d '' f; do
+    # Note: overlay/lib/ is intentionally NOT copied into the micropython
+    # tree.  Files under overlay/lib/ are picolet-side third-party deps
+    # (e.g. lv_binding_micropython as a git submodule) accessed via
+    # \$(PICOLET_RUNTIME_ROOT)/overlay/lib/... in the variant .mk files.
+    # Copying them in would create embedded-git-repo confusion and
+    # break recursive submodule init in the micropython tree.
+    find . -type f -not -path './lib/*' -print0 | while IFS= read -r -d '' f; do
         dest="$SUBMODULE/${f#./}"
         mkdir -p "$(dirname "$dest")"
         cp "$f" "$dest"
