@@ -1,19 +1,20 @@
 # picolet_ui._webview — WebKitGTK 4.1 webview + WebviewTransport.
 #
-# PH07.  Embeds a WebKitWebView inside a `picolet_ui.Window`, loads a
+# PH07: embeds a WebKitWebView inside a `picolet_ui.Window`, loads a
 # file:// URI, registers the `"picolet"` script-message handler, and
 # exposes a `WebviewTransport` that satisfies the PH06 transport
 # duck-type contract.  The dispatcher consumes it unchanged.
+#
+# PH08: injects the picolet-bridge-js IIFE bundle at DOCUMENT_START
+# (replacing the PH07 no-op stub).  The bundle installs
+# window.picolet.{invoke, on, emit} and the internal window.__picolet_recv
+# handler.  The bundle text is read from /rom/picolet/picolet-bridge.js
+# inside the frozen runtime (copied there by picolet-cli build_cmd.py).
 #
 # JS-side wire:
 #   Inbound (JS -> Python):  window.webkit.messageHandlers.picolet
 #                              .postMessage(JSON.stringify(msg))
 #   Outbound (Python -> JS): window.__picolet_recv(jsonString)
-#
-# The PH07 outbound receiver `window.__picolet_recv` is a no-op stub
-# injected at user-content-manager startup.  PH08's bridge-js shim
-# replaces it with the real receiver; PH07 only needs the path to
-# exist.
 
 import json
 import sys
@@ -101,9 +102,8 @@ class Webview:
 
     The Webview registers a `"picolet"` script-message handler whose
     inbound JSON messages are buffered for the paired WebviewTransport.
-    The outbound stub `window.__picolet_recv = function(){};` is injected
-    at construction so PH07 send() calls have a target before PH08
-    lands the real receiver.
+    The picolet-bridge-js bundle is injected at DOCUMENT_START so
+    window.picolet.{invoke, on, emit} are available to all user JS.
     """
 
     def __init__(self, window, root_uri=None, transport=None,
@@ -129,14 +129,22 @@ class Webview:
             self._view
         )
 
-        # Inject the no-op __picolet_recv stub at document-start so PH07
-        # outbound sends work before PH08's bridge-js lands.
-        stub_src = (
-            "if (!window.__picolet_recv) {"
-            " window.__picolet_recv = function(s) { /* PH07 stub */ }; }"
-        )
+        # Inject the picolet-bridge-js bundle at document-start so
+        # window.picolet (invoke, on, emit) is available to user JS
+        # before any <script> tags execute (FR-WV-4, PH08).
+        # The bundle is copied into the romfs at build time by
+        # picolet-cli's build_cmd.py _copy_bridge_js() step.
+        _bridge_path = "/rom/picolet/picolet-bridge.js"
+        try:
+            with open(_bridge_path) as _f:
+                bridge_src = _f.read()
+        except OSError:
+            # Graceful degradation: window.picolet will be undefined.
+            # This happens when running outside a built romfs (e.g.
+            # during unit tests that import _webview directly).
+            bridge_src = ""
         # WEBKIT_USER_CONTENT_INJECT_TOP_FRAME=1, WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START=0
-        script = _gtk_ffi.webkit_user_script_new(stub_src, 1, 0, 0, 0)
+        script = _gtk_ffi.webkit_user_script_new(bridge_src, 1, 0, 0, 0)
         _gtk_ffi.webkit_user_content_manager_add_script(
             self._manager, script
         )
