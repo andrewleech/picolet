@@ -1,0 +1,14 @@
+# PH13 gate-7 fixture: sbom policy fail path.
+# A fake dependency with LicenseRef-Unknown licence is declared.
+# fail_unknown = true must cause picolet build to exit 1.
+
+[app]
+name = "strict-sbom-fail"
+version = "0.1.0"
+entry = "src/main.py"
+
+[sbom]
+fail_unknown = true
+
+[dependencies]
+fake-unknown-dep = "1.0.0"

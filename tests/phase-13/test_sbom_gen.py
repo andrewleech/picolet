@@ -1,0 +1,401 @@
+"""
+PH13 SBOM generator unit tests.
+
+Covers:
+  - CycloneDX 1.5 document structure (gates 3, 9).
+  - Component names, licences, and link types (gate 5, 11).
+  - variant+target filtering: cli does not include LVGL or SDL2 (gate 11).
+  - MicroPython PR list from mbm.toml in MicroPython component notes (gate 10).
+  - Allowlist enforcement: warn path (gate 6), fail path (gate 7).
+  - emit_app_sbom: app SBOM is a superset of runtime SBOM components (gate 5).
+  - serialNumber is a valid urn:uuid:<uuid4> (gate 9).
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+import pytest
+
+_REPO_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "packages" / "picolet-cli"))
+
+from picolet.sbom_gen import (
+    SbomViolation,
+    emit_app_sbom,
+    emit_runtime_sbom,
+    filter_components,
+    load_mbm_prs,
+    load_runtime_toml,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _tmp_path() -> Path:
+    d = tempfile.mkdtemp()
+    return Path(d)
+
+
+# ---------------------------------------------------------------------------
+# runtime.toml loading + filtering (gates 11, 1)
+# ---------------------------------------------------------------------------
+
+class TestRuntimeToml:
+    def test_loads_components(self):
+        components = load_runtime_toml(_REPO_ROOT)
+        assert len(components) >= 8, f"Expected at least 8 components, got {len(components)}"
+
+    def test_cli_variant_excludes_lvgl_sdl2(self):
+        all_c = load_runtime_toml(_REPO_ROOT)
+        cli_c = filter_components(all_c, "linux-x64", "cli")
+        names = [c["name"] for c in cli_c]
+        assert "LVGL" not in names, f"LVGL should not appear in cli SBOM: {names}"
+        assert "SDL2" not in names, f"SDL2 should not appear in cli SBOM: {names}"
+
+    def test_cli_variant_includes_micropython_libffi(self):
+        all_c = load_runtime_toml(_REPO_ROOT)
+        cli_c = filter_components(all_c, "linux-x64", "cli")
+        names = [c["name"] for c in cli_c]
+        assert "MicroPython" in names
+        assert "libffi" in names
+
+    def test_lvgl_linux_includes_sdl2_dynamic(self):
+        all_c = load_runtime_toml(_REPO_ROOT)
+        lvgl_c = filter_components(all_c, "linux-x64", "lvgl")
+        names = [c["name"] for c in lvgl_c]
+        assert "LVGL" in names
+        sdl2_entries = [c for c in lvgl_c if c["name"] == "SDL2"]
+        assert sdl2_entries, "SDL2 must appear in lvgl/linux-x64"
+        assert sdl2_entries[0]["link_type"] == "dynamic"
+
+    def test_lvgl_windows_includes_sdl2_static(self):
+        all_c = load_runtime_toml(_REPO_ROOT)
+        lvgl_c = filter_components(all_c, "windows-x64", "lvgl")
+        sdl2_entries = [c for c in lvgl_c if c["name"] == "SDL2"]
+        assert sdl2_entries, "SDL2 must appear in lvgl/windows-x64"
+        assert sdl2_entries[0]["link_type"] == "static"
+
+    def test_webview_linux_includes_webkitgtk(self):
+        all_c = load_runtime_toml(_REPO_ROOT)
+        wv_c = filter_components(all_c, "linux-x64", "webview")
+        names = [c["name"] for c in wv_c]
+        assert "WebKitGTK" in names
+
+    def test_webview_windows_includes_webview2(self):
+        all_c = load_runtime_toml(_REPO_ROOT)
+        wv_c = filter_components(all_c, "windows-x64", "webview")
+        names = [c["name"] for c in wv_c]
+        assert "Microsoft.Web.WebView2" in names
+        assert "WebView2Loader.dll" in names
+
+    def test_required_keys_present(self):
+        components = load_runtime_toml(_REPO_ROOT)
+        required = {"name", "version", "licence", "source_url", "link_type"}
+        for c in components:
+            missing = required - c.keys()
+            assert not missing, f"Component {c.get('name')} missing keys: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# mbm.toml PR loading (gate 10)
+# ---------------------------------------------------------------------------
+
+class TestMbmPrs:
+    def test_loads_pr_titles(self):
+        prs = load_mbm_prs(_REPO_ROOT)
+        assert len(prs) >= 7, f"Expected at least 7 PRs from mbm.toml, got {len(prs)}"
+
+    def test_pr_titles_contain_pr_prefix(self):
+        prs = load_mbm_prs(_REPO_ROOT)
+        assert any("pr/" in t for t in prs), f"Expected pr/ prefix in PR titles: {prs}"
+
+
+# ---------------------------------------------------------------------------
+# emit_runtime_sbom — document structure (gates 3, 9, 10, 11)
+# ---------------------------------------------------------------------------
+
+class TestEmitRuntimeSbom:
+    def _emit(self, target: str, variant: str) -> dict:
+        out = Path(tempfile.mktemp(suffix=".cdx.json"))
+        emit_runtime_sbom(out, target, variant, _REPO_ROOT)
+        return json.loads(out.read_text())
+
+    def test_cdx_format_and_version(self):
+        doc = self._emit("linux-x64", "cli")
+        assert doc["bomFormat"] == "CycloneDX"
+        assert doc["specVersion"] == "1.5"
+
+    def test_serial_number_is_urn_uuid(self):
+        doc = self._emit("linux-x64", "cli")
+        assert re.match(r"urn:uuid:[0-9a-f\-]{36}$", doc["serialNumber"]), \
+            f"serialNumber invalid: {doc['serialNumber']}"
+
+    def test_metadata_fields(self):
+        doc = self._emit("linux-x64", "cli")
+        meta = doc["metadata"]
+        assert "timestamp" in meta
+        assert meta["tools"][0]["vendor"] == "picolet"
+        assert meta["component"]["type"] == "library"
+        assert "picolet-runtime-linux-x64-cli" in meta["component"]["name"]
+
+    def test_has_components(self):
+        doc = self._emit("linux-x64", "cli")
+        assert len(doc["components"]) >= 1
+
+    def test_cli_no_lvgl_sdl2(self):
+        doc = self._emit("linux-x64", "cli")
+        names = [c["name"] for c in doc["components"]]
+        assert "LVGL" not in names
+        assert "SDL2" not in names
+
+    def test_micropython_type_is_framework(self):
+        doc = self._emit("linux-x64", "cli")
+        mp = next(c for c in doc["components"] if c["name"] == "MicroPython")
+        assert mp["type"] == "framework"
+
+    def test_micropython_has_pr_in_description(self):
+        """Gate 10: MicroPython component carries mbm.toml PR list."""
+        doc = self._emit("linux-x64", "cli")
+        mp = next(c for c in doc["components"] if c["name"] == "MicroPython")
+        desc = mp.get("description", "")
+        props = mp.get("properties", [])
+        has_pr = "pr/" in desc or any("pr/" in str(p) for p in props)
+        assert has_pr, f"MicroPython component missing PR list. description={desc!r}"
+
+    def test_licenseref_uses_name_field(self):
+        """LicenseRef-* identifiers must use 'name' not 'id' in CDX."""
+        doc = self._emit("windows-x64", "webview")
+        for comp in doc["components"]:
+            for lic_entry in comp.get("licenses", []):
+                lic = lic_entry.get("license", {})
+                raw = lic.get("id") or lic.get("name") or ""
+                if raw.startswith("LicenseRef-"):
+                    assert "name" in lic, \
+                        f"LicenseRef- in {comp['name']} must use 'name' field, got {lic}"
+                    assert "id" not in lic, \
+                        f"LicenseRef- in {comp['name']} must not use 'id' field, got {lic}"
+
+    def test_bom_refs_unique(self):
+        doc = self._emit("linux-x64", "lvgl")
+        refs = [c.get("bom-ref") for c in doc["components"]]
+        assert len(refs) == len(set(refs)), f"Duplicate bom-refs: {refs}"
+
+    def test_lvgl_linux_sdl2_link_type_in_properties(self):
+        doc = self._emit("linux-x64", "lvgl")
+        sdl2 = next(c for c in doc["components"] if c["name"] == "SDL2")
+        props = {p["name"]: p["value"] for p in sdl2.get("properties", [])}
+        assert props.get("picolet:link_type") == "dynamic"
+
+
+# ---------------------------------------------------------------------------
+# emit_app_sbom — superset check (gate 5), policy enforcement (gates 6, 7)
+# ---------------------------------------------------------------------------
+
+class TestEmitAppSbom:
+    def _emit_runtime(self, target: str, variant: str) -> Path:
+        out = Path(tempfile.mktemp(suffix=".cdx.json"))
+        emit_runtime_sbom(out, target, variant, _REPO_ROOT)
+        return out
+
+    def _emit_app(
+        self,
+        app_data: dict,
+        target: str = "linux-x64",
+        variant: str = "cli",
+        runtime_sbom_path: "Path | None" = None,
+    ) -> tuple[dict, list[SbomViolation]]:
+        out = Path(tempfile.mktemp(suffix=".cdx.json"))
+        violations = emit_app_sbom(
+            output_path=out,
+            runtime_sbom_path=runtime_sbom_path,
+            app_data=app_data,
+            target=target,
+            variant=variant,
+            repo_root=_REPO_ROOT,
+        )
+        return json.loads(out.read_text()), violations
+
+    # ------ superset check (gate 5) ----------------------------------------
+
+    def test_app_sbom_is_superset_of_runtime(self):
+        rt_path = self._emit_runtime("linux-x64", "cli")
+        rt_doc = json.loads(rt_path.read_text())
+        rt_names = {c["name"] for c in rt_doc["components"]}
+
+        app_data = {"app": {"name": "myapp", "version": "1.0.0"}}
+        app_doc, _ = self._emit_app(app_data, runtime_sbom_path=rt_path)
+        app_names = {c["name"] for c in app_doc["components"]}
+
+        missing = rt_names - app_names
+        assert not missing, f"App SBOM missing runtime components: {missing}"
+
+    def test_app_metadata_type_is_application(self):
+        app_data = {"app": {"name": "myapp", "version": "0.1.0"}}
+        doc, _ = self._emit_app(app_data)
+        assert doc["metadata"]["component"]["type"] == "application"
+
+    def test_app_sbom_serial_is_urn_uuid(self):
+        app_data = {"app": {"name": "myapp", "version": "0.1.0"}}
+        doc, _ = self._emit_app(app_data)
+        assert re.match(r"urn:uuid:[0-9a-f\-]{36}$", doc["serialNumber"])
+
+    # ------ two separate emit calls produce different serialNumbers ---------
+
+    def test_serial_number_unique_per_emission(self):
+        app_data = {"app": {"name": "myapp", "version": "0.1.0"}}
+        doc1, _ = self._emit_app(app_data)
+        doc2, _ = self._emit_app(app_data)
+        assert doc1["serialNumber"] != doc2["serialNumber"], \
+            "Serial numbers must be unique per emission"
+
+    # ------ fallback to runtime.toml when runtime_sbom_path is None --------
+
+    def test_fallback_reads_runtime_toml_when_sbom_absent(self):
+        app_data = {"app": {"name": "myapp", "version": "0.1.0"}}
+        doc, _ = self._emit_app(app_data, runtime_sbom_path=None)
+        names = [c["name"] for c in doc["components"]]
+        assert "MicroPython" in names
+
+    # ------ app [dependencies] appear in merged SBOM -----------------------
+
+    def test_app_dep_appears_in_sbom(self):
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "dependencies": {"my-python-lib": "1.2.3"},
+            "dependency_meta": {
+                "my-python-lib": {"licence": "MIT"}
+            },
+        }
+        doc, _ = self._emit_app(app_data)
+        names = [c["name"] for c in doc["components"]]
+        assert "my-python-lib" in names
+
+    def test_unknown_licence_dep_uses_licenseref_unknown(self):
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "dependencies": {"no-meta-dep": "0.1"},
+        }
+        doc, _ = self._emit_app(app_data)
+        dep = next(c for c in doc["components"] if c["name"] == "no-meta-dep")
+        lic_val = (
+            dep["licenses"][0]["license"].get("name")
+            or dep["licenses"][0]["license"].get("id")
+        )
+        assert lic_val == "LicenseRef-Unknown"
+
+    # ------ policy enforcement: warn path (gate 6) -------------------------
+
+    def test_warn_path_unknown_licence(self):
+        """LicenseRef-Unknown dep with warn_unknown=true, fail_unknown=false
+        produces a warn-severity violation and no fail violation."""
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "dependencies": {"bad-dep": "0.1"},
+            "sbom": {"warn_unknown": True, "fail_unknown": False},
+        }
+        _, violations = self._emit_app(app_data)
+        warn_v = [v for v in violations if v.severity == "warn"]
+        fail_v = [v for v in violations if v.severity == "fail"]
+        assert warn_v, "Expected at least one warn violation"
+        assert not fail_v, "Expected no fail violations"
+
+    def test_warn_path_disallowed_licence(self):
+        """A known licence not in allow_licences (not LicenseRef-Unknown)
+        produces a fail violation regardless of warn_unknown."""
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "dependencies": {"gpl-dep": "1.0"},
+            "dependency_meta": {
+                "gpl-dep": {"licence": "GPL-3.0-only", "link_type": "static"}
+            },
+            "sbom": {"allow_licences": ["MIT"]},
+        }
+        _, violations = self._emit_app(app_data)
+        fail_v = [v for v in violations if v.severity == "fail"]
+        assert fail_v, "Expected fail violation for GPL-3.0-only not in allow_licences"
+
+    # ------ policy enforcement: fail path (gate 7) -------------------------
+
+    def test_fail_path_unknown_licence(self):
+        """LicenseRef-Unknown dep with fail_unknown=true produces
+        a fail-severity violation."""
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "dependencies": {"bad-dep": "0.1"},
+            "sbom": {"fail_unknown": True},
+        }
+        _, violations = self._emit_app(app_data)
+        fail_v = [v for v in violations if v.severity == "fail"]
+        assert fail_v, "Expected fail violation for LicenseRef-Unknown with fail_unknown=true"
+
+    # ------ build-time-only components are exempt from policy --------------
+
+    def test_build_time_only_exempt_from_policy(self):
+        """build-time-only components must not trigger policy violations
+        even when their licence is not in allow_licences."""
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "sbom": {"allow_licences": ["MIT"]},
+        }
+        # windows-x64/webview includes WebView2_min.h (build-time-only, MIT).
+        # Even with allow_licences=["MIT"] only, the LicenseRef-MS-WebView2-Fixed
+        # components exist but the build-time-only component should not produce
+        # a fail violation (it is exempt).  The dynamic webview components
+        # (MS-WebView2-Fixed) would produce violations unless allow_dynamic
+        # includes them — which this test does not, so we only check that
+        # the build-time-only component itself is not the source.
+        doc, violations = self._emit_app(
+            app_data, target="windows-x64", variant="webview"
+        )
+        bto_names = {
+            comp["name"]
+            for comp in doc["components"]
+            if any(
+                p.get("name") == "picolet:link_type" and p.get("value") == "build-time-only"
+                for p in comp.get("properties", [])
+            )
+        }
+        fail_v_components = {v.component for v in violations if v.severity == "fail"}
+        intersection = bto_names & fail_v_components
+        assert not intersection, \
+            f"build-time-only components must not trigger fail violations: {intersection}"
+
+    # ------ default allowlist includes LGPL dynamic (webview linux) --------
+
+    def test_default_allowlist_permits_webkitgtk(self):
+        """WebKitGTK (LGPL-2.1-or-later, dynamic) must be clean under
+        default allowlist."""
+        app_data = {"app": {"name": "myapp", "version": "0.1.0"}}
+        _, violations = self._emit_app(
+            app_data, target="linux-x64", variant="webview"
+        )
+        fail_v = [v for v in violations if v.severity == "fail"]
+        assert not fail_v, \
+            f"Default allowlist should permit WebKitGTK (LGPL-2.1-or-later): {fail_v}"
+
+    # ------ SBOM is always written even on violation -----------------------
+
+    def test_sbom_written_on_violation(self):
+        """The .cdx.json file must be written even when fail violations occur."""
+        out = Path(tempfile.mktemp(suffix=".cdx.json"))
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "dependencies": {"bad-dep": "0.1"},
+            "sbom": {"fail_unknown": True},
+        }
+        violations = emit_app_sbom(
+            output_path=out,
+            runtime_sbom_path=None,
+            app_data=app_data,
+            target="linux-x64",
+            variant="cli",
+            repo_root=_REPO_ROOT,
+        )
+        assert out.is_file(), "SBOM file must be written even on violation"
+        assert violations, "Expected at least one violation"

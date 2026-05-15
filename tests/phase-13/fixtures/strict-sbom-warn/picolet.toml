@@ -1,0 +1,15 @@
+# PH13 gate-6 fixture: sbom policy warn path.
+# [sbom] allow_licences restricts to MIT only.
+# Components with other licences (e.g. Zlib for SDL2, LicenseRef-MS-WebView2-Fixed)
+# trigger warn_unknown=true (default) but NOT fail_unknown (default false).
+# Build must exit 0 and emit "warn:" on stderr.
+
+[app]
+name = "strict-sbom-warn"
+version = "0.1.0"
+entry = "src/main.py"
+
+[sbom]
+allow_licences = ["MIT"]
+warn_unknown = true
+fail_unknown = false
