@@ -707,3 +707,78 @@ confirms this pattern works.
 | FR-IPC-2 | Error type and message preserved across the wire. | API contract §invoke error path; `src/index.ts` error construction; gate 5, 13. |
 | FR-IPC-3 | `picolet.emit` from Python reachable by `picolet.on` in JS. | API contract §on, §emit; `window.__picolet_recv` event dispatch; gates 6, 12. |
 | NFR-2 | Webview runtime ≤ 2 MB. | Gate 16 (size check after adding bundle to romfs). |
+
+## Verification
+
+**Tester:** scrum-tester (sonnet-4.6) | **Date:** 2026-05-15 | **Verdict: PASS**
+
+### Build
+
+Bundle rebuilt cleanly: `cd packages/picolet-bridge-js && node build.mjs` exits 0. `dist/picolet-bridge.js` is a single-line IIFE, 1083 bytes. `node -e` load with window mock exits 0.
+
+### Gate results — run.sh (22 gates, 0 failed, 0 skipped)
+
+| Gate | Label | Result | Evidence |
+|---|---|---|---|
+| A1 | bundle-exists (gate 1) | PASS | 1083 bytes |
+| A2 | bundle-valid-js (gate 2) | PASS | node load ok |
+| B1 | gate3 / api-surface | PASS | test_api_surface.js |
+| B2 | gate4+14 / invoke-roundtrip + no-leak | PASS | test_invoke_roundtrip.js |
+| B3 | gate5 / invoke-error | PASS | test_invoke_error.js |
+| B4 | gate6 / event-dispatch | PASS | test_event_dispatch.js |
+| B5 | gate7 / unsubscribe | PASS | test_unsubscribe.js |
+| B6 | gate8 / emit | PASS | test_emit.js |
+| B7 | sqe-concurrent-invokes | PASS | test_concurrent_invokes.js |
+| B8 | sqe-multi-subscriber | PASS | test_multi_subscriber.js |
+| B9 | sqe-error-empty-message | PASS | test_error_empty_message.js |
+| B10 | sqe-args-edge-cases | PASS | test_args_edge_cases.js |
+| B11 | sqe-bundle-size | PASS | test_bundle_size.js |
+| B12 | sqe-malformed-inbound | PASS | test_malformed_inbound.js |
+| C1 | bridge-in-romfs (gate 9 / FR-BP-4) | PASS | `picolet-bridge.js` present in `/rom/picolet` |
+| D1 | bridge-inject-order (gate 10 / FR-WV-4) | PASS | `PICOLET_WV_BRIDGE_INJECT_OK` in stdout |
+| D2a | invoke-roundtrip (gate 11 / FR-WV-5) | PASS | `PICOLET_WV_INVOKE_OK` in stdout |
+| D2b | error-propagation (gate 13 / FR-IPC-2) | PASS | `PICOLET_WV_ERROR_OK` in stdout |
+| D3 | event-push (gate 12 / FR-IPC-3) | PASS | `PICOLET_WV_EVENT_OK` in stdout |
+| D4 | js-emit-fire-and-forget (FR-WV-5 emit) | PASS | `PICOLET_WV_EMIT_OK` in stdout |
+| E1 | nfr-2-webview-le-2mib (gate 16) | PASS | 665 904 bytes (31% of 2 MiB) |
+| F1 | ph07-gates-still-pass (gate 15) | PASS | PH07 run.sh: 20 passed, 0 failed |
+
+### Independent integration test
+
+Fresh webview app built from scratch (`picolet init` + hand-written `src/main.py` + `ui/index.html`) exercising all three bridge directions simultaneously:
+
+- `invoke("ping", {from:"tester"})` → resolves `"pong:tester"` ✓
+- `invoke("explode")` → rejects with `KeyError / "oops"` ✓
+- Python `picolet.emit("server-push", …)` → JS `on("server-push")` handler echoes back ✓
+- JS `window.picolet.emit("js-emit", {button:"click"})` → Python `picolet.on("js-emit")` receives payload ✓
+
+Output: `TESTER_BRIDGE_ALL_OK`. Built with `picolet build --target linux-x64`; run under `xvfb-run -a`.
+
+### FR-WV-4 verification (injection timing)
+
+`_webview.py:147` calls `webkit_user_script_new(bridge_src, 1, 0, 0, 0)` with the third argument `0` selecting `WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START`. Bridge text is read from `/rom/picolet/picolet-bridge.js` at `Webview.__init__` time. Gate D1 (bridge-inject-order) confirms that the first user `<script>` tag already sees `window.picolet` as an object.
+
+### FR-WV-5 verification
+
+`dist/picolet-bridge.js` exports `window.picolet.invoke` (Promise-based), `window.picolet.on` (returns unsubscribe), `window.picolet.emit` (fire-and-forget). `window.__picolet_recv` handles both reply and push-event discriminator correctly. All verified by unit tests B1–B6 and integration tests D2a, D2b, D3, D4.
+
+### NFR-2
+
+Webview runtime binary: **665 904 bytes** (31% of 2 MiB ceiling). Adding the 1 083-byte bridge bundle to the romfs has negligible impact.
+
+### PH03–07 regression
+
+| Phase | Result |
+|---|---|
+| PH03 | 21 passed, 0 failed |
+| PH04 | 31 passed, 0 failed |
+| PH05 | 19 passed, 0 failed, 2 skipped |
+| PH06 | 21 passed, 0 failed |
+| PH07 | 20 passed, 0 failed, 3 skipped |
+
+### Observations
+
+- `WebviewTransport.send` correctly double-encodes: `json.dumps(json.dumps(msg))` so the JS call is `window.__picolet_recv("…string…")` not `window.__picolet_recv({…object…})`. This was identified and fixed by the developer and is confirmed correct.
+- No TODO/FIXME/HACK markers found in any new or modified source files.
+- The "not implemented" string at `build_cmd.py:156` is a pre-existing error message for unsupported targets, not an incomplete implementation.
+- The independent integration test exposed a subtlety: JS must subscribe `on("server-push")` before emitting `page-ready` to avoid a race with Python's immediate emit. This is a user-code ordering concern, not a bridge defect — the bridge delivers events correctly whenever the handler is registered.
