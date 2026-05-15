@@ -41,14 +41,7 @@ licence     = "MIT"
 source_url  = "https://github.com/micropython/micropython"
 link_type   = "static"
 purl        = "pkg:github/micropython/micropython@1.24.0"
-notes       = """MicroPython integration PRs (MicroPython-derived patches, MIT licence):
-pr/38: lib/micropython-lib: Update pyusb with Windows support.
-pr/39: py/mkrules.mk: Allow PROG to be set on the command line for .exe targets.
-pr/40: py/mkrules.mk: Make MICROPY_MODULE_FROZEN_STR conditional on compiler.
-pr/41: py/modgc: Add gc.add_heap() function for runtime heap expansion.
-pr/42: ports/windows: Add FFI module support with libffi.
-pr/43: ports/unix,windows: Add embedded romfs support with auto-mount.
-pr/44: ports/windows: Allow variant override of common config defines."""
+notes       = "Integration PRs are MicroPython-derived patches sharing the MicroPython MIT licence; the generator injects the full PR list from mbm.toml automatically."
 
 [[component]]
 name        = "libffi"
