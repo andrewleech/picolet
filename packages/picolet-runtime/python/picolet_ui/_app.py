@@ -41,6 +41,20 @@ def build_root_uri():
     return "file:///rom/" + cfg["root"] + "/" + cfg["index"]
 
 
+def _read_rom_html(rom_path):
+    """Read /rom/<root>/<index> through the MicroPython VFS and return bytes.
+
+    WebKit cannot load file:///rom/... directly because /rom is a VFS
+    overlay inside the runtime process, not visible to the kernel.
+    We read the document via Python and pass it to
+    webkit_web_view_load_html with a synthetic base URI so relative
+    asset references (CSS, JS, images) resolve through Python-side
+    interception layers PH08+ may add.
+    """
+    with open(rom_path, "r") as fh:
+        return fh.read()
+
+
 class Application:
     """One-shot wiring of Window + Webview + WebviewTransport.
 
@@ -52,12 +66,37 @@ class Application:
                  root_uri=None):
         from ._window import Window
         from ._webview import Webview, WebviewTransport
+        from . import _gtk_ffi
 
         self.window = Window(title=title, size=size, resizable=resizable)
         self.transport = WebviewTransport()
-        uri = root_uri if root_uri is not None else build_root_uri()
-        self.webview = Webview(self.window, root_uri=uri,
-                                transport=self.transport)
+        if root_uri is None:
+            # Default: read the romfs-embedded index.html and inject via
+            # webkit_web_view_load_html.  The base_uri tells WebKit how
+            # to resolve relative URLs in the page; we synthesise one
+            # under file:// so document.location / window.location have
+            # plausible values for the JS shim.
+            cfg = _load_ui_config()
+            rom_doc = "/rom/" + cfg["root"] + "/" + cfg["index"]
+            try:
+                html = _read_rom_html(rom_doc)
+            except OSError as e:
+                import sys
+                sys.stderr.write(
+                    "picolet_ui: failed to read {}: {}\n".format(rom_doc, e)
+                )
+                raise
+            base_uri = "file:///picolet/" + cfg["root"] + "/"
+            self.webview = Webview(
+                self.window, root_uri=None, transport=self.transport
+            )
+            _gtk_ffi.webkit_web_view_load_html(
+                self.webview.view, html, base_uri
+            )
+        else:
+            self.webview = Webview(
+                self.window, root_uri=root_uri, transport=self.transport
+            )
         self.window.show()
 
     def run(self, main=None):

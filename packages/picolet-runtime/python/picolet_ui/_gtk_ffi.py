@@ -137,6 +137,15 @@ webkit_web_view_new = webkit.func("p", "webkit_web_view_new", "")
 # void webkit_web_view_load_uri(WebKitWebView *, const gchar *uri)
 webkit_web_view_load_uri = webkit.func("v", "webkit_web_view_load_uri", "ps")
 
+# void webkit_web_view_load_html(WebKitWebView *, const gchar *html,
+#                                const gchar *base_uri)
+# Used to inject HTML read from the MicroPython VFS romfs at /rom/.
+# WebKit can't load file:///rom/... directly because /rom is an
+# overlay inside the runtime process, not a real OS path.
+webkit_web_view_load_html = webkit.func(
+    "v", "webkit_web_view_load_html", "pss"
+)
+
 # WebKitUserContentManager *webkit_web_view_get_user_content_manager(WebKitWebView *)
 webkit_web_view_get_user_content_manager = webkit.func(
     "p", "webkit_web_view_get_user_content_manager", "p"
