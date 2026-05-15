@@ -41,6 +41,13 @@ except ImportError:
     _select = None
     _HAVE_POLL = False
 
+# The naked-yield readline pattern from extmod/asyncio/stream.py only
+# parses on MicroPython — CPython rejects ``return value`` inside an
+# async generator at compile time.  On CPython we always take the
+# blocking-readline path; the production target is MicroPython so this
+# is only a unit-test ergonomics concern.
+_IS_MICROPYTHON = sys.implementation.name == "micropython"
+
 
 # ---------------------------------------------------------------------------
 # Transport (documentation-only base)
@@ -100,13 +107,12 @@ class StdioTransport:
         # FileIO that select.poll() accepts.
         self._stdin = stdin if stdin is not None else sys.stdin
         self._stdout = stdout if stdout is not None else sys.stdout
-        self._closed = False
-        # Buffer accumulating partial lines from non-blocking reads.
-        # Always bytes on linux (we read from .buffer); always str on
-        # CPython tests that pass a text-mode StringIO.
-        self._buf = None
-        # Pre-resolved fd-like object to poll on; None if we're falling
-        # back to a blocking readline.
+        # Shared state for the MicroPython recv generator: ``[buf,
+        # closed_flag]``.  The generator mutates these in place across
+        # yields.
+        self._state = [b"", False]
+        # Pre-resolved fd-like object to poll on; None if we are
+        # falling back to a blocking readline.
         self._poll_target = None
         self._init_poll_target()
 
@@ -135,96 +141,49 @@ class StdioTransport:
         except (OSError, NotImplementedError, TypeError):
             return
         self._poll_target = target
-        self._buf = b"" if hasattr(self._stdin, "buffer") else ""
 
     async def recv(self):
-        while not self._closed:
-            line = await self._readline()
-            if line is None or line == "" or line == b"":
-                return None
-            # Normalise to str for json.loads.
-            if isinstance(line, bytes):
-                try:
-                    line = line.decode("utf-8")
-                except UnicodeError as e:
-                    sys.stderr.write(
-                        "picolet: non-utf8 bytes on stdin: " + str(e) + "\n"
-                    )
-                    continue
-            line = line.strip()
-            if not line:
-                # Blank line — skip without warning.
-                continue
-            try:
-                return json.loads(line)
-            except (ValueError, Exception) as e:
-                # Catching Exception too because MicroPython's json raises
-                # SyntaxError-ish or ValueError depending on input; in either
-                # case the framing of this line is unrecoverable.
-                sys.stderr.write(
-                    "picolet: malformed JSON on stdin: " + str(e) + "\n"
-                )
-                continue
-        return None
-
-    async def _readline(self):
-        if self._poll_target is not None:
-            return await self._readline_async()
+        if self._state[1]:
+            return None
+        if self._poll_target is not None and _IS_MICROPYTHON:
+            # MicroPython: delegate to the generator-coroutine in
+            # _stdio_mp.  ``await`` on a generator-coroutine is the
+            # standard MicroPython asyncio pattern (see how
+            # extmod/asyncio/stream.py composes Stream.readline with
+            # async def callers).  CPython rejects ``return <value>``
+            # inside a generator-based coroutine at compile time, so
+            # that path lives in its own module that CPython never
+            # imports.
+            from . import _stdio_mp
+            return await _stdio_mp.recv_loop(self._poll_target, self._state)
         # Blocking fallback — used on the windows port and in CPython
         # tests where the user passed a non-pollable file-like.
-        return await self._readline_blocking()
+        return await self._recv_blocking()
 
-    async def _readline_async(self):
-        # Mirror extmod/asyncio/stream.py:Stream.readline — yield on the
-        # io queue, then drain the fd's readline (which is non-blocking
-        # once poll has signalled readable, per the FileIO semantics on
-        # the unix port).
-        from asyncio.core import _io_queue
-        s = self._poll_target
-        buf = self._buf
-        empty = b"" if isinstance(buf, (bytes, bytearray)) else ""
-        nl = b"\n" if isinstance(buf, (bytes, bytearray)) else "\n"
-        while True:
-            # Look for an already-buffered complete line.
-            i = buf.find(nl)
-            if i >= 0:
-                line = buf[: i + 1]
-                self._buf = buf[i + 1 :]
-                return line
-            # No newline buffered — wait for more data.
-            try:
-                yield _io_queue.queue_read(s)
-            except Exception:
-                # If the loop tore down our queue entry, treat as EOF.
-                self._buf = empty
-                return empty
-            try:
-                chunk = s.readline()
-            except (OSError, ValueError):
-                self._buf = empty
-                return empty
-            if chunk is None:
-                # Non-blocking read returned "no data right now"; loop.
-                continue
-            if chunk == empty:
-                # EOF.  Emit any partial line we had buffered, then
-                # subsequent calls return empty.
-                if buf:
-                    self._buf = empty
-                    return buf
-                return empty
-            buf += chunk
-
-    async def _readline_blocking(self):
-        # Falls back to a synchronous readline.  Yields to the loop once
-        # so the dispatcher can still cooperate with other tasks
-        # *between* messages — but a single readline is blocking.  This
-        # branch is only hit on the windows port (no select.poll) and
-        # in CPython tests that pass an unpollable StringIO.
+    async def _recv_blocking(self):
         if _HAVE_ASYNCIO:
             await asyncio.sleep(0)
         line = self._stdin.readline()
-        return line
+        if not line:
+            return None
+        if isinstance(line, bytes):
+            try:
+                line = line.decode("utf-8")
+            except UnicodeError as e:
+                sys.stderr.write(
+                    "picolet: non-utf8 bytes on stdin: " + str(e) + "\n"
+                )
+                return await self.recv()
+        line = line.strip()
+        if not line:
+            return await self.recv()
+        try:
+            return json.loads(line)
+        except (ValueError, Exception) as e:
+            sys.stderr.write(
+                "picolet: malformed JSON on stdin: " + str(e) + "\n"
+            )
+            return await self.recv()
 
     async def send(self, msg):
         # No ``await`` inside the body — keeps the on-the-wire framing
@@ -241,7 +200,7 @@ class StdioTransport:
             pass
 
     async def close(self):
-        self._closed = True
+        self._state[1] = True
 
 
 # ---------------------------------------------------------------------------
