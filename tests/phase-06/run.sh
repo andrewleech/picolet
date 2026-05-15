@@ -29,7 +29,7 @@ PKG_ROOT="$REPO_ROOT/packages/picolet-runtime"
 LINUX_RUNTIME="$PKG_ROOT/build/picolet-runtime-linux-x64-cli"
 WINDOWS_RUNTIME="$PKG_ROOT/build/picolet-runtime-windows-x64-cli.exe"
 PICOLET_PYTHON="$PKG_ROOT/python"
-UNIT_TEST="$PKG_ROOT/tests/phase-06/test_dispatcher.py"
+UNIT_TEST="$SCRIPT_DIR/test_dispatcher.py"
 
 # ---------------------------------------------------------------------------
 # Options
@@ -352,6 +352,88 @@ if [[ "$B8_CHECK" == "extra= set() missing= set()" ]]; then
     pass "$NAME"
 else
     fail "$NAME" "key audit failed: $B8_CHECK; reply=$B8_OUT"
+fi
+
+# B9 — large JSON payload (100 KB) survives a stdio round-trip.
+NAME="B9 stdio-large-payload-roundtrip"
+APP_ECHO_BIG='
+import picolet
+@picolet.command
+async def echo_big(args):
+    return args
+picolet.run()
+'
+# Build a 100 KB string payload as a JSON request.
+B9_PAYLOAD="$(python3 -c "import json; print(json.dumps({'id':1,'cmd':'echo_big','args':'x'*102400}))")"
+B9_OUT="$(printf '%s\n' "$B9_PAYLOAD" | "$LINUX_RUNTIME" -c "$APP_ECHO_BIG" 2>"$WORKDIR/b9_err.log" || true)"
+B9_CHECK="$(python3 -c "
+import json
+reply = json.loads('''$B9_OUT''')
+expected = 'x' * 102400
+print('ok' if reply.get('ok') and reply.get('result') == expected else 'FAIL: result mismatch or ok=false')
+" 2>&1)"
+if [[ "$B9_CHECK" == "ok" ]]; then
+    pass "$NAME"
+else
+    fail "$NAME" "large-payload check: $B9_CHECK; stderr=$(cat "$WORKDIR/b9_err.log")"
+fi
+
+# B10 — non-async function passed to @picolet.command raises TypeError in the runtime.
+NAME="B10 runtime-non-async-command-rejected"
+B10_OUT="$("$LINUX_RUNTIME" -c '
+import picolet, sys
+try:
+    @picolet.command
+    def not_async(args):
+        return args
+    print("no-error")
+except TypeError as e:
+    print("TypeError")
+' 2>&1)"
+if [[ "$B10_OUT" == "TypeError" ]]; then
+    pass "$NAME"
+else
+    fail "$NAME" "expected TypeError; got: $B10_OUT"
+fi
+
+# B11 — two subscribers on the same topic both receive the event.
+# The app registers two subscribers, receives one event from stdin, prints
+# the count, then exits cleanly.  We keep stdin open until the app replies
+# via stdout (which it does after printing the count).
+NAME="B11 stdio-multi-subscriber-both-receive"
+APP_MULTI_SUB='
+import picolet, asyncio
+received = []
+def h1(data): received.append(1)
+def h2(data): received.append(2)
+picolet.on("tick", h1)
+picolet.on("tick", h2)
+
+@picolet.command
+async def check(args):
+    # By the time this command handler runs, the earlier event has already
+    # been dispatched to h1 and h2 synchronously within the same recv loop.
+    return len(received)
+
+picolet.run()
+'
+# Send the event then immediately a check command; the command reply tells
+# us how many subscribers were called.
+B11_STDIN=$'{"event":"tick","data":1}\n{"id":1,"cmd":"check","args":null}\n'
+B11_OUT="$(printf '%s' "$B11_STDIN" | "$LINUX_RUNTIME" -c "$APP_MULTI_SUB" 2>"$WORKDIR/b11_err.log" || true)"
+# The reply may be the only line; check that result == 2.
+B11_CHECK="$(python3 -c "
+import json
+for line in '''$B11_OUT'''.strip().splitlines():
+    m = json.loads(line)
+    if m.get('id') == 1:
+        print(m.get('result'))
+        break
+" 2>&1)"
+if [[ "$B11_CHECK" == "2" ]]; then
+    pass "$NAME"
+else
+    fail "$NAME" "expected result=2; got check=$B11_CHECK; output=$(printf '%q' "$B11_OUT"); stderr=$(cat "$WORKDIR/b11_err.log")"
 fi
 
 echo
