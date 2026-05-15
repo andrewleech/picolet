@@ -146,3 +146,9 @@
 // ioctl inline in main.c, not in a separate vfs_rom_ioctl.c.
 // MICROPY_VFS_ROM and MICROPY_VFS_ROM_IOCTL are already 1 from the
 // common header (lines 119–120); leave them.
+
+// Enable append-at-end romfs trailer detection (FR-BP-5, PH03).
+// Causes load_romfs_image() to first call picolet_load_romfs_trailer()
+// and fall back to the linked romfs only on miss.
+// Implementation in variants/picolet-cli/romfs_trailer.{c,h}.
+#define MICROPY_VFS_ROM_TRAILER (1)
