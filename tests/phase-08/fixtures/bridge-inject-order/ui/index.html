@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>PH08 InjectOrder</title></head>
+<body>
+<script>
+  // Gate 10: this <script> runs after DOCUMENT_START injection.
+  // If window.picolet is already defined, the bridge was injected in time.
+  var event = (typeof window.picolet === "object") ? "ready" : "missing";
+  window.webkit.messageHandlers.picolet.postMessage(
+    JSON.stringify({ event: event, data: {} })
+  );
+</script>
+</body>
+</html>

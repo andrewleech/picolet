@@ -1,0 +1,21 @@
+# PH08 gate-10 fixture: verify picolet-bridge-js is injected at DOCUMENT_START.
+# The page's first <script> immediately checks typeof window.picolet === "object"
+# and posts back the result.  Python asserts the result and prints the gate token.
+
+[app]
+name = "bridge-inject-order"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[window]
+title = "PH08 InjectOrder"
+size = [640, 480]
+resizable = false
+
+[romfs]
+include = ["ui"]

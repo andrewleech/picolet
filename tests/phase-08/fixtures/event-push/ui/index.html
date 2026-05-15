@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>PH08 EventPush</title></head>
+<body>
+<script>
+  // Gate 12: register a handler for "tick" before signalling readiness.
+  window.picolet.on("tick", function(data) {
+    // Echo the event data back to Python.
+    window.webkit.messageHandlers.picolet.postMessage(
+      JSON.stringify({ event: "tick-echo", data: data })
+    );
+  });
+
+  // Signal the Python side that the page is ready and the handler is registered.
+  window.webkit.messageHandlers.picolet.postMessage(
+    JSON.stringify({ event: "page-ready", data: {} })
+  );
+</script>
+</body>
+</html>

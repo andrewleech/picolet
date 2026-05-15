@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>PH08 InvokeRoundtrip</title></head>
+<body>
+<script>
+  // Gate 11 + 13: invoke greet (success) and boom (error) in parallel,
+  // post results back to Python via postMessage.
+  (async function() {
+    // Gate 11: successful invoke.
+    try {
+      var val = await window.picolet.invoke("greet", { name: "World" });
+      window.webkit.messageHandlers.picolet.postMessage(
+        JSON.stringify({ event: "result", data: { value: val } })
+      );
+    } catch (e) {
+      window.webkit.messageHandlers.picolet.postMessage(
+        JSON.stringify({ event: "result", data: { error: e.message } })
+      );
+    }
+
+    // Gate 13: error propagation.
+    try {
+      await window.picolet.invoke("boom");
+      window.webkit.messageHandlers.picolet.postMessage(
+        JSON.stringify({ event: "err", data: { unexpected: "no error" } })
+      );
+    } catch (e) {
+      window.webkit.messageHandlers.picolet.postMessage(
+        JSON.stringify({ event: "err", data: { name: e.name, message: e.message } })
+      );
+    }
+  })();
+</script>
+</body>
+</html>

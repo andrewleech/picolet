@@ -1,0 +1,21 @@
+# PH08 gate-12 fixture: Python picolet.emit -> JS window.picolet.on round-trip.
+# Python emits {event:"tick", data:{n:1}}.  JS handler posts an echo back.
+# Python asserts the echo arrived and prints PICOLET_WV_EVENT_OK.
+
+[app]
+name = "event-push"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[window]
+title = "PH08 EventPush"
+size = [640, 480]
+resizable = false
+
+[romfs]
+include = ["ui"]

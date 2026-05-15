@@ -1,0 +1,21 @@
+# PH08 gates 11 and 13 fixture: invoke round-trip and error propagation.
+# Python registers 'greet' (returns "Hello, <name>") and 'boom' (raises ValueError).
+# JS invokes both, posts results back.  Python asserts and prints gate tokens.
+
+[app]
+name = "invoke-roundtrip"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[window]
+title = "PH08 InvokeRoundtrip"
+size = [640, 480]
+resizable = false
+
+[romfs]
+include = ["ui"]
