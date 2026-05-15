@@ -579,7 +579,38 @@ Spec items PH01 explicitly does not close:
 
 ## Implementation
 
-(scrum-developer fills in.)
+### Files created
+
+| File | Notes |
+|---|---|
+| `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/mpconfigvariant.h` | Variant feature config. Uses EXTRA_FEATURES base (CORE_FEATURES breaks unix_mphal.c — see caveat commit). #undef+#define pattern for post-include overrides (avoids -Werror=redefined). Disables machine, websocket, REPL extras, mem stats, hashlib, deflate, ssl, micropython.mem_info. Enables GC split heap. |
+| `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/mpconfigvariant.mk` | Enables MICROPY_PY_FFI=1, MICROPY_STANDALONE=1. Disables SSL (mpconfigport.mk enables it by default). Points FROZEN_MANIFEST at PICOLET_RUNTIME_ROOT/manifests/manifest_cli.py. |
+| `packages/picolet-runtime/manifests/manifest_cli.py` | Frozen manifest. Uses include("$(MPY_DIR)/extmod/asyncio") — asyncio is in extmod not micropython-lib in this MicroPython version. Uses require("os-path") from micropython-lib/python-stdlib. |
+| `packages/picolet-runtime/scripts/build-runtime.sh` | Parameterised build orchestrator. Separate deplibs make call before main build (LIBFFI_CFLAGS is evaluated at make parse time). Copies romfs to /tmp with hyphen-free path to avoid objcopy symbol rename mismatch. |
+| `packages/picolet-runtime/tests/phase-01/test_romfs/main.py` | Gate-4 fixture: `print("ok"); sys.exit(0)`. |
+| `packages/picolet-runtime/tests/phase-01/test_romfs_no_frozen/main.py` | Gate-11 fixture: `print("ok-from-rom"); sys.exit(0)`. |
+
+### Deviations from plan
+
+| Item | Deviation | Rationale |
+|---|---|---|
+| ROM level | Plan says CORE_FEATURES; implementation uses EXTRA_FEATURES. | CORE_FEATURES disables MICROPY_KBD_EXCEPTION, which unix_mphal.c depends on unconditionally when MICROPY_ASYNC_KBD_INTR=1. See `[PH01] Caveat: CORE_FEATURES breaks unix port builds` commit. |
+| asyncio manifest | Plan uses `require("asyncio")`; implementation uses `include("$(MPY_DIR)/extmod/asyncio")`. | asyncio is in extmod in this MicroPython version, not micropython-lib. See `[PH01] Note: asyncio is in extmod` commit. |
+| MICROPY_PY_SSL | Not listed in plan; added to mpconfigvariant.mk. | mpconfigport.mk enables SSL by default; it pulls in mbedtls which fails to compile at EXTRA_FEATURES (mp_obj_memoryview_init usage). |
+| MICROPY_PY_MICROPYTHON_MEM_INFO | Not listed in plan; set to 0 in variant header. | main.c:915 uses mp_verbose_flag inside this guard; mp_verbose_flag is only defined with MICROPY_DEBUG_PRINTERS=1, which we disable. |
+| deplibs make step | Not in plan; added as a separate make invocation before main build. | LIBFFI_CFLAGS evaluated at make parse time; libffi must be built before make starts the compile step. |
+| romfs staging in /tmp | Not in plan. | Hyphenated `picolet-runtime` in the path causes objcopy symbol rename to fail silently. See caveat commit. |
+
+### Gate 5 API note
+
+The phase plan's gate-5 verification command uses `gc.add_heap(bytearray(4096))`. PR #41 implements `gc.add_heap(nbytes: int)` — it allocates from the system and adds to the GC. The correct call is `gc.add_heap(4096)`. SQE test fixtures should use the integer API. See `[PH01] Note: gc.add_heap API takes int` commit.
+
+### Build result
+
+- Binary: `packages/picolet-runtime/build/picolet-runtime-linux-x64-cli`
+- Size: 620,848 bytes stripped (59% of NFR-1 ceiling of 1,048,576 bytes)
+- Compiler kept ON (no NFR-1 pressure at 59% usage)
+- All gates 2–13 pass except gate-5 requires the corrected integer API
 
 ## Tests
 
