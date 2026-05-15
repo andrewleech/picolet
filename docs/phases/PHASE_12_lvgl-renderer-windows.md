@@ -34,24 +34,30 @@ The phase closes the following requirements from
 
 ### Architecture decisions
 
-#### AD1 — SDL2 acquisition: MXE prebuilt package via `make -C /usr/src/mxe sdl2`
+#### AD1 — SDL2 acquisition: from-source CMake build with `-ffunction-sections`
 
 Three options were examined:
 
 | Option | Description | Verdict |
 |---|---|---|
-| **A: MXE build inside dockcross (chosen)** | The dockcross/windows-static-x64-posix image ships MXE at `/usr/src/mxe` with a complete `sdl2.mk` recipe (SDL2 2.26.2). Running `make -C /usr/src/mxe sdl2 MXE_TARGETS=x86_64-w64-mingw32.static.posix` inside the container builds SDL2 once and deposits headers at `/usr/src/mxe/usr/x86_64-w64-mingw32.static.posix/include/SDL2/` and a static archive at `.../lib/libSDL2.a`. The output persists across container runs because `build-runtime.sh` bind-mounts the repo but `/usr/src/mxe` is inside the container — so the MXE SDL2 build is **one-time per fresh container pull** and is gated by checking whether `libSDL2.a` exists before re-running. | **Selected.** All toolchain state is self-contained inside the dockcross image family. No vendored blobs in the repo. Offline-capable once the container is pulled. The `--user` flag on the dockcross run normally drops write access to `/usr/src/mxe`; PH12's `build-runtime.sh` drops the `--user` override only for the one-time MXE build step by running it as root inside the container. |
-| **B: Download SDL2-devel-2.x.x-mingw.tar.gz** | Download the official MinGW prebuilt archive from `github.com/libsdl-org/SDL/releases`. Extract headers and `libSDL2.a` into `$PKG_ROOT/build/sdl2-win64/`. The archive ships `x86_64-w64-mingw32/lib/libSDL2.a` (static) and `bin/SDL2.dll` (runtime). | **Fallback.** Works without MXE, but adds a network fetch with a pinned hash to the build script, or requires the developer to pre-place the archive. Option A is cleaner for CI reproducibility since the container already has the recipe. |
-| **C: Build SDL2 from source in dockcross** | Fetch SDL2 source tarball, configure with `--host=x86_64-w64-mingw32.static.posix`, `make install` into `$PKG_ROOT/build/sdl2-win64/`. Matches how libffi is built for the cli variant. | **Rejected.** SDL2's autoconf chain is more complex than libffi's and has historically needed patches in cross-compile environments. Option A is strictly better (MXE handles the patches). |
+| **A: MXE build inside dockcross** | The dockcross/windows-static-x64-posix image ships MXE at `/usr/src/mxe` with a complete `sdl2.mk` recipe. Running `make -C /usr/src/mxe sdl2` inside the container builds SDL2. The output lives inside the container layer and does not persist to the host. | **Rejected (NFR-3).** The MXE-built `libSDL2.a` is compiled without `-ffunction-sections`, so `--gc-sections` at link time cannot eliminate unused SDL2 functions. The resulting binary was 3.08 MiB, violating NFR-3's 2 MiB ceiling. |
+| **B: Download SDL2-devel-2.x.x-mingw.tar.gz** | Download the official MinGW prebuilt archive from `github.com/libsdl-org/SDL/releases`. | **Rejected (NFR-3).** Same issue: the prebuilt archive also lacks `-ffunction-sections`. |
+| **C: Build SDL2 from source in dockcross (chosen)** | Fetch SDL2 2.26.2 source tarball (SHA-256 pinned), configure with MXE's cmake wrapper (`x86_64-w64-mingw32.static.posix-cmake`), `-ffunction-sections -fdata-sections -Os`, disable unused subsystems (audio, joystick, haptic, sensor, HIDAPI, power, DirectX, D3D, OpenGL, locale, misc), install into `build/sdl2-win64-ffs/`. Cache by source SHA stamp. | **Selected.** Enables per-function `--gc-sections` dead-code elimination at final link. Result: 2,078,208 bytes (1.98 MiB), meeting NFR-3. SDL2's CMake cross-compile with MXE's wrapper is straightforward — no custom patches needed. |
 
 **Static vs dynamic linkage.** SDL2 is zlib-licensed; static linkage does not
 violate NFR-5. On Windows the dynamic-link path requires shipping `SDL2.dll`
 alongside the `.exe` — manageable but adds complexity. Static link (`libSDL2.a`
-from MXE) produces a single self-contained `.exe` with no DLL dependency on
+from source build) produces a single self-contained `.exe` with no DLL dependency on
 SDL2, which is simpler and more consistent with the rest of the Windows build
-(libffi and libmicropython are also statically linked). The MXE recipe builds
-SDL2 in static mode by default for the `.static.posix` MXE target. **PH12
-statically links SDL2.**
+(libffi and libmicropython are also statically linked). **PH12 statically links SDL2.**
+
+**Icon overlay (NFR-3 remediation).** MicroPython's upstream `micropython.rc`
+embeds `vector-logo-2.ico` (170 KB), which windres packs into the PE `.rsrc`
+section. Even after all SDL2 subsystem pruning, this icon added 167 KB and kept
+the binary above NFR-3. An overlay file at
+`overlay/ports/windows/micropython.rc` replaces the icon with a minimal
+`VS_VERSION_INFO` resource (no icon), recovering 167 KB. The icon is cosmetic
+and has no effect on runtime behavior.
 
 NFR-5 is satisfied: SDL2 is zlib-licensed, statically linked. NFR-9 is
 satisfied: static MinGW build targets Windows 10+.
