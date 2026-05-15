@@ -108,3 +108,14 @@
 #define MICROPY_PY_SYS_ATEXIT               (0)
 
 // Keep json, re, heapq, random ON (asyncio and stdlib patterns depend on them).
+
+// select module: required by asyncio/core.py ("import select").
+// The Windows port defaults to MICROPY_CONFIG_ROM_LEVEL_CORE_FEATURES which
+// does not include select (it needs AT_LEAST_EXTRA_FEATURES).  Enable explicitly.
+#define MICROPY_PY_SELECT                   (1)
+
+// asyncio C module (_asyncio): provides TaskQueue and Task natively.
+// The frozen asyncio manifest (extmod/asyncio/manifest.py) omits task.py
+// because it assumes the C module is present.  Without this, asyncio/core.py
+// falls back to "from .task import ..." which fails since task.py is not frozen.
+#define MICROPY_PY_ASYNCIO                  (1)
