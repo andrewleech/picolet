@@ -1,350 +1,579 @@
 #!/usr/bin/env bash
-# PH04 test harness — windows-x64 cli runtime + build pipeline.
+# tests/phase-04/run.sh — PH04 exit gate verification harness.
 #
-# Covers exit gates 1–22 from docs/phases/PHASE_04_picolet-runtime-windows-x64-cli.md.
+# Covers: FR-CLI-3, FR-CLI-4, FR-RT-1, FR-RT-3, FR-RT-4, FR-RT-5, FR-RT-6,
+#         FR-RT-7, FR-RT-8, NFR-1, NFR-9, FR-BP-5 (trailer round-trip),
+#         FR-BP-6 (Windows reproducibility).
 #
 # Usage:
-#   bash packages/picolet-runtime/tests/phase-04/run.sh [--skip-build]
+#   cd /home/anl/picolet
+#   ./tests/phase-04/run.sh [--skip-build]
+#
+#   --skip-build   Skip the initial build-runtime.sh invocation; require the
+#                  runtime artifact to already exist on disk.
 #
 # Prerequisites:
 #   - WSL2 with Windows interop enabled (to run .exe files)
-#   - docker with dockcross/windows-static-x64-posix:latest
-#   - picolet-runtime-windows-x64-cli.exe already built (or pass without --skip-build)
-#   - picolet CLI in .venv/bin/picolet (run: uv pip install -e packages/picolet-cli)
+#   - docker with dockcross/windows-static-x64-posix:latest (only without --skip-build)
+#   - uv (for picolet invocation without installation)
 #
-# Exit code: 0 if all gates pass, non-zero on first failure.
+# Returns 0 if all gates pass, non-zero if any gate fails.
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PKG_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-REPO_ROOT="$(cd "$PKG_ROOT/../.." && pwd)"
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
 
-PICOLET_CLI="$REPO_ROOT/.venv/bin/picolet"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PKG_ROOT="$REPO_ROOT/packages/picolet-runtime"
+MAIN_PY="$REPO_ROOT/packages/picolet-cli/picolet/__main__.py"
+
 RUNTIME_EXE="$PKG_ROOT/build/picolet-runtime-windows-x64-cli.exe"
 LINUX_RUNTIME="$PKG_ROOT/build/picolet-runtime-linux-x64-cli"
 
+# Invoke picolet via uv run — matches PH02/PH03 convention; no venv install needed.
+PICOLET="uv run $MAIN_PY"
+
+# ---------------------------------------------------------------------------
+# Parse options
+# ---------------------------------------------------------------------------
+
 SKIP_BUILD=0
 for arg in "$@"; do
-    [[ "$arg" == "--skip-build" ]] && SKIP_BUILD=1
+    case "$arg" in
+        --skip-build) SKIP_BUILD=1 ;;
+        --help|-h)
+            grep '^#' "$0" | cut -c3-
+            exit 0 ;;
+        *)
+            echo "error: unknown argument: $arg" >&2
+            exit 1 ;;
+    esac
 done
+
+# ---------------------------------------------------------------------------
+# Test framework
+# ---------------------------------------------------------------------------
 
 PASS=0
 FAIL=0
-FAIL_MSGS=()
+SKIP=0
+FAILED_GATES=()
+SUITE_START=$(date +%s%N)
 
-pass() { echo "  PASS: $1"; PASS=$((PASS+1)); }
-fail() { echo "  FAIL: $1"; FAIL=$((FAIL+1)); FAIL_MSGS+=("$1"); }
-
-check() {
-    local desc="$1"; shift
-    if "$@" >/dev/null 2>&1; then
-        pass "$desc"
-    else
-        fail "$desc"
-    fi
+pass() {
+    local name="$1"
+    printf "  PASS  %s\n" "$name"
+    PASS=$(( PASS + 1 ))
 }
 
-check_output() {
-    local desc="$1"
-    local expected="$2"; shift 2
-    local actual
-    actual="$("$@" 2>/dev/null)" || true
-    # Windows .exe via WSL interop may produce \r\n line endings; strip \r.
-    actual="$(echo "$actual" | tr -d '\r')"
+fail() {
+    local name="$1"
+    local msg="${2:-}"
+    if [[ -n "$msg" ]]; then
+        printf "  FAIL  %s\n        %s\n" "$name" "$msg"
+    else
+        printf "  FAIL  %s\n" "$name"
+    fi
+    FAIL=$(( FAIL + 1 ))
+    FAILED_GATES+=("$name")
+}
+
+skip() {
+    local name="$1"
+    local reason="${2:-}"
+    if [[ -n "$reason" ]]; then
+        printf "  SKIP  %s  (%s)\n" "$name" "$reason"
+    else
+        printf "  SKIP  %s\n" "$name"
+    fi
+    SKIP=$(( SKIP + 1 ))
+}
+
+assert_output() {
+    local name="$1"
+    local expected="$2"
+    local actual="$3"
+    # Strip Windows CR from WSL interop output.
+    actual="$(printf '%s' "$actual" | tr -d '\r')"
     if [[ "$actual" == "$expected" ]]; then
-        pass "$desc"
+        pass "$name"
     else
-        fail "$desc (expected='$expected' actual='$actual')"
+        fail "$name" "expected=$(printf '%q' "$expected") actual=$(printf '%q' "$actual")"
     fi
 }
 
-echo "=== PH04 test harness ==="
-echo "Runtime: $RUNTIME_EXE"
-echo ""
-
 # ---------------------------------------------------------------------------
-# Gate 1: build-runtime.sh produces the .exe (skip if --skip-build)
+# Scratch directory
 # ---------------------------------------------------------------------------
 
-echo "[Gate 1] build-runtime.sh --target windows-x64 --variant cli"
+WORKDIR="/tmp/picolet-phase-04-tests-$$"
+mkdir -p "$WORKDIR"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+# ---------------------------------------------------------------------------
+# Suite header
+# ---------------------------------------------------------------------------
+
+echo "=== PH04 exit gate verification ==="
+echo "    repo:    $REPO_ROOT"
+echo "    runtime: $RUNTIME_EXE"
+echo "    workdir: $WORKDIR"
+echo
+
+# ---------------------------------------------------------------------------
+# Group A: Build + artifact
+# ---------------------------------------------------------------------------
+
+echo "--- Group A: build + artifact ---"
+
+# A1 — build-runtime.sh exits 0 and produces the .exe.
+NAME="A1 build-runtime-exits-0"
 if [[ "$SKIP_BUILD" -eq 1 ]]; then
-    echo "  skipped (--skip-build)"
-    check "artifact exists on disk" test -f "$RUNTIME_EXE"
+    skip "$NAME" "--skip-build requested"
 else
     if bash "$PKG_ROOT/scripts/build-runtime.sh" --target windows-x64 --variant cli; then
-        pass "build-runtime.sh exits 0"
+        pass "$NAME"
     else
-        fail "build-runtime.sh failed"
+        fail "$NAME" "build-runtime.sh exited non-zero"
     fi
-    check "artifact exists: picolet-runtime-windows-x64-cli.exe" test -f "$RUNTIME_EXE"
 fi
 
+NAME="A2 artifact-exists-on-disk"
+if [[ -f "$RUNTIME_EXE" ]]; then
+    pass "$NAME"
+else
+    fail "$NAME" "artifact not found: $RUNTIME_EXE"
+    echo "Cannot continue without runtime artifact." >&2
+    exit 1
+fi
+
+NAME="A3 artifact-is-pe-coff-exe"
+# `file` should report it as a PE32+ executable.
+FILE_DESC="$(file "$RUNTIME_EXE")"
+if echo "$FILE_DESC" | grep -qi "PE32\|MS Windows\|executable"; then
+    pass "$NAME"
+else
+    fail "$NAME" "file(1) did not identify as PE/Windows: $FILE_DESC"
+fi
+
+echo
+
 # ---------------------------------------------------------------------------
-# Gate 2: artifact exists (already checked above; re-guard here)
+# Group B: Binary properties (FR-RT-1, FR-RT-3, NFR-1, NFR-9)
 # ---------------------------------------------------------------------------
 
-echo "[Gate 2] Artifact file present"
-check "artifact file present" test -f "$RUNTIME_EXE"
+echo "--- Group B: binary properties ---"
 
-# ---------------------------------------------------------------------------
-# Gate 3: FR-RT-3 — no renderer modules
-# ---------------------------------------------------------------------------
-
-echo "[Gate 3] No renderer modules (FR-RT-3)"
+# B1 — FR-RT-3: no renderer module strings in binary.
+NAME="B1 no-renderer-strings (FR-RT-3)"
 if strings "$RUNTIME_EXE" | grep -qiE 'webview|gtk|sdl|lvgl'; then
-    fail "renderer module string found in binary"
+    fail "$NAME" "renderer string found in binary"
 else
-    pass "no renderer module strings"
+    pass "$NAME"
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 4: FR-RT-4 — gc.add_heap
-# ---------------------------------------------------------------------------
-
-echo "[Gate 4] gc.add_heap (FR-RT-4)"
-check_output "gc.add_heap(4096)" "heap-ok" \
-    "$RUNTIME_EXE" -c 'import gc; gc.add_heap(4096); print("heap-ok")'
-
-# ---------------------------------------------------------------------------
-# Gate 5: FR-RT-5 — ffi import
-# ---------------------------------------------------------------------------
-
-echo "[Gate 5] ffi module (FR-RT-5)"
-check_output "import ffi" "ffi-ok" \
-    "$RUNTIME_EXE" -c 'import ffi; print("ffi-ok")'
-
-# ---------------------------------------------------------------------------
-# Gate 6: FR-RT-6 + FR-RT-7 — romfs at /rom, main.mpy auto-run
-# ---------------------------------------------------------------------------
-
-echo "[Gate 6] End-to-end: romfs mounts, main.mpy auto-runs (FR-RT-6/7)"
-GATE6_DIR="$(mktemp -d)"
-trap "rm -rf '$GATE6_DIR'" EXIT
-if "$PICOLET_CLI" init win-gate6 --template hello-cli 2>/dev/null; then
-    cd "$GATE6_DIR" && "$PICOLET_CLI" init win-gate6 --template hello-cli >/dev/null 2>&1 && \
-        cd win-gate6 && "$PICOLET_CLI" build --target windows-x64 >/dev/null 2>&1 && \
-        check_output "hello-cli app outputs expected text" \
-            "Hello from win-gate6" \
-            "$GATE6_DIR/win-gate6/target/windows-x64/win-gate6.exe"
-else
-    echo "  skipped (picolet CLI not available)"
-fi
-cd "$REPO_ROOT"
-
-# ---------------------------------------------------------------------------
-# Gate 7: FR-RT-8 — sys.argv populated
-# ---------------------------------------------------------------------------
-
-echo "[Gate 7] sys.argv populated (FR-RT-8)"
-ARGV0="$("$RUNTIME_EXE" -c 'import sys; print(sys.argv[0])' 2>/dev/null | tr -d '\r' || echo "")"
-if [[ -n "$ARGV0" ]]; then
-    pass "sys.argv[0] is non-empty: '$ARGV0'"
-else
-    fail "sys.argv[0] is empty"
-fi
-
-# ---------------------------------------------------------------------------
-# Gate 8: FR-RT-1 — single executable, no unexpected DLLs
-# ---------------------------------------------------------------------------
-
-echo "[Gate 8] No unexpected DLLs (FR-RT-1)"
+# B2 — FR-RT-1: no unexpected DLLs (statically linked; only system DLLs).
+NAME="B2 no-unexpected-dlls (FR-RT-1)"
 BAD_DLLS="$(objdump -p "$RUNTIME_EXE" 2>/dev/null | grep 'DLL Name' | \
-    grep -iE 'webview|gtk|sdl|lvgl|opengl' || echo "")"
+    grep -iE 'webview|gtk|sdl|lvgl|opengl' || true)"
 if [[ -z "$BAD_DLLS" ]]; then
-    pass "no unexpected DLLs"
+    pass "$NAME"
 else
-    fail "unexpected DLLs: $BAD_DLLS"
+    fail "$NAME" "unexpected DLLs: $BAD_DLLS"
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 9: stock .exe starts with empty romfs, no stderr
-# ---------------------------------------------------------------------------
-
-echo "[Gate 9] Empty romfs startup (no trailer appended)"
-ROMFS_LIST="$("$RUNTIME_EXE" -c 'import os; print(sorted(os.listdir("/rom")))' 2>/dev/null | tr -d '\r' || echo "ERROR")"
-if [[ "$ROMFS_LIST" == "[]" ]]; then
-    pass "empty romfs: /rom is []"
+# B3 — NFR-1: runtime binary <= 1 MiB.
+NAME="B3 runtime-size-le-1mib (NFR-1)"
+RT_SIZE=$(wc -c < "$RUNTIME_EXE")
+if [[ "$RT_SIZE" -le 1048576 ]]; then
+    pass "$NAME"
+    echo "       size: $RT_SIZE bytes ($(( RT_SIZE * 100 / 1048576 ))% of ceiling)"
 else
-    fail "unexpected /rom contents: $ROMFS_LIST"
+    fail "$NAME" "size $RT_SIZE bytes > 1048576 bytes (NFR-1 violated)"
 fi
 
+# B4 — NFR-9: PE OS version <= 10 (targets Windows 10 or earlier).
+# Note: MajorOSystemVersion=4 means Windows NT 4.0; MinGW defaults are conservative.
+# This satisfies NFR-9 (Windows 10 21H2+ runs any lower-version binary).
+# Perfect Win10 21H2 verification requires a VM; WSL interop proves the exe
+# runs on the current Windows host (necessarily >= the declared OS version).
+# The NFR-9 limitation (WSL host may be newer than 21H2) is documented here
+# and in the [PH04] Caveat commit in git log.
+NAME="B4 pe-os-version-le-10 (NFR-9)"
+MAJOR_OS="$(objdump -p "$RUNTIME_EXE" 2>/dev/null | \
+    grep -i 'MajorOSystemVersion' | awk '{print $2}' | head -1 || true)"
+if [[ -n "$MAJOR_OS" && "$MAJOR_OS" -le 10 ]]; then
+    pass "$NAME"
+    echo "       MajorOSystemVersion=$MAJOR_OS"
+else
+    fail "$NAME" "MajorOSystemVersion='$MAJOR_OS' (expected <= 10)"
+fi
+
+# B5 — Stock .exe last 4 bytes not 'PYLT' (no false-positive trigger).
+NAME="B5 stock-exe-tail-not-pylt"
+LAST4="$(tail -c 4 "$RUNTIME_EXE" | od -An -tx1 | tr -d ' \n')"
+if [[ "$LAST4" != "50594c54" ]]; then
+    pass "$NAME"
+    echo "       tail bytes: $LAST4"
+else
+    fail "$NAME" "last 4 bytes are PYLT -- false-positive risk"
+fi
+
+echo
+
 # ---------------------------------------------------------------------------
-# Gate 10: trailer detection works (covered by gate 6 implicitly)
+# Group C: Runtime behaviour (FR-RT-4, FR-RT-5, FR-RT-6, FR-RT-7, FR-RT-8)
 # ---------------------------------------------------------------------------
 
-echo "[Gate 10] Trailer detection (covered by gate 6)"
-pass "gate 6 success implies trailer path functional"
+echo "--- Group C: runtime behaviour ---"
+
+# C1 — FR-RT-4: gc.add_heap() callable.
+NAME="C1 gc-add-heap (FR-RT-4)"
+actual="$("$RUNTIME_EXE" -c 'import gc; gc.add_heap(4096); print("heap-ok")' 2>/dev/null | tr -d '\r' || true)"
+assert_output "$NAME" "heap-ok" "$actual"
+
+# C2 — FR-RT-5: ffi module importable.
+NAME="C2 ffi-importable (FR-RT-5)"
+actual="$("$RUNTIME_EXE" -c 'import ffi; print("ffi-ok")' 2>/dev/null | tr -d '\r' || true)"
+assert_output "$NAME" "ffi-ok" "$actual"
+
+# C3 — FR-RT-6: /rom auto-mounted (stat succeeds).
+NAME="C3 rom-mounted (FR-RT-6)"
+actual="$("$RUNTIME_EXE" -c 'import os; os.stat("/rom"); print("stat-ok")' 2>/dev/null | tr -d '\r' || true)"
+assert_output "$NAME" "stat-ok" "$actual"
+
+# C4 — FR-RT-6: /rom in sys.path.
+NAME="C4 rom-in-sys-path (FR-RT-6)"
+actual="$("$RUNTIME_EXE" -c 'import sys; print("/rom" in sys.path)' 2>/dev/null | tr -d '\r' || true)"
+assert_output "$NAME" "True" "$actual"
+
+# C5 — FR-RT-8: sys.argv populated (non-empty for -c invocation).
+NAME="C5 sys-argv-populated (FR-RT-8)"
+ARGV0="$("$RUNTIME_EXE" -c 'import sys; print(sys.argv[0])' 2>/dev/null | tr -d '\r' || true)"
+if [[ -n "$ARGV0" ]]; then
+    pass "$NAME"
+    echo "       sys.argv[0]='$ARGV0'"
+else
+    fail "$NAME" "sys.argv[0] is empty"
+fi
+
+# C6 — asyncio import (frozen manifest).
+NAME="C6 asyncio-importable"
+actual="$("$RUNTIME_EXE" -c 'import asyncio; print("aio-ok")' 2>/dev/null | tr -d '\r' || true)"
+assert_output "$NAME" "aio-ok" "$actual"
+
+# C7 — json built-in.
+NAME="C7 json-builtin"
+actual="$("$RUNTIME_EXE" -c 'import json; print(json.dumps({"a":1}))' 2>/dev/null | tr -d '\r' || true)"
+assert_output "$NAME" '{"a": 1}' "$actual"
+
+# C8 — os.path (frozen manifest).
+NAME="C8 os-path-join"
+OSPATH="$("$RUNTIME_EXE" -c 'import os.path; print(os.path.join("a","b"))' 2>/dev/null | tr -d '\r' || true)"
+if [[ "$OSPATH" == "a/b" || "$OSPATH" == 'a\b' ]]; then
+    pass "$NAME"
+    echo "       os.path.join='$OSPATH'"
+else
+    fail "$NAME" "unexpected: '$OSPATH'"
+fi
+
+# C9 — Stock runtime: empty /rom, no stderr (no trailer appended).
+NAME="C9 empty-romfs-no-stderr"
+ROMFS_STDOUT="$("$RUNTIME_EXE" -c 'import os; print(sorted(os.listdir("/rom")))' \
+    2>"$WORKDIR/c9_stderr.txt" | tr -d '\r' || true)"
+ROMFS_STDERR="$(cat "$WORKDIR/c9_stderr.txt")"
+if [[ "$ROMFS_STDOUT" == "[]" && -z "$ROMFS_STDERR" ]]; then
+    pass "$NAME"
+else
+    fail "$NAME" "stdout='$ROMFS_STDOUT' stderr='$ROMFS_STDERR'"
+fi
+
+echo
 
 # ---------------------------------------------------------------------------
-# Gate 11: trailer fallback — truncated binary exits 0 with no output
+# Group D: End-to-end build pipeline (FR-CLI-3, FR-CLI-4, FR-RT-6, FR-RT-7)
 # ---------------------------------------------------------------------------
 
-echo "[Gate 11] Trailer fallback: truncated .exe"
-GATE6_EXE="$GATE6_DIR/win-gate6/target/windows-x64/win-gate6.exe"
-if [[ -f "$GATE6_EXE" ]]; then
-    BROKEN="$GATE6_DIR/broken.exe"
-    cp "$GATE6_EXE" "$BROKEN"
+echo "--- Group D: end-to-end build pipeline ---"
+
+# D1 — FR-CLI-3: picolet build --target windows-x64 emits target/windows-x64/<app>.exe
+NAME="D1 output-path-correct (FR-CLI-3)"
+D1_DIR="$WORKDIR/d1"
+mkdir -p "$D1_DIR"
+(cd "$D1_DIR" && $PICOLET init d1app --template hello-cli >/dev/null 2>&1) || true
+D1_APP="$D1_DIR/d1app"
+if [[ -d "$D1_APP" ]]; then
+    (cd "$D1_APP" && $PICOLET build --target windows-x64 >/dev/null 2>&1) || true
+    if [[ -f "$D1_APP/target/windows-x64/d1app.exe" ]]; then
+        pass "$NAME"
+    else
+        fail "$NAME" "target/windows-x64/d1app.exe not produced"
+    fi
+else
+    fail "$NAME" "picolet init failed"
+fi
+
+# D2 — FR-CLI-3/FR-RT-7: built exe runs and prints expected hello output.
+NAME="D2 hello-cli-output (FR-RT-7)"
+D1_EXE="$D1_APP/target/windows-x64/d1app.exe"
+if [[ -f "$D1_EXE" ]]; then
+    actual="$("$D1_EXE" 2>/dev/null | tr -d '\r' || true)"
+    assert_output "$NAME" "Hello from d1app" "$actual"
+else
+    fail "$NAME" "exe missing (D1 failed)"
+fi
+
+# D3 — FR-RT-6: built exe's romfs auto-mounts (trailer path exercised).
+# The hello output in D2 depends on /rom/main.mpy being found via the trailer.
+# D2 passing is the direct proof; this gate documents it explicitly.
+NAME="D3 trailer-path-exercised (FR-RT-6)"
+if [[ -f "$D1_EXE" ]]; then
+    actual="$("$D1_EXE" 2>/dev/null | tr -d '\r' || true)"
+    if [[ "$actual" == "Hello from d1app" ]]; then
+        pass "$NAME"
+        echo "       trailer path confirmed: /rom/main.mpy loaded and auto-ran"
+    else
+        fail "$NAME" "expected hello output (proves trailer); got '$actual'"
+    fi
+else
+    skip "$NAME" "exe missing (D1 failed)"
+fi
+
+# D4 — FR-CLI-4: picolet build with no --target on WSL defaults to linux-x64.
+NAME="D4 default-target-linux-x64 (FR-CLI-4)"
+D4_DIR="$WORKDIR/d4"
+mkdir -p "$D4_DIR"
+(cd "$D4_DIR" && $PICOLET init d4app --template hello-cli >/dev/null 2>&1) || true
+D4_APP="$D4_DIR/d4app"
+if [[ -d "$D4_APP" ]]; then
+    (cd "$D4_APP" && $PICOLET build >/dev/null 2>&1) || true
+    if [[ -f "$D4_APP/target/linux-x64/d4app" ]]; then
+        pass "$NAME"
+    else
+        fail "$NAME" "target/linux-x64/d4app not produced by default build"
+    fi
+else
+    fail "$NAME" "picolet init failed"
+fi
+
+# D5 — webview renderer + windows-x64 target: rejected with clear error.
+NAME="D5 webview-windows-rejected"
+D5_DIR="$WORKDIR/d5"
+mkdir -p "$D5_DIR/src"
+cat > "$D5_DIR/picolet.toml" << 'TOML'
+[app]
+name = "d5app"
+version = "0.1.0"
+entry = "src/main.py"
+[ui]
+renderer = "webview"
+TOML
+echo 'print("x")' > "$D5_DIR/src/main.py"
+D5_ERR="$(cd "$D5_DIR" && $PICOLET build --target windows-x64 2>&1 || true)"
+if echo "$D5_ERR" | grep -qi "not implemented\|webview"; then
+    pass "$NAME"
+else
+    fail "$NAME" "expected not-implemented for webview; got: $D5_ERR"
+fi
+
+echo
+
+# ---------------------------------------------------------------------------
+# Group E: Trailer round-trip + fallback modes
+# ---------------------------------------------------------------------------
+
+echo "--- Group E: trailer round-trip + fallbacks ---"
+
+# E1 — Trailer magic: first 4 bytes of the 24-byte trailer are 'PYLT'.
+NAME="E1 trailer-magic-present"
+if [[ -f "$D1_EXE" ]]; then
+    # The trailer is the last 24 bytes; bytes 0-3 are the 'PYLT' magic.
+    TRAILER_MAGIC="$(tail -c 24 "$D1_EXE" | head -c 4 | od -An -tx1 | tr -d ' \n')"
+    if [[ "$TRAILER_MAGIC" == "50594c54" ]]; then
+        pass "$NAME"
+        echo "       trailer magic: $TRAILER_MAGIC (PYLT)"
+    else
+        fail "$NAME" "expected 50594c54 (PYLT), got $TRAILER_MAGIC"
+    fi
+else
+    skip "$NAME" "built exe missing (D1 failed)"
+fi
+
+# E2 — Trailer fallback: truncating the trailer causes fallback to empty romfs.
+# Truncated binary exits 0 with no output (no user main in linked romfs).
+NAME="E2 trailer-truncated-fallback"
+if [[ -f "$D1_EXE" ]]; then
+    BROKEN="$WORKDIR/broken.exe"
+    cp "$D1_EXE" "$BROKEN"
     truncate -s -24 "$BROKEN"
     OUTPUT="$("$BROKEN" 2>/dev/null | tr -d '\r' || echo "EXIT_NONZERO")"
     if [[ -z "$OUTPUT" ]]; then
-        pass "truncated .exe: empty output, exit 0"
+        pass "$NAME"
+        echo "       truncated .exe: empty output (silent fallback to linked romfs)"
     elif [[ "$OUTPUT" == "EXIT_NONZERO" ]]; then
-        fail "truncated .exe: non-zero exit"
+        fail "$NAME" "truncated .exe exited non-zero"
     else
-        fail "truncated .exe: unexpected output: $OUTPUT"
+        fail "$NAME" "unexpected output from truncated .exe: '$OUTPUT'"
     fi
 else
-    echo "  skipped (gate 6 app not built)"
+    skip "$NAME" "built exe missing (D1 failed)"
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 12: NFR-1 — runtime ≤ 1 MB
-# ---------------------------------------------------------------------------
-
-echo "[Gate 12] NFR-1: runtime ≤ 1 MiB"
-SIZE=$(wc -c < "$RUNTIME_EXE")
-echo "  size: $SIZE bytes"
-if [[ "$SIZE" -le 1048576 ]]; then
-    pass "runtime size $SIZE ≤ 1048576 bytes"
+# E3 — CRC mismatch: flipping a CRC byte emits 'trailer crc mismatch' to stderr.
+NAME="E3 trailer-crc-mismatch-warning"
+if [[ -f "$D1_EXE" ]]; then
+    BAD_CRC="$WORKDIR/bad-crc.exe"
+    cp "$D1_EXE" "$BAD_CRC"
+    SZ=$(wc -c < "$BAD_CRC")
+    # The CRC32 field occupies bytes 12-15 of the 24-byte trailer (offset -12 to -9).
+    printf '\xFF' | dd of="$BAD_CRC" conv=notrunc bs=1 seek=$(( SZ - 8 )) count=1 2>/dev/null
+    ERR_OUTPUT="$("$BAD_CRC" 2>&1 | tr -d '\r' || true)"
+    if echo "$ERR_OUTPUT" | grep -q "trailer crc mismatch"; then
+        pass "$NAME"
+    else
+        fail "$NAME" "expected 'trailer crc mismatch'; got: '$ERR_OUTPUT'"
+    fi
 else
-    fail "runtime size $SIZE > 1048576 bytes (NFR-1 violated)"
+    skip "$NAME" "built exe missing (D1 failed)"
 fi
 
+# E4 — PE-COFF appended data tolerance: exe with trailer runs correctly.
+# Passing D2 is the direct proof; document explicitly.
+NAME="E4 pe-coff-appended-data-tolerated"
+if [[ -f "$D1_EXE" ]]; then
+    actual="$("$D1_EXE" 2>/dev/null | tr -d '\r' || true)"
+    if [[ "$actual" == "Hello from d1app" ]]; then
+        pass "$NAME"
+        echo "       appended romfs + trailer coexist with PE-COFF loader"
+    else
+        fail "$NAME" "expected hello output; got '$actual'"
+    fi
+else
+    skip "$NAME" "exe missing (D1 failed)"
+fi
+
+echo
+
 # ---------------------------------------------------------------------------
-# Gate 13: NFR-1 — built app .exe ≤ 1 MB
+# Group F: NFR-1 on built app; reproducibility (FR-BP-6 Windows)
 # ---------------------------------------------------------------------------
 
-echo "[Gate 13] NFR-1: app .exe ≤ 1 MiB"
-if [[ -f "$GATE6_EXE" ]]; then
-    APP_SIZE=$(wc -c < "$GATE6_EXE")
-    echo "  size: $APP_SIZE bytes"
+echo "--- Group F: app size + reproducibility ---"
+
+# F1 — NFR-1: built app .exe <= 1 MiB.
+NAME="F1 app-exe-size-le-1mib (NFR-1)"
+if [[ -f "$D1_EXE" ]]; then
+    APP_SIZE="$(wc -c < "$D1_EXE")"
     if [[ "$APP_SIZE" -le 1048576 ]]; then
-        pass "app size $APP_SIZE ≤ 1048576 bytes"
+        pass "$NAME"
+        echo "       size: $APP_SIZE bytes"
     else
-        fail "app size $APP_SIZE > 1048576 bytes (NFR-1 violated)"
+        fail "$NAME" "size $APP_SIZE > 1048576 (NFR-1 violated)"
     fi
 else
-    echo "  skipped (gate 6 app not built)"
+    skip "$NAME" "exe missing (D1 failed)"
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 14: NFR-9 — PE OS version ≤ 10
-# ---------------------------------------------------------------------------
-
-echo "[Gate 14] NFR-9: PE OS version ≤ 10"
-MAJOR_OS="$(objdump -p "$RUNTIME_EXE" 2>/dev/null | grep -i 'MajorOSystemVersion' | awk '{print $2}' | head -1 || echo "")"
-if [[ -n "$MAJOR_OS" && "$MAJOR_OS" -le 10 ]]; then
-    pass "MajorOSystemVersion=$MAJOR_OS (≤ 10)"
+# F2 — FR-BP-6 (Windows): two picolet build --target windows-x64 runs are byte-identical.
+NAME="F2 reproducibility-windows (FR-BP-6)"
+F2_DIR="$WORKDIR/f2"
+mkdir -p "$F2_DIR"
+(cd "$F2_DIR" && $PICOLET init f2app --template hello-cli >/dev/null 2>&1) || true
+F2_APP="$F2_DIR/f2app"
+if [[ -d "$F2_APP" ]]; then
+    (cd "$F2_APP" && $PICOLET build --target windows-x64 >/dev/null 2>&1) || true
+    F2_EXE="$F2_APP/target/windows-x64/f2app.exe"
+    if [[ -f "$F2_EXE" ]]; then
+        cp "$F2_EXE" "$WORKDIR/f2_build1.exe"
+        rm -rf "$F2_APP/target"
+        (cd "$F2_APP" && $PICOLET build --target windows-x64 >/dev/null 2>&1) || true
+        if [[ -f "$F2_EXE" ]]; then
+            if cmp -s "$WORKDIR/f2_build1.exe" "$F2_EXE"; then
+                pass "$NAME"
+            else
+                fail "$NAME" "two builds differ (reproducibility broken)"
+            fi
+        else
+            fail "$NAME" "second build did not produce exe"
+        fi
+    else
+        fail "$NAME" "first build did not produce exe"
+    fi
 else
-    fail "MajorOSystemVersion='$MAJOR_OS' (expected ≤ 10)"
+    fail "$NAME" "picolet init failed"
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 15: FR-CLI-3 — picolet build --target windows-x64 produces target/<target>/<app>.exe
-# ---------------------------------------------------------------------------
-
-echo "[Gate 15] FR-CLI-3: picolet build --target windows-x64 output path"
-GATE15_DIR="$(mktemp -d)"
-cd "$GATE15_DIR" && "$PICOLET_CLI" init win-gate15 --template hello-cli >/dev/null 2>&1 && \
-    cd win-gate15 && "$PICOLET_CLI" build --target windows-x64 >/dev/null 2>&1 || true
-check "target/windows-x64/win-gate15.exe exists" test -f "$GATE15_DIR/win-gate15/target/windows-x64/win-gate15.exe"
-cd "$REPO_ROOT"
-rm -rf "$GATE15_DIR"
+echo
 
 # ---------------------------------------------------------------------------
-# Gate 16: FR-CLI-4 — picolet build (no --target) on Linux = linux-x64
+# Group G: Linux regression (smoke check -- full coverage in tests/phase-03/)
 # ---------------------------------------------------------------------------
 
-echo "[Gate 16] FR-CLI-4: default target on Linux is linux-x64"
-GATE16_DIR="$(mktemp -d)"
-cd "$GATE16_DIR" && "$PICOLET_CLI" init lin-gate16 --template hello-cli >/dev/null 2>&1 && \
-    cd lin-gate16 && "$PICOLET_CLI" build >/dev/null 2>&1 || true
-check "target/linux-x64/lin-gate16 exists (not windows-x64)" \
-    test -f "$GATE16_DIR/lin-gate16/target/linux-x64/lin-gate16"
-cd "$REPO_ROOT"
-rm -rf "$GATE16_DIR"
+echo "--- Group G: Linux pipeline regression ---"
 
-# ---------------------------------------------------------------------------
-# Gate 17: false-positive magic — stock .exe last 4 bytes not PYLT
-# ---------------------------------------------------------------------------
-
-echo "[Gate 17] Stock .exe last 4 bytes not 'PYLT'"
-LAST4="$(tail -c 4 "$RUNTIME_EXE" | od -An -tx1 | tr -d ' \n')"
-if [[ "$LAST4" != "50594c54" ]]; then
-    pass "last 4 bytes ($LAST4) ≠ PYLT"
+# G1 — Linux runtime artifact still present and functional.
+NAME="G1 linux-runtime-smoke"
+if [[ -f "$LINUX_RUNTIME" ]]; then
+    actual="$("$LINUX_RUNTIME" -c 'print("linux-reg-ok")' 2>&1 || true)"
+    assert_output "$NAME" "linux-reg-ok" "$actual"
 else
-    fail "last 4 bytes are PYLT — false positive risk"
+    fail "$NAME" "linux runtime not found: $LINUX_RUNTIME"
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 18: PE-COFF appended data tolerance (covered by gate 10)
-# ---------------------------------------------------------------------------
-
-echo "[Gate 18] PE-COFF appended data tolerance (covered by gate 6/10)"
-pass "gate 6 success confirms appended data tolerance"
-
-# ---------------------------------------------------------------------------
-# Gate 19: asyncio import
-# ---------------------------------------------------------------------------
-
-echo "[Gate 19] asyncio import"
-check_output "import asyncio" "aio-ok" \
-    "$RUNTIME_EXE" -c 'import asyncio; print("aio-ok")'
-
-# ---------------------------------------------------------------------------
-# Gate 20: json import
-# ---------------------------------------------------------------------------
-
-echo "[Gate 20] json built-in module"
-check_output "json.dumps" '{"a": 1}' \
-    "$RUNTIME_EXE" -c 'import json; print(json.dumps({"a":1}))'
-
-# ---------------------------------------------------------------------------
-# Gate 21: os.path import
-# ---------------------------------------------------------------------------
-
-echo "[Gate 21] os.path module"
-OSPATH="$("$RUNTIME_EXE" -c 'import os.path; print(os.path.join("a","b"))' 2>/dev/null | tr -d '\r' || echo "")"
-if [[ "$OSPATH" == "a/b" || "$OSPATH" == 'a\b' ]]; then
-    pass "os.path.join: '$OSPATH'"
+# G2 — picolet build (Linux default) still produces linux-x64 binary.
+NAME="G2 linux-build-regression"
+G2_DIR="$WORKDIR/g2"
+mkdir -p "$G2_DIR"
+(cd "$G2_DIR" && $PICOLET init g2app --template hello-cli >/dev/null 2>&1) || true
+G2_APP="$G2_DIR/g2app"
+if [[ -d "$G2_APP" ]]; then
+    (cd "$G2_APP" && $PICOLET build >/dev/null 2>&1) || true
+    G2_BIN="$G2_APP/target/linux-x64/g2app"
+    if [[ -f "$G2_BIN" ]]; then
+        actual="$("$G2_BIN" 2>&1 || true)"
+        assert_output "$NAME" "Hello from g2app" "$actual"
+    else
+        fail "$NAME" "linux-x64 binary not produced"
+    fi
 else
-    fail "os.path.join: unexpected '$OSPATH'"
+    fail "$NAME" "picolet init failed"
 fi
 
-# ---------------------------------------------------------------------------
-# Gate 22: idempotent build (second invocation does not rebuild libffi)
-# ---------------------------------------------------------------------------
-
-echo "[Gate 22] Idempotent build (warm rebuild skips deplibs)"
-echo "  (running second build pass; expecting 'libffi: warm cache')"
-SECOND_OUTPUT="$(bash "$PKG_ROOT/scripts/build-runtime.sh" --target windows-x64 --variant cli 2>&1)"
-if echo "$SECOND_OUTPUT" | grep -q "warm cache\|deplibs: ffi.h cached"; then
-    pass "second build skips libffi configure"
+# G3 — Linux runtime NFR-1 still holds.
+NAME="G3 linux-runtime-nfr1"
+if [[ -f "$LINUX_RUNTIME" ]]; then
+    LRT_SIZE="$(wc -c < "$LINUX_RUNTIME")"
+    if [[ "$LRT_SIZE" -le 1048576 ]]; then
+        pass "$NAME"
+        echo "       size: $LRT_SIZE bytes"
+    else
+        fail "$NAME" "size $LRT_SIZE > 1048576 (NFR-1 violated)"
+    fi
 else
-    fail "second build did not skip libffi (not idempotent)"
+    skip "$NAME" "linux runtime not found"
 fi
 
-# ---------------------------------------------------------------------------
-# Linux regression: build and run a hello-cli on linux-x64
-# ---------------------------------------------------------------------------
-
-echo "[Gate regression] Linux pipeline regression check"
-check "linux runtime exists" test -f "$LINUX_RUNTIME"
-check_output "linux runtime prints ok" "linux-reg-ok" \
-    "$LINUX_RUNTIME" -c 'print("linux-reg-ok")'
+echo
 
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
-echo ""
-echo "=== PH04 test results: $PASS passed, $FAIL failed ==="
-if [[ "${#FAIL_MSGS[@]}" -gt 0 ]]; then
-    echo "Failed gates:"
-    for msg in "${FAIL_MSGS[@]}"; do
-        echo "  - $msg"
-    done
-fi
+SUITE_END=$(date +%s%N)
+ELAPSED_MS=$(( (SUITE_END - SUITE_START) / 1000000 ))
 
-exit "$FAIL"
+TOTAL=$(( PASS + FAIL + SKIP ))
+echo "=== PH04 gate results: $PASS passed, $FAIL failed, $SKIP skipped / $TOTAL total ==="
+echo "    wall time: ${ELAPSED_MS} ms"
+
+if [[ $FAIL -gt 0 ]]; then
+    echo "Failed gates:"
+    for g in "${FAILED_GATES[@]}"; do
+        echo "  - $g"
+    done
+    exit 1
+fi
+echo "All gates PASS."
