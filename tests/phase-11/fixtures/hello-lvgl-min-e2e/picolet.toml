@@ -1,0 +1,19 @@
+# PH11 gate-6 fixture: minimal hello-lvgl app.
+# Tests the full picolet build pipeline for the lvgl variant: variant
+# resolution, romfs assembly, [window] config consumption.
+
+[app]
+name = "hello-lvgl-min"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "lvgl"
+
+[window]
+title = "PH11 Sanity"
+size = [800, 600]
+resizable = false
+
+[romfs]
+include = []
