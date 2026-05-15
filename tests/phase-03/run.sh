@@ -267,6 +267,108 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Gate 15 — FR-CLI-8: invalid picolet.toml rejected before any build work.
+# ---------------------------------------------------------------------------
+echo "[Gate 15] FR-CLI-8: invalid picolet.toml rejected pre-build"
+INVALID_FIXTURE="$REPO_ROOT/tests/phase-03/fixtures/invalid-toml-app"
+rm -rf "$INVALID_FIXTURE/target"
+if err15=$(cd "$INVALID_FIXTURE" && $PICOLET build 2>&1); then
+    fail 15 "build should have failed for invalid toml but exited 0"
+else
+    # Validator must emit at least one error referencing required keys.
+    if echo "$err15" | grep -q 'required key.*missing'; then
+        # No target directory must have been created (build work did not start).
+        if [[ ! -d "$INVALID_FIXTURE/target" ]]; then
+            pass 15 "invalid toml rejected with validation errors; no build work started"
+        else
+            fail 15 "build created target/ despite invalid toml (FR-CLI-8 violated)"
+        fi
+    else
+        fail 15 "expected validation error about missing required keys, got: $err15"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Gate 16 — FR-CLI-3 / FR-CLI-4: explicit --target linux-x64 produces binary.
+# ---------------------------------------------------------------------------
+echo "[Gate 16] FR-CLI-3/FR-CLI-4: explicit --target linux-x64"
+APP16="$WORKDIR/hello-cli-explicit-target"
+if (cd "$WORKDIR" && $PICOLET init hello-cli-explicit-target --template hello-cli >/dev/null 2>&1) && \
+   (cd "$APP16" && $PICOLET build --target linux-x64 >/dev/null 2>&1); then
+    out16=$("$APP16/target/linux-x64/hello-cli-explicit-target" 2>&1)
+    if [[ "$out16" == "Hello from hello-cli-explicit-target" ]]; then
+        pass 16 "explicit --target linux-x64 produces working binary"
+    else
+        fail 16 "expected hello output, got '$out16'"
+    fi
+else
+    fail 16 "build with --target linux-x64 failed"
+fi
+
+# ---------------------------------------------------------------------------
+# Gate 17 — FR-BP-4: multiple [romfs] include dirs + nested subdirectories.
+# ---------------------------------------------------------------------------
+echo "[Gate 17] FR-BP-4: multiple include dirs and nested subdirectories"
+MULTI_FIXTURE="$REPO_ROOT/tests/phase-03/fixtures/hello-cli-multi-include"
+rm -rf "$MULTI_FIXTURE/target"
+if (cd "$MULTI_FIXTURE" && $PICOLET build >/dev/null 2>&1); then
+    out17=$("$MULTI_FIXTURE/target/linux-x64/hello-cli-multi-include" 2>&1)
+    ok17=1
+    echo "$out17" | grep -q "assets: hello from assets" || { fail 17 "assets/ not accessible: '$out17'"; ok17=0; }
+    if [[ $ok17 -eq 1 ]]; then
+        echo "$out17" | grep -q "config: key=value" || { fail 17 "config/ not accessible: '$out17'"; ok17=0; }
+    fi
+    if [[ $ok17 -eq 1 ]]; then
+        echo "$out17" | grep -q "nested: fake-png-data" || { fail 17 "nested subdirectory not accessible: '$out17'"; ok17=0; }
+    fi
+    if [[ $ok17 -eq 1 ]]; then
+        pass 17 "multiple include dirs + nested subdir accessible in romfs"
+    fi
+    rm -rf "$MULTI_FIXTURE/target"
+else
+    fail 17 "build of hello-cli-multi-include failed"
+fi
+
+# ---------------------------------------------------------------------------
+# Gate 18 — FR-BP-5: flipping a payload byte (not the CRC field) triggers CRC.
+# ---------------------------------------------------------------------------
+echo "[Gate 18] FR-BP-5: payload byte corruption detected by CRC"
+# APP4 binary already built in gate 4.
+payload_flip="$WORKDIR/payload-flip"
+cp "$APP4/target/linux-x64/hello-cli-test" "$payload_flip"
+chmod +x "$payload_flip"
+pf_sz=$(stat -c%s "$payload_flip")
+# The last 24 bytes are the trailer; byte at (sz-25) is the last byte of the romfs
+# payload — inside the payload, outside the CRC field.  Flipping it changes the
+# payload bytes without touching the stored CRC, so the C-side check must detect it.
+printf '\xAA' | dd of="$payload_flip" conv=notrunc bs=1 seek=$((pf_sz - 25)) count=1 2>/dev/null
+out18=$("$payload_flip" 2>&1 || true)
+if echo "$out18" | grep -q "trailer crc mismatch"; then
+    pass 18 "payload byte flip detected by CRC check (CRC field intact)"
+else
+    fail 18 "expected 'trailer crc mismatch' from payload flip, got '$out18'"
+fi
+
+# ---------------------------------------------------------------------------
+# Gate 19 — UTF-8 filenames in [romfs] include: mpremote rejects (known limit).
+# ---------------------------------------------------------------------------
+echo "[Gate 19] UTF-8 filenames in romfs: rejected at mpremote layer (known limit)"
+UTF8_FIXTURE="$REPO_ROOT/tests/phase-03/fixtures/hello-cli-utf8-asset"
+rm -rf "$UTF8_FIXTURE/target"
+if err19=$(cd "$UTF8_FIXTURE" && $PICOLET build 2>&1); then
+    fail 19 "expected build to fail for UTF-8 filenames, but exited 0"
+else
+    # mpremote romfs build raises UnicodeEncodeError for non-ASCII filenames.
+    # The romfs format only supports ASCII filenames (bytes(name, "ascii")).
+    if echo "$err19" | grep -qi "unicode\|ascii\|encode\|CalledProcessError"; then
+        pass 19 "UTF-8 filenames rejected at mpremote layer (romfs is ASCII-only)"
+    else
+        fail 19 "unexpected error for UTF-8 filenames: $err19"
+    fi
+    rm -rf "$UTF8_FIXTURE/target"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

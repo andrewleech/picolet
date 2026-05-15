@@ -1,0 +1,7 @@
+[app]
+name = "hello-cli-multi-include"
+version = "0.1.0"
+entry = "src/main.py"
+
+[romfs]
+include = ["assets", "config"]

@@ -1,0 +1,4 @@
+[app]
+# Missing required 'name', 'version', and 'entry' keys.
+# The validator should reject this before any build work runs.
+unknown_key = "this section is otherwise empty"
