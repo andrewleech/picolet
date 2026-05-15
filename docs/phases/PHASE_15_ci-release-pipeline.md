@@ -156,3 +156,42 @@ No change needed.
 - Code signing.
 - Auto-release on branch push (tag-only).
 - Container registry push (artifacts uploaded directly to GitHub Releases).
+
+## Verification
+
+**Developer/tester: combined planner+developer+tester, 2026-05-16.**
+
+**Verdict: PASS**
+
+### Files produced
+
+| File | Purpose |
+|---|---|
+| `.github/workflows/release.yml` | CI release pipeline |
+| `RELEASING.md` | Operator guide |
+| `tests/phase-15/run.sh` | Lint + structural validation harness |
+
+### Test harness results
+
+```
+Gates A-G: 6 pass, 0 fail, 1 skip
+  A: YAML lint — PASS
+  B: matrix shape (3×2=6 jobs) — PASS
+  C: structural assertions (10 checks) — PASS
+  D: RUNTIME_TAG format 'runtime-v0.1.0' — PASS
+  E: RELEASING.md exists (119 lines) — PASS
+  F: act dry-run — SKIP (act not installed)
+  G: PH00-PH14 regression — PASS
+```
+
+PH14 regression: 19 pass, 0 fail, 6 skip (--skip-integration --skip-windows).
+
+### Commit
+
+`deb9de3` — [PH15] Add release.yml: 3x2 runtime matrix CI pipeline.
+
+### NFR-7
+
+Satisfied: the matrix produces all 6 runtime artifacts from a single
+workflow run triggered by a tag push. Each artifact is accompanied by
+its `.sha256` and `.cdx.json` sidecars.
