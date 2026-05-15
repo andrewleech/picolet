@@ -781,7 +781,38 @@ Test harness `tests/phase-03/run.sh` lands 14 gates (16 subtests with
 
 ## Tests
 
-(scrum-sqe writes here.)
+### Audit findings
+
+**Gate 9 is tautological.** It re-runs the same binary tested in gate 5 and asserts the same string. Since the user romfs is the only source of the `Hello from ...` string, gate 5 already constitutes conclusive FR-BP-5 proof. Gate 9 adds no independent signal. Logged as `[PH03] Note: gate 9 is a tautology` (commit `1d37b8c`); left in place to avoid count confusion but marked for future replacement with a runtime diagnostic flag.
+
+**Gate 12 (CRC mismatch) only tested CRC-field corruption.** The spec requested confirming that a flipped *payload* byte (CRC field intact) also triggers the warning. Added as gate 18.
+
+**FR-CLI-8 not directly tested.** No gate confirmed that an invalid `picolet.toml` is rejected before any build work begins. Added as gate 15.
+
+**FR-CLI-4 (explicit `--target`) not directly tested.** Gates 4–5 use the default host path. Added as gate 16.
+
+**FR-BP-4 depth coverage insufficient.** The `hello-cli-with-assets` fixture has one flat include directory. Added gate 17 with a new fixture (`hello-cli-multi-include`) that uses two include directories and a nested subdirectory (`assets/images/icon.png` at depth 2).
+
+**UTF-8 filename robustness.** Investigated and discovered that the MicroPython romfs format and mpremote both require ASCII filenames (`bytes(name, "ascii")`). Non-ASCII filenames produce a controlled build failure. Added as gate 19 (negative test) and logged as caveat commit `f58e62c`.
+
+**NFR-4 (no system Python).** Not directly testable without a sterile environment lacking Python entirely. Gate 13b (ubuntu:22.04 Docker run) provides partial coverage — the image has no picolet-cli installed, confirming the binary is self-contained. Full NFR-4 verification deferred.
+
+### Tests added
+
+| Gate | Spec | Fixture | What it verifies |
+|---|---|---|---|
+| 15 | FR-CLI-8 | `invalid-toml-app/` | Invalid picolet.toml rejected with validator errors; no target/ created |
+| 16 | FR-CLI-3, FR-CLI-4 | init'd in WORKDIR | `picolet build --target linux-x64` explicit flag produces working binary |
+| 17 | FR-BP-4 | `hello-cli-multi-include/` | Two include dirs + nested subdir (`assets/images/`) all accessible at runtime |
+| 18 | FR-BP-5 | reuses gate-4 binary | Payload byte flip (not CRC field) triggers `trailer crc mismatch` warning |
+| 19 | encoding robustness | `hello-cli-utf8-asset/` | UTF-8 filenames fail at mpremote layer (UnicodeEncodeError); documents known limit |
+
+### Final gate counts
+
+- Developer-authored: 16 subtests across 14 gates (original).
+- SQE-added: 5 subtests (gates 15–19).
+- **Total: 21 subtests, 19 gates (gate 6 retains a/b split).**
+- All 21 pass on `dev` at commit `7d7d3de`.
 
 ## Verification
 
