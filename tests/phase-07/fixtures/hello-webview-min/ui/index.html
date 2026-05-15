@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>picolet hello-webview</title>
+</head>
+<body style="background:#336699">
+<h1 style="color:white">picolet hello-webview</h1>
+<script>
+  // PH07 gate-5: set title for visual verification, then post back
+  // via the registered "picolet" handler so the Python side knows the
+  // page rendered and the JS bridge works in one shot.
+  document.title = 'LOADED';
+  window.webkit.messageHandlers.picolet.postMessage(
+    JSON.stringify({event: 'loaded', data: {}})
+  );
+</script>
+</body>
+</html>

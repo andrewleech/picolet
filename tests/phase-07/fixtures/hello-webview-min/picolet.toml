@@ -1,0 +1,22 @@
+# PH07 gate-5 fixture: minimal hello-webview app.
+# Tests the full picolet build pipeline for the webview variant: variant
+# resolution, romfs assembly with the UI assets, and the runtime's
+# auto-load of /rom/ui/index.html on startup.
+
+[app]
+name = "hello-webview-min"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[window]
+title = "PH07 Sanity"
+size = [640, 480]
+resizable = false
+
+[romfs]
+include = ["ui"]
