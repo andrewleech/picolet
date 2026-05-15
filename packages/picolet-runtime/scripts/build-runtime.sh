@@ -84,8 +84,13 @@ case "${TARGET}/${VARIANT}" in
         ;;
     windows-x64/cli)
         ;;
-    linux-x64/webview|linux-x64/lvgl)
-        echo "error: --variant $VARIANT for linux-x64 not implemented; see PH07/PH11" >&2
+    linux-x64/webview)
+        # PH07: WebKitGTK 4.1 webview variant.  Built as linux-x64/cli
+        # plus the picolet_ui frozen manifest; libffi loads webkit2gtk-4.1
+        # dynamically at runtime.  NFR-2 ceiling is 2 MiB, not 1 MiB.
+        ;;
+    linux-x64/lvgl)
+        echo "error: --variant $VARIANT for linux-x64 not implemented; see PH11" >&2
         exit 1 ;;
     windows-x64/webview|windows-x64/lvgl)
         echo "error: --variant $VARIANT for windows-x64 not implemented; see PH10/PH12" >&2
@@ -241,17 +246,25 @@ finish_artifact() {
     echo "$MPY_VER" > "$VERSION_FILE"
     echo "  [7b] version sidecar: $VERSION_FILE ($MPY_VER)"
 
-    # Step [8/8] — NFR-1 size gate (≤ 1 MiB = 1048576 bytes).
-    echo "[8/8] Checking binary size (NFR-1: ≤ 1 MiB)"
+    # Step [8/8] — size gate.  Variant-specific NFR ceiling.
+    #   cli      → NFR-1, 1 MiB.
+    #   webview  → NFR-2, 2 MiB.
+    #   lvgl     → NFR-3, 3 MiB (PH11).
+    case "$VARIANT" in
+        cli)     CEILING=1048576;  NFR_ID="NFR-1" ;;
+        webview) CEILING=2097152;  NFR_ID="NFR-2" ;;
+        lvgl)    CEILING=3145728;  NFR_ID="NFR-3" ;;
+        *)       CEILING=1048576;  NFR_ID="NFR-1" ;;
+    esac
     SIZE=$(wc -c < "$artifact")
-    CEILING=1048576
+    echo "[8/8] Checking binary size ($NFR_ID: ≤ $CEILING bytes)"
     if [[ "$SIZE" -gt "$CEILING" ]]; then
-        echo "error: NFR-1 VIOLATED: $artifact_name is $SIZE bytes (ceiling $CEILING bytes / 1 MiB)" >&2
+        echo "error: $NFR_ID VIOLATED: $artifact_name is $SIZE bytes (ceiling $CEILING bytes)" >&2
         echo "       Consider disabling MICROPY_ENABLE_COMPILER=0 in mpconfigvariant.mk." >&2
         exit 1
     fi
     PCT=$(( SIZE * 100 / CEILING ))
-    echo "  size: $SIZE bytes (${PCT}% of NFR-1 ceiling of $CEILING bytes)"
+    echo "  size: $SIZE bytes (${PCT}% of $NFR_ID ceiling of $CEILING bytes)"
     echo
     echo "=== Build complete: $artifact ==="
 }

@@ -21,4 +21,13 @@ RUN apt-get update && \
         autoconf \
         automake \
         libtool \
+        libwebkit2gtk-4.1-0 \
+        xvfb \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# PH07: libwebkit2gtk-4.1-0 + xvfb are runtime-only dependencies for
+# the webview variant.  We do NOT install libwebkit2gtk-4.1-dev — the
+# runtime dlopens webkit2gtk-4.1 via libffi at startup, so headers are
+# never needed at build time (NFR-5: no GPL/LGPL static link).  xvfb is
+# only used by the test harness on a headless host; NFR-8 carve-out.
