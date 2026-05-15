@@ -509,7 +509,7 @@ here — `--user`, `-v`, `-w` shape.)
 | **`scripts/build-runtime.sh` calls `python3 -m mpremote romfs build`.** mpremote must be installed on the host. PH00 listed it in prerequisites. CI on a fresh runner without mpremote installed will fail at gate 6 of the build sequence. | medium — present on dev host, not guaranteed in CI. | low — quick fix via `pip install mpremote`. | Build script checks `command -v mpremote` and prints an actionable error if missing. PH15 (CI) bakes mpremote into the runner setup. |
 | **The unix port's `Makefile`'s `MICROPY_STANDALONE=1` triggers a libffi build from a sub-submodule (`lib/libffi`).** First run is slow (libffi autoconf, ~2–3 min on this host). | low — expected behaviour, not a defect. | low — surfaces as long first-build wall time. | Document in the phase. Subsequent builds re-use the libffi static lib from the build dir. |
 | **`overlay/` directory committed onto the integration branch creates a commit that doesn't exist on `andrewleech/micropython`.** `rebuild-integration.sh` always reapplies the overlay so the integration branch's tip differs from any pushed branch. Force-push protection in `andrewleech/micropython` could refuse if the script ever tries to push integration upstream. | very low — script doesn't push integration; `[2/3] Promote integration_update -> integration` is local only. | very low. | Documented in the rebuild script header. Mentioned here so PH04/PH15 reviewers don't propose pushing the integration branch as a release tag. |
-| **NFR-5 (no GPL/AGPL statically linked).** libffi is MIT-like (BSD-ish), python-stdlib's asyncio is MIT, MicroPython is MIT. cli variant has no other native deps. | very low — established licences. | low. | Note in the commit body: PH13 will formally enumerate via SBOM; PH01 confirms no new dependency outside the integration branch + libffi. |
+| **NFR-5 (no GPL/AGPL statically linked).** libffi is MIT-like (BSD-ish), python-stdlib's asyncio is MIT, MicroPython is MIT. cli variant has no other native deps. | very low — established licences. | low. | Note in the commit body: PH13 will formally enumerate via SBOM; PH13 confirms no new dependency outside the integration branch + libffi. |
 | **NFR-4 (no system Python).** The runtime is a self-contained C binary. The build host needs python3 for mpy-cross and mpremote, but the artifact does not. | very low. | low. | gate 13's `ldd` check directly demonstrates no python dynamic linkage. |
 | **The `[ui]` section absence vs cli variant selection** is a PH02 / PH03 concern (FR-BP-1). PH01 just produces the cli artifact; how `picolet build` selects it is later. | n/a for PH01. | n/a for PH01. | Out of scope, noted only to keep the planner from over-reaching. |
 
@@ -618,8 +618,200 @@ The phase plan's gate-5 verification command uses `gc.add_heap(bytearray(4096))`
 
 ## Verification
 
-(scrum-tester fills in.)
+**Verdict: FAIL**
+
+**Blocking finding: NFR-8 violated — binary requires GLIBC_2.38, Ubuntu 22.04 provides GLIBC_2.35.**
+
+### Environment
+
+- Host: WSL2, Ubuntu 24.04, GCC 13.3.0, glibc 2.39
+- Build: warm tree rebuild (object cache intact, link step only)
+- Build time (warm): 2.5 s
+- Test time: 1.8 s wall
+
+### Build verification
+
+Deleted `packages/picolet-runtime/build/picolet-runtime-linux-x64-cli` and
+`packages/picolet-runtime/build/romfs_staging/` before running the build
+script. Result:
+
+```
+=== Build complete: packages/picolet-runtime/build/picolet-runtime-linux-x64-cli ===
+size: 620848 bytes (59% of NFR-1 ceiling of 1048576 bytes)
+```
+
+Build exits 0. Submodule is clean and on the integration branch
+(`6af0008eec`). The parent-repo gitlink matches that SHA — reproducible
+from a fresh clone.
+
+Second consecutive run also exits 0 at 620,848 bytes (link step
+re-runs each time due to the ROMFS_IMG touch; object compilation is
+skipped). Idempotency gate 14: met at the "no full rebuild" level;
+byte-identical output also holds.
+
+### Test suite results
+
+```
+bash tests/phase-01/run.sh
+=== Results: 21 passed, 0 failed, 1 skipped / 22 total ===
+wall time: 1816 ms
+```
+
+All 21 active subtests pass. B3 SKIP is genuine (confirmed independently:
+a positional script-path argument to the binary causes the embedded romfs
+`main.py` to run and call `sys.exit(0)` before the script is reached —
+not a test-setup error).
+
+### Requirements coverage matrix
+
+| # | Source | Requirement | Implemented? | Evidence | Test coverage | Notes |
+|---|---|---|---|---|---|---|
+| 1 | Spec | FR-RT-1: single executable embedding MicroPython + romfs ioctl | Yes | ELF 64-bit, statically links libffi, romfs ioctl in `main.c` | A1, A2, C1–C4, D1 | |
+| 2 | Spec | FR-RT-3: cli has no window/webview/LVGL | Yes | `ldd` shows only libc/libm/ld-linux; no GTK/SDL/WebKit symbols | A4 | |
+| 3 | Spec | FR-RT-4: gc.add_heap() available | Yes | `mpconfigvariant.h`: `MICROPY_GC_SPLIT_HEAP=1`, `MICROPY_GC_SPLIT_HEAP_ADD=1` | B4, B5, B6 | API is int not bytearray; plan's gate-5 example was wrong, test suite uses correct form |
+| 4 | Spec | FR-RT-5: ffi module available | Yes | `mpconfigvariant.mk`: `MICROPY_PY_FFI=1`, `MICROPY_STANDALONE=1` | B7 | |
+| 5 | Spec | FR-RT-6: romfs auto-mounted at /rom, prepended to sys.path | Yes | `/rom` and `/rom/lib` both in sys.path at runtime | C1, C2, C3 | |
+| 6 | Spec | FR-RT-7: main.py/mpy in frozen or /rom/ executed at startup | Yes | Both paths exercised: frozen romfs `main.mpy` (test_romfs) and `/rom/main.mpy` fallback (test_romfs_no_frozen) | C4, C5, D1, D2 | |
+| 7 | Spec | FR-RT-8: sys.argv populated from host command line | Yes | `-c` path: `['-c', 'arg1', 'arg2']` confirmed | B2 | Script-path argv path untestable with current fixtures (B3 SKIP) — not a defect |
+| 8 | Spec | NFR-1: ≤ 1 MiB | Yes | 620,848 bytes (59% of ceiling) | A3 | |
+| 9 | Spec | NFR-4: no system Python required | Yes | Binary is self-contained C ELF; `ldd` shows no libpython | A4 | |
+| 10 | Spec | NFR-8: runs on Ubuntu 22.04 with no extra packages | **No** | Binary requires `GLIBC_2.38`; Ubuntu 22.04 provides `GLIBC_2.35` | — | **FAIL** — see Blockers |
+
+### Independent spot-checks
+
+All of the following were verified directly against the binary:
+
+- `print("ok")` round-trip: pass
+- `gc.add_heap(4096)` returns `int` (value 2076800): pass
+- `gc.add_heap(1)` raises `ValueError: heap size too small`: pass
+- `import ffi; ffi.open` exists (is a function): pass
+- `import asyncio; asyncio.run(<coro>)` returns coroutine value: pass
+- `os.stat("/rom")` succeeds: pass
+- `/rom` and `/rom/lib` both in `sys.path`: pass
+- `ldd` output — only `linux-vdso`, `libm.so.6`, `libc.so.6`, `ld-linux-x86-64.so.2`: pass
+
+### NFR-8 / Ubuntu 22.04 containerised check
+
+```
+docker run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" --user "$(id -u):$(id -g)" \
+    ubuntu:22.04 \
+    packages/picolet-runtime/build/picolet-runtime-linux-x64-cli
+```
+
+Result (exit 1):
+
+```
+/lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found
+/lib/x86_64-linux-gnu/libm.so.6: version `GLIBC_2.38' not found
+```
+
+The two versioned symbols requiring GLIBC_2.38:
+
+```
+__isoc23_sscanf    (GLIBC_2.38)
+fmod               (GLIBC_2.38)
+```
+
+Root cause: the binary is compiled on Ubuntu 24.04 with GCC 13.3.0,
+which emits `__isoc23_sscanf` (a C23 scanf hardening change introduced
+in glibc 2.38) and a `fmod` at the 2.38 symbol version. Ubuntu 22.04
+ships glibc 2.35 and does not provide these versioned symbols.
+
+Gate 13's `ldd`-name filter only checks for *forbidden library names*;
+it does not detect a *versioned symbol* requirement that exceeds the
+target OS's glibc version. Both the phase plan's gate 13 definition and
+the SQE's A4 subtest share this gap.
+
+### Ldd output (full)
+
+```
+linux-vdso.so.1
+libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6
+libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
+/lib64/ld-linux-x86-64.so.2
+```
+
+No libffi, no libpython, no SDL2, no GTK. The name-only check passes.
+The glibc version check fails.
+
+### B3 SKIP validity
+
+Confirmed genuine. Passing a positional script path to the binary causes
+the embedded romfs `main.py` to run (and call `sys.exit(0)`) before
+execution reaches the script file. This is a runtime behaviour of the
+unix port's `main.c` startup sequence, not a test-setup error. The skip
+is correctly documented and the sys.argv shape for the `-c` path is
+fully covered by B2.
+
+### Summary of gate results
+
+| Gate | Description | Result |
+|---|---|---|
+| 1 | rebuild-integration.sh exits 0 with overlay | Pass |
+| 2 | Variant builds with VARIANT=picolet-cli | Pass |
+| 3 | Artifact is executable | Pass |
+| 4 | Frozen main.py runs, prints "ok", exits 0 | Pass |
+| 5 | gc.add_heap callable (integer API) | Pass |
+| 6 | ffi import succeeds | Pass |
+| 7 | asyncio import succeeds | Pass |
+| 8 | json available (C built-in) | Pass |
+| 9 | os.path available (frozen manifest) | Pass |
+| 10 | sys.argv shape for -c invocation | Pass |
+| 11 | /rom/main.py fallback path works | Pass |
+| 12 | Binary size ≤ 1 MiB (620,848 bytes) | Pass |
+| 13 | ldd name-check only — NFR-8 container check | **FAIL** |
+| 14 | Second run idempotent (no full rebuild) | Pass |
 
 ## Blockers
 
-(none yet)
+### BLK-01 — NFR-8: binary requires GLIBC_2.38, Ubuntu 22.04 provides GLIBC_2.35
+
+**Severity**: gate-blocking. NFR-8 is an exit-gate requirement for PH01.
+
+**Root cause**: The build host is Ubuntu 24.04 / GCC 13.3. GCC 13
+produces `__isoc23_sscanf` (C23 scanf ABI change, glibc 2.38+) and a
+`fmod` symbol at version GLIBC_2.38. Ubuntu 22.04 provides glibc 2.35
+and does not have these versioned symbols.
+
+**Neither developer nor SQE caught this**: the gate-13 `ldd`-name
+filter passes because no *extra library* appears; it does not check the
+minimum glibc *version* required.
+
+**Required fix (developer)**: Build the Linux artifact against a
+Ubuntu 22.04 sysroot or inside an `ubuntu:22.04` Docker image so the
+compiler/linker target glibc 2.35 and do not emit 2.38-versioned
+symbols. The `--user/-v/-w` dockcross shape from CLAUDE.md and
+`build-runtime.sh`'s existing structure make this straightforward:
+replace the native `make` invocation with:
+
+```bash
+docker run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" --user "$(id -u):$(id -g)" \
+    ubuntu:22.04 \
+    bash -c "apt-get install -y gcc make python3 binutils libffi-dev ... && make -C ..."
+```
+
+or use a pre-built Ubuntu 22.04 build image. The resulting binary must
+pass:
+
+```bash
+docker run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" --user "$(id -u):$(id -g)" \
+    ubuntu:22.04 \
+    packages/picolet-runtime/build/picolet-runtime-linux-x64-cli
+# must print: ok
+```
+
+**Required fix (test suite)**: Add a glibc version check to the test
+suite (e.g. `objdump -T | grep GLIBC` and assert maximum version ≤
+2.35) and/or add the Ubuntu 22.04 container run as a mandatory subtest
+rather than a tester-only step. The current A4 subtest passes on the
+broken binary; it should not.
+
+**Investigation note for the scrum-po**: The spec (`v1-spec.md`) states
+`linux-x64` as `gcc, glibc 2.31+`. This describes the *target runtime
+minimum*, meaning the artifact must run on glibc 2.31+, which
+transitively means the binary's symbol version requirements must not
+exceed what Ubuntu 22.04's glibc 2.35 provides (NFR-8). The two
+requirements are consistent; the build host's glibc 2.39 is simply
+higher than the target and the compiler defaults to the host's glibc
+version unless told otherwise. This is a standard cross-compilation
+concern, not a spec ambiguity.
