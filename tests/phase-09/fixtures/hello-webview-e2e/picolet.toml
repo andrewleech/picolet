@@ -1,0 +1,21 @@
+# PH09 e2e fixture: invoke, error-propagation, and Python-emit gates
+# in a single xvfb run. Mirrors the hello-webview template structure
+# but self-terminates after printing all three gate tokens.
+
+[app]
+name = "hello-webview-e2e"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[window]
+title = "PH09 E2E"
+size = [800, 600]
+resizable = false
+
+[romfs]
+include = ["ui"]

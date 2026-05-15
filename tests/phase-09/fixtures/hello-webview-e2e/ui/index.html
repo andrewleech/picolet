@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>PH09 E2E</title></head>
+<body>
+<script>
+(async function() {
+  // Gate C: invoke round-trip.
+  try {
+    var val = await window.picolet.invoke("greet", { name: "World" });
+    window.webkit.messageHandlers.picolet.postMessage(
+      JSON.stringify({ event: "invoke-result", data: { value: val } })
+    );
+  } catch (e) {
+    window.webkit.messageHandlers.picolet.postMessage(
+      JSON.stringify({ event: "invoke-result", data: { error: e.message } })
+    );
+  }
+
+  // Gate D: error propagation.
+  try {
+    await window.picolet.invoke("fail_example");
+    window.webkit.messageHandlers.picolet.postMessage(
+      JSON.stringify({ event: "error-result", data: { unexpected: "no error" } })
+    );
+  } catch (e) {
+    window.webkit.messageHandlers.picolet.postMessage(
+      JSON.stringify({ event: "error-result",
+                       data: { name: e.name, message: e.message } })
+    );
+  }
+
+  // Gate E: Python emit -> JS on.
+  // Register the handler BEFORE posting page-ready so Python can safely emit.
+  window.picolet.on("server-push", function(data) {
+    window.webkit.messageHandlers.picolet.postMessage(
+      JSON.stringify({ event: "event-echo", data: data })
+    );
+  });
+
+  // Signal Python that the handler is registered and it can emit.
+  window.webkit.messageHandlers.picolet.postMessage(
+    JSON.stringify({ event: "page-ready", data: {} })
+  );
+})();
+</script>
+</body>
+</html>
