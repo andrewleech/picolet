@@ -38,6 +38,10 @@ int32_t picolet_wv2_register_inbound_handler(void *c) { (void)c; return -1; }
 char *picolet_wv2_poll_inbound(void) { return 0; }
 void picolet_wv2_free_inbound(char *s) { (void)s; }
 int32_t picolet_wv2_pump_messages(void) { return 0; }
+void *picolet_wv2_create_window(const char *t, int32_t w, int32_t h, int32_t r) { (void)t; (void)w; (void)h; (void)r; return 0; }
+int32_t picolet_wv2_show_window(void *hw, int32_t v) { (void)hw; (void)v; return -1; }
+int32_t picolet_wv2_window_attach_controller(void *hw, void *c) { (void)hw; (void)c; return -1; }
+int32_t picolet_wv2_destroy_window(void *hw) { (void)hw; return -1; }
 #else  /* _WIN32 */
 
 #include <windows.h>
@@ -697,6 +701,131 @@ int32_t picolet_wv2_pump_messages(void) {
         if (n > 64) { break; }  /* cap per tick — matches PH07's pump cap */
     }
     return n;
+}
+
+/* ----------------------------------------------------------------------
+ * Top-level window
+ * ----------------------------------------------------------------------
+ *
+ * The WindowProc owns three behaviours:
+ *   * WM_SIZE   — resize the attached controller via put_Bounds.
+ *   * WM_DESTROY — PostQuitMessage(0); also clears the attached
+ *                  controller so subsequent posts don't dangle.
+ *   * everything else — DefWindowProcW.
+ *
+ * We store the attached controller in the window's GWLP_USERDATA slot.
+ */
+
+#define PICOLET_WV2_WINDOW_CLASS L"PicoletWebView2Window"
+
+static int g_class_registered = 0;
+
+static LRESULT CALLBACK picolet_wv2_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_SIZE: {
+        ICoreWebView2Controller *ctrl =
+            (ICoreWebView2Controller *)(uintptr_t)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (ctrl != NULL) {
+            RECT r;
+            r.left = 0;
+            r.top = 0;
+            r.right = LOWORD(lp);
+            r.bottom = HIWORD(lp);
+            ctrl->lpVtbl->put_Bounds(ctrl, r);
+        }
+        return 0;
+    }
+    case WM_DESTROY:
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        PostQuitMessage(0);
+        return 0;
+    default:
+        return DefWindowProcW(hwnd, msg, wp, lp);
+    }
+}
+
+static int register_window_class(void) {
+    if (g_class_registered) { return 0; }
+    WNDCLASSEXW wc;
+    memset(&wc, 0, sizeof(wc));
+    wc.cbSize = sizeof(wc);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = picolet_wv2_wndproc;
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.lpszClassName = PICOLET_WV2_WINDOW_CLASS;
+    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    if (RegisterClassExW(&wc) == 0) {
+        set_last(HRESULT_FROM_WIN32(GetLastError()));
+        return -1;
+    }
+    g_class_registered = 1;
+    return 0;
+}
+
+void *picolet_wv2_create_window(const char *title_utf8,
+                              int32_t width, int32_t height,
+                              int32_t resizable) {
+    if (register_window_class() != 0) { return NULL; }
+    wchar_t *titleW = utf8_to_wide(title_utf8 != NULL ? title_utf8 : "picolet");
+    if (titleW == NULL) {
+        set_last(E_OUTOFMEMORY);
+        return NULL;
+    }
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    if (resizable) {
+        style |= WS_MAXIMIZEBOX | WS_THICKFRAME;
+    }
+    int w = (width  > 0) ? width  : 800;
+    int h = (height > 0) ? height : 600;
+
+    /* Compute outer window size from desired client area. */
+    RECT rc = { 0, 0, w, h };
+    AdjustWindowRectEx(&rc, style, FALSE, 0);
+    int win_w = rc.right - rc.left;
+    int win_h = rc.bottom - rc.top;
+
+    HWND hwnd = CreateWindowExW(
+        0, PICOLET_WV2_WINDOW_CLASS, titleW, style,
+        CW_USEDEFAULT, CW_USEDEFAULT, win_w, win_h,
+        NULL, NULL, GetModuleHandleW(NULL), NULL);
+    free(titleW);
+    if (hwnd == NULL) {
+        set_last(HRESULT_FROM_WIN32(GetLastError()));
+        return NULL;
+    }
+    set_last(S_OK);
+    return (void *)hwnd;
+}
+
+int32_t picolet_wv2_show_window(void *hwnd, int32_t visible) {
+    if (hwnd == NULL) { return -1; }
+    ShowWindow((HWND)hwnd, visible ? SW_SHOW : SW_HIDE);
+    if (visible) {
+        UpdateWindow((HWND)hwnd);
+    }
+    return 0;
+}
+
+int32_t picolet_wv2_window_attach_controller(void *hwnd, void *controller) {
+    if (hwnd == NULL || controller == NULL) {
+        set_last(E_INVALIDARG);
+        return (int32_t)E_INVALIDARG;
+    }
+    SetWindowLongPtrW((HWND)hwnd, GWLP_USERDATA, (LONG_PTR)(uintptr_t)controller);
+    /* Apply the current client-size to the controller immediately so it
+     * appears at the right bounds before WM_SIZE fires. */
+    RECT cli;
+    if (GetClientRect((HWND)hwnd, &cli)) {
+        ICoreWebView2Controller *c = (ICoreWebView2Controller *)controller;
+        c->lpVtbl->put_Bounds(c, cli);
+    }
+    return 0;
+}
+
+int32_t picolet_wv2_destroy_window(void *hwnd) {
+    if (hwnd == NULL) { return 0; }
+    DestroyWindow((HWND)hwnd);
+    return 0;
 }
 
 #endif /* _WIN32 */

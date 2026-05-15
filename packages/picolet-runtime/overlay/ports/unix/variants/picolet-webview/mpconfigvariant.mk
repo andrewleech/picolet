@@ -16,4 +16,4 @@ MICROPY_SSL_AXTLS = 0
 
 # Frozen manifest: webview variant pulls in both picolet (PH06 dispatcher)
 # and picolet_ui (PH07 WebKitGTK bindings).
-FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_webview.py
+FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_webview_unix.py

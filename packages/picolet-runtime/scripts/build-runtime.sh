@@ -92,8 +92,14 @@ case "${TARGET}/${VARIANT}" in
     linux-x64/lvgl)
         echo "error: --variant $VARIANT for linux-x64 not implemented; see PH11" >&2
         exit 1 ;;
-    windows-x64/webview|windows-x64/lvgl)
-        echo "error: --variant $VARIANT for windows-x64 not implemented; see PH10/PH12" >&2
+    windows-x64/webview)
+        # PH10: WebView2 (Edge Chromium) webview variant.  Built as
+        # windows-x64/cli plus the picolet_webview2 C overlay + the
+        # picolet_ui_win frozen manifest; WebView2Loader.dll is dlopen'd
+        # at runtime from the app romfs.  NFR-2 ceiling is 2 MiB.
+        ;;
+    windows-x64/lvgl)
+        echo "error: --variant $VARIANT for windows-x64 not implemented; see PH12" >&2
         exit 1 ;;
     *)
         echo "error: unsupported target/variant combination: $TARGET/$VARIANT" >&2

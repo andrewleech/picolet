@@ -101,6 +101,32 @@ void picolet_wv2_free_inbound(char *s);
  * dispatched.  Called from the Python pump task per tick. */
 int32_t picolet_wv2_pump_messages(void);
 
+/* Top-level window creation.
+ *
+ * The C overlay owns the window class registration, the WindowProc
+ * callback (which forwards WM_SIZE to the attached controller via
+ * put_Bounds and WM_DESTROY to PostQuitMessage), and the window
+ * lifecycle.  Python sees a single opaque HWND handle.
+ *
+ * `title_utf8` is UTF-8; the overlay converts to UTF-16 for SetWindowTextW.
+ * `width` / `height` are client-area pixels; 0 picks defaults.
+ * `resizable` is 0 (fixed) or 1 (sizable).
+ * Returns an HWND, or NULL on failure. */
+void *picolet_wv2_create_window(const char *title_utf8,
+                              int32_t width, int32_t height,
+                              int32_t resizable);
+
+/* Show or hide the window.  `visible` = 0 hides, 1 shows. */
+int32_t picolet_wv2_show_window(void *hwnd, int32_t visible);
+
+/* Associate a controller with this HWND so the WindowProc forwards
+ * WM_SIZE events to it.  Must be called after both
+ * picolet_wv2_create_window and picolet_wv2_create_controller_blocking. */
+int32_t picolet_wv2_window_attach_controller(void *hwnd, void *controller);
+
+/* Destroy the window.  Idempotent. */
+int32_t picolet_wv2_destroy_window(void *hwnd);
+
 #ifdef __cplusplus
 }
 #endif
