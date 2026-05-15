@@ -6,7 +6,7 @@
 # Gates mapped:
 #   2  — artifact present
 #   3  — import lvgl
-#   4  — NFR-3 size <= 2 MiB
+#   4  — NFR-3 size <= 2 MiB (windows-x64/lvgl now meets spec; from-source SDL2 with -ffunction-sections)
 #   5  — SDL2 window (MANUAL — requires Windows host display via WSL interop)
 #   6  — hello-lvgl-win-min end-to-end (requires display)
 #   7  — IPC probe
@@ -154,23 +154,17 @@ else
     exit 1
 fi
 
-NAME="B2 nfr-3-size-le-4mib (gate 4, NFR-3 deviation)"
+NAME="B2 nfr-3-size-le-2mib (gate 4, NFR-3)"
 RT_SIZE=$(wc -c < "$LVGL_WIN_RUNTIME")
-# NFR-3 spec: 2 MiB.  Windows deviation: 4 MiB (SDL2 statically linked
-# from prebuilt archive not compiled with -ffunction-sections; gc-sections
-# cannot strip individual SDL2 functions, only whole object files.  The
-# linux-x64/lvgl variant dynamically links SDL2 and fits under 2 MiB.
-# See [PH12] NFR-3 deviation note in dev report and build-runtime.sh.)
-NFR_CEILING_SPEC=2097152   # 2 MiB spec value
-NFR_CEILING_WIN=4194304    # 4 MiB accepted deviation for windows-x64/lvgl
-if [[ "$RT_SIZE" -le "$NFR_CEILING_SPEC" ]]; then
-    PCT=$(( RT_SIZE * 100 / NFR_CEILING_SPEC ))
-    pass "$NAME ($RT_SIZE bytes, ${PCT}% of NFR-3 spec ceiling — within spec)"
-elif [[ "$RT_SIZE" -le "$NFR_CEILING_WIN" ]]; then
-    PCT=$(( RT_SIZE * 100 / NFR_CEILING_WIN ))
-    pass "$NAME (DEVIATION: $RT_SIZE bytes, ${PCT}% of 4 MiB Windows ceiling — exceeds 2 MiB spec, see dev report)"
+# NFR-3: 2 MiB ceiling applies to both linux-x64/lvgl and windows-x64/lvgl.
+# SDL2 is built from source with -ffunction-sections so --gc-sections can
+# strip unused SDL2 backends.  The prior 4 MiB deviation is reverted.
+NFR_CEILING=2097152   # 2 MiB (NFR-3)
+if [[ "$RT_SIZE" -le "$NFR_CEILING" ]]; then
+    PCT=$(( RT_SIZE * 100 / NFR_CEILING ))
+    pass "$NAME ($RT_SIZE bytes, ${PCT}% of NFR-3 ceiling)"
 else
-    fail "$NAME" "size $RT_SIZE > $NFR_CEILING_WIN (exceeds even 4 MiB Windows deviation ceiling)"
+    fail "$NAME" "size $RT_SIZE > $NFR_CEILING (NFR-3 violated)"
 fi
 
 NAME="B3 import-lvgl-ok (gate 3, FR-LV-3)"

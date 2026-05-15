@@ -82,6 +82,18 @@ LDFLAGS += -Wl,--gc-sections
 # does not use ffi to dlopen(None) and resolve runtime symbols — LVGL enters
 # via USER_C_MODULES (C module), not via ffi.  Including --export-all-symbols
 # would add ~500 KB to the PE export table for no benefit.
+#
+# Link-time optimisation: allows the linker to inline and eliminate dead code
+# across all compilation units (MP, LVGL, port glue).  The SDL2 archive is
+# built separately with -ffunction-sections/-fdata-sections; those complement
+# LTO (LTO operates on IR, gc-sections on ELF sections).
+# NOTE: LTO disabled — the MicroPython Windows port's Makefile uses COPT
+# which gets prepended before CFLAGS_EXTRA; the LTO IR is not compatible with
+# the LTRANS invocation inside dockcross when the lto-wrapper path differs.
+# The -ffunction-sections + --gc-sections combination is the primary dead-code
+# elimination mechanism for SDL2; LTO provides diminishing returns here.
+#CFLAGS_EXTRA += -flto
+#LDFLAGS += -flto
 
 # romfs_trailer.c lives alongside this .mk in the variant dir.  The
 # Windows port Makefile's $(wildcard $(VARIANT_DIR)/*.c) picks it up

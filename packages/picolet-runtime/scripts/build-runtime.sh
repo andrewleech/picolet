@@ -258,24 +258,17 @@ finish_artifact() {
     #   cli                → NFR-1, 1 MiB.
     #   webview            → NFR-2, 2 MiB.
     #   lvgl (linux-x64)   → NFR-3, 2 MiB.
-    #   lvgl (windows-x64) → NFR-3 DEVIATION: 4 MiB.
-    #     The spec ceiling of 2 MiB was predicated on SDL2 being compiled
-    #     with -ffunction-sections so --gc-sections could strip individual
-    #     functions.  The prebuilt MinGW SDL2 archive (and MXE-built SDL2)
-    #     are not compiled with per-function sections; SDL2 contributes
-    #     ~1 MiB to .text as whole object files that cannot be gc'd
-    #     individually.  Linux LVGL dynamically links SDL2 (no static
-    #     overhead) so the linux-x64 variant fits under 2 MiB easily.
-    #     For windows-x64/lvgl we accept 4 MiB until a source-compiled
-    #     SDL2 with -ffunction-sections is available.  Tracked as
-    #     [PH12] NFR-3 deviation in the dev report.
+    #   lvgl (windows-x64) → NFR-3, 2 MiB.
+    #     SDL2 is built from source with -ffunction-sections so --gc-sections
+    #     strips unused SDL2 backends at link time.  The prior 4 MiB deviation
+    #     (prebuilt archive, no per-function sections) is reverted.
     case "${TARGET:-linux-x64}/${VARIANT}" in
         linux-x64/cli)     CEILING=1048576;  NFR_ID="NFR-1" ;;
         linux-x64/webview) CEILING=2097152;  NFR_ID="NFR-2" ;;
         linux-x64/lvgl)    CEILING=2097152;  NFR_ID="NFR-3" ;;
         windows-x64/cli)   CEILING=1048576;  NFR_ID="NFR-1" ;;
         windows-x64/webview) CEILING=2097152; NFR_ID="NFR-2" ;;
-        windows-x64/lvgl)  CEILING=4194304;  NFR_ID="NFR-3-WIN" ;;
+        windows-x64/lvgl)  CEILING=2097152;  NFR_ID="NFR-3" ;;
         *)                 CEILING=1048576;  NFR_ID="NFR-1" ;;
     esac
     SIZE=$(wc -c < "$artifact")
@@ -495,70 +488,130 @@ build_windows_x64() {
         fi
     fi
 
-    # [2b/8] For the lvgl variant, ensure the SDL2 static library is available.
+    # [2b/8] For the lvgl variant, build SDL2 from source with per-function
+    # sections so --gc-sections can strip unused SDL2 backends at link time.
     #
-    # We use the official SDL2 MinGW prebuilt archive from the SDL GitHub
-    # releases (SDL2-devel-2.26.2-mingw.tar.gz, SHA-256 pinned).  This is
-    # Option B from AD1 — chosen over MXE's `make sdl2` because the MXE recipe
-    # rebuilds the entire GCC toolchain from scratch in an ephemeral container
-    # (MXE's installed-marker system does not recognise the pre-built toolchain
-    # already in the dockcross image), making the one-time build cost too high
-    # (~30 min vs ~2 min for the archive download).  The archive ships a static
-    # libSDL2.a and the full header set; no source compilation is needed.
+    # SDL2 2.26.2 is built inside the dockcross/windows-static-x64-posix
+    # container using the MXE cmake wrapper, which auto-configures the
+    # x86_64-w64-mingw32.static.posix toolchain.  Key flags:
     #
-    # The archive is downloaded once and cached under $PKG_ROOT/build/sdl2-win64/.
-    # A SHA-256 check gates the download to prevent silent corruption.
+    #   -ffunction-sections -fdata-sections   each function/datum in its own
+    #                                          ELF section; --gc-sections at
+    #                                          link time then drops unreachable
+    #                                          sections (unused SDL2 backends,
+    #                                          DirectX audio, haptics, etc.).
+    #   -Os                                    optimise for size.
+    #   --disable-shared / -DSDL_SHARED=OFF   static library only.
     #
-    # [PH12] Decision: MXE `make sdl2` was tried first (AD1 Option A) and
-    # rejected because MXE's dependency tracking does not recognise the
-    # pre-built MinGW toolchain in dockcross/windows-static-x64-posix, causing
-    # a full GCC + binutils rebuild from source on every cold container run
-    # (~30 min).  Option B (SDL2 prebuilt archive) achieves the same result
-    # (static libSDL2.a, zlib license) in ~2 min on first run.
+    # Source: SDL2-2.26.2.tar.gz downloaded once to build/sdl2-src/ and
+    # cached by its SHA-256.  The from-source library lands in
+    # build/sdl2-win64-ffs/ (ffs = function/function-sections).
+    # A stamp file records the source SHA-256 so warm builds skip the
+    # cmake+make step entirely.
     if [[ "$VARIANT" == "lvgl" ]]; then
-        echo "[2b/8] Ensuring SDL2 static library (MinGW prebuilt archive)"
+        echo "[2b/8] Ensuring SDL2 static library (from-source, -ffunction-sections)"
         local SDL2_VERSION="2.26.2"
-        local SDL2_ARCHIVE="SDL2-devel-${SDL2_VERSION}-mingw.tar.gz"
-        local SDL2_URL="https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/${SDL2_ARCHIVE}"
-        local SDL2_SHA256="fd2b7ac21d1c487b87fd6c0a9fc87cfb6936c528c3ec197f6127bf925eb38356"
-        local SDL2_CACHE="$BUILD_DIR/sdl2-win64"
+        local SDL2_TARBALL="SDL2-${SDL2_VERSION}.tar.gz"
+        local SDL2_URL="https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/${SDL2_TARBALL}"
+        local SDL2_SRC_SHA256="95d39bc3de037fbdfa722623737340648de4f180a601b0afad27645d150b99e0"
+        local SDL2_SRC_DIR="$BUILD_DIR/sdl2-src"
+        local SDL2_SRC_TARBALL="$SDL2_SRC_DIR/$SDL2_TARBALL"
+        local SDL2_CACHE="$BUILD_DIR/sdl2-win64-ffs"
         local SDL2_LIB="$SDL2_CACHE/lib/libSDL2.a"
-        mkdir -p "$SDL2_CACHE/lib" "$SDL2_CACHE/include"
+        local SDL2_STAMP="$SDL2_CACHE/built-${SDL2_SRC_SHA256}.stamp"
+        mkdir -p "$SDL2_SRC_DIR" "$SDL2_CACHE"
 
-        if [[ ! -f "$SDL2_LIB" ]]; then
-            echo "  SDL2 not present; fetching prebuilt MinGW archive"
-            local SDL2_TMPDIR="$BUILD_DIR/sdl2-download-tmp-$$"
-            mkdir -p "$SDL2_TMPDIR"
-            # Download.
-            if ! curl -fsSL --retry 3 -o "$SDL2_TMPDIR/$SDL2_ARCHIVE" "$SDL2_URL"; then
-                rm -rf "$SDL2_TMPDIR"
-                echo "error: SDL2 archive download failed" >&2
-                exit 1
+        if [[ -f "$SDL2_STAMP" ]] && [[ -f "$SDL2_LIB" ]]; then
+            echo "  sdl2: MXE build cached; skipping"
+        else
+            # Ensure the source tarball is present.
+            if [[ ! -f "$SDL2_SRC_TARBALL" ]]; then
+                echo "  SDL2 source not present; downloading $SDL2_TARBALL"
+                if ! curl -fsSL --retry 3 -o "$SDL2_SRC_TARBALL" "$SDL2_URL"; then
+                    echo "error: SDL2 source download failed" >&2
+                    exit 1
+                fi
             fi
             # Verify SHA-256.
             local ACTUAL_SHA256
-            ACTUAL_SHA256="$(sha256sum "$SDL2_TMPDIR/$SDL2_ARCHIVE" | awk '{print $1}')"
-            if [[ "$ACTUAL_SHA256" != "$SDL2_SHA256" ]]; then
-                echo "error: SDL2 archive SHA-256 mismatch" >&2
-                echo "  expected: $SDL2_SHA256" >&2
+            ACTUAL_SHA256="$(sha256sum "$SDL2_SRC_TARBALL" | awk '{print $1}')"
+            if [[ "$ACTUAL_SHA256" != "$SDL2_SRC_SHA256" ]]; then
+                echo "error: SDL2 source SHA-256 mismatch" >&2
+                echo "  expected: $SDL2_SRC_SHA256" >&2
                 echo "  actual:   $ACTUAL_SHA256" >&2
-                rm -rf "$SDL2_TMPDIR"
                 exit 1
             fi
-            # Extract the x86_64 static library and headers.
-            tar -C "$SDL2_TMPDIR" -xzf "$SDL2_TMPDIR/$SDL2_ARCHIVE"
-            local SDL2_INNER="$SDL2_TMPDIR/SDL2-${SDL2_VERSION}/x86_64-w64-mingw32"
-            cp "$SDL2_INNER/lib/libSDL2.a"     "$SDL2_CACHE/lib/"
-            cp "$SDL2_INNER/lib/libSDL2main.a" "$SDL2_CACHE/lib/" 2>/dev/null || true
-            cp -r "$SDL2_INNER/include/SDL2"   "$SDL2_CACHE/include/"
-            rm -rf "$SDL2_TMPDIR"
-            echo "  sdl2: archive fetched and cached in $SDL2_CACHE"
-        else
-            echo "  sdl2: MXE build cached; skipping"
+
+            # Extract source into a sibling build dir (avoid polluting sdl2-src).
+            local SDL2_BUILD_TMP="$BUILD_DIR/sdl2-build-tmp"
+            rm -rf "$SDL2_BUILD_TMP"
+            mkdir -p "$SDL2_BUILD_TMP"
+            echo "  extracting SDL2 source..."
+            tar -C "$SDL2_BUILD_TMP" -xzf "$SDL2_SRC_TARBALL"
+            local SDL2_SRC_TREE="$SDL2_BUILD_TMP/SDL2-${SDL2_VERSION}"
+
+            # Build SDL2 inside the dockcross container.  The MXE cmake wrapper
+            # at /usr/src/mxe/usr/bin/x86_64-w64-mingw32.static.posix-cmake
+            # injects the MinGW toolchain file automatically; we pass the extra
+            # C flags and restrict to only the subsystems LVGL's SDL2 driver
+            # needs (window, render, events, timer) to minimise the static lib.
+            #
+            # Disabled subsystems (not used by LVGL's SDL2 window driver):
+            #   Audio, Joystick, Haptic, Sensor, HIDAPI, Power — completely off.
+            #   DirectX, D3D render, OpenGL — SDL software renderer suffices.
+            #   Locale, Misc — not needed for window + event loop.
+            # ccache must be disabled inside the container (no writable cache
+            # dir for the non-root user; SDL2's cmake enables it by default).
+            echo "  building SDL2 from source (cmake + make inside dockcross)..."
+            echo "  this takes ~5-10 min on first run; subsequent builds are cached"
+            local SDL2_INSTALL_PREFIX="$SDL2_CACHE"
+            docker run --rm \
+                -v "$REPO_ROOT:$REPO_ROOT" \
+                -w "$SDL2_SRC_TREE" \
+                --user "$(id -u):$(id -g)" \
+                -e HOME=/tmp \
+                -e CCACHE_DISABLE=1 \
+                "$DOCKCROSS_IMAGE" \
+                bash -c "
+                    set -euo pipefail
+                    CMAKE=/usr/src/mxe/usr/bin/x86_64-w64-mingw32.static.posix-cmake
+                    mkdir -p build_mxe && cd build_mxe
+                    \$CMAKE .. \
+                        -DCMAKE_BUILD_TYPE=MinSizeRel \
+                        -DCMAKE_C_FLAGS='-ffunction-sections -fdata-sections -Os' \
+                        -DSDL_SHARED=OFF \
+                        -DSDL_STATIC=ON \
+                        -DSDL_TEST=OFF \
+                        -DSDL_CCACHE=OFF \
+                        -DSDL_AUDIO=OFF \
+                        -DSDL_JOYSTICK=OFF \
+                        -DSDL_HAPTIC=OFF \
+                        -DSDL_SENSOR=OFF \
+                        -DSDL_HIDAPI=OFF \
+                        -DSDL_POWER=OFF \
+                        -DSDL_DIRECTX=OFF \
+                        -DSDL_RENDER_D3D=OFF \
+                        -DSDL_OPENGL=OFF \
+                        -DSDL_OPENGLES=OFF \
+                        -DSDL_LOCALE=OFF \
+                        -DSDL_MISC=OFF \
+                        -DCMAKE_INSTALL_PREFIX='${SDL2_INSTALL_PREFIX}' \
+                        -DCMAKE_INSTALL_LIBDIR=lib \
+                        -DCMAKE_INSTALL_INCLUDEDIR=include
+                    make -j\$(nproc)
+                    make install
+                "
+            rm -rf "$SDL2_BUILD_TMP"
+
+            if [[ ! -f "$SDL2_LIB" ]]; then
+                echo "error: SDL2 from-source build failed; $SDL2_LIB not found" >&2
+                exit 1
+            fi
+            touch "$SDL2_STAMP"
+            echo "  sdl2: from-source build complete; library at $SDL2_LIB"
         fi
-        # Record the SDL2 cache dir so the Make invocations below can override
-        # MXE_ROOT in the variant .mk to point here instead of the in-container
-        # /usr/src/mxe path.
+        # Record the SDL2 install dir so Make overrides MXE_ROOT in the
+        # variant .mk to point here (host path, bind-mounted into container).
         MXE_SDL2_CFLAGS_HOST="$SDL2_CACHE"
     fi
 
