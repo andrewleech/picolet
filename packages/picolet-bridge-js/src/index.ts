@@ -39,7 +39,22 @@ const _handlers = new Map<string, Set<(data: unknown) => void>>();
 
 function _send(msg: PicoletWireRequest | PicoletWireEvent): void {
   const json = JSON.stringify(msg);
-  (window as any).webkit.messageHandlers.picolet.postMessage(json);
+  const w: any = window;
+  // Linux/WebKitGTK: the user-content manager exposes its registered
+  // handlers under window.webkit.messageHandlers.<name>.
+  if (w.webkit && w.webkit.messageHandlers && w.webkit.messageHandlers.picolet) {
+    w.webkit.messageHandlers.picolet.postMessage(json);
+    return;
+  }
+  // Windows/WebView2: ICoreWebView2's postMessage is exposed on
+  // window.chrome.webview.  Feature-check the function presence
+  // explicitly so we never call a stray non-function property.
+  if (w.chrome && w.chrome.webview &&
+      typeof w.chrome.webview.postMessage === "function") {
+    w.chrome.webview.postMessage(json);
+    return;
+  }
+  throw new Error("[picolet] no host postMessage channel available");
 }
 
 // ---------------------------------------------------------------------------
