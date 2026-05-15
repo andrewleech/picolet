@@ -218,6 +218,14 @@ def run(args) -> None:
             # reads it from /rom/picolet/picolet-bridge.js and injects it
             # at DOCUMENT_START so window.picolet is available to user JS.
             _copy_bridge_js(romfs_root, args.verbose)
+            # Step 6d – Windows-x64: copy WebView2Loader.dll into the
+            # romfs at picolet/WebView2Loader.dll (PH10).  The runtime
+            # extracts it to %LOCALAPPDATA%\picolet\<pid>\ at first use
+            # and LoadLibraryW's it from there (the loader DLL is not
+            # in System32, so the search-path-based default load is
+            # unreliable).
+            if target == "windows-x64":
+                _copy_webview2_loader(romfs_root, args.verbose)
 
         # Step 7 – Zero mtimes for reproducibility (FR-BP-6).
         _zero_mtimes(romfs_root)
@@ -391,6 +399,67 @@ def _copy_bridge_js(romfs_root: Path, verbose: bool) -> None:
             f"({bridge_src.stat().st_size} bytes)",
             file=sys.stderr,
         )
+
+
+def _copy_webview2_loader(romfs_root: Path, verbose: bool) -> None:
+    """Copy WebView2Loader.dll into the romfs at picolet/WebView2Loader.dll.
+
+    PH10.  The runtime needs the loader DLL to LoadLibraryW it at
+    startup; bundling inside the romfs (not the runtime's empty-default
+    romfs) is AD1's load-deterministic distribution.
+
+    Resolution order:
+      1. Environment variable PICOLET_WEBVIEW2_LOADER_DLL (escape hatch
+         for CI / hosts with a system-installed loader).
+      2. packages/picolet-runtime/overlay/ports/windows/modules/picolet_webview2/
+         redist/WebView2Loader.x64.dll  (vendored, dev path).
+
+    Errors with a clear message + fetch instructions when neither
+    source is present.
+    """
+    import os
+
+    dest = romfs_root / "picolet" / "WebView2Loader.dll"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    env_path = os.environ.get("PICOLET_WEBVIEW2_LOADER_DLL")
+    sources = []
+    if env_path:
+        sources.append(Path(env_path))
+
+    # Repo-relative dev path: ../picolet-runtime/overlay/ports/windows/
+    # modules/picolet_webview2/redist/WebView2Loader.x64.dll
+    here = Path(__file__).parent
+    repo_dev = (
+        here.parent.parent
+        / "picolet-runtime" / "overlay" / "ports" / "windows" / "modules"
+        / "picolet_webview2" / "redist" / "WebView2Loader.x64.dll"
+    )
+    sources.append(repo_dev)
+
+    for src in sources:
+        if src.is_file():
+            shutil.copy2(src, dest)
+            if verbose:
+                print(
+                    f"  loader: {src.name} -> romfs/picolet/WebView2Loader.dll "
+                    f"({src.stat().st_size} bytes)",
+                    file=sys.stderr,
+                )
+            return
+
+    print(
+        "error: WebView2Loader.dll not found in any of:\n"
+        + "\n".join(f"  {s}" for s in sources)
+        + "\n\n"
+        "Obtain the loader DLL from the Microsoft Edge WebView2 SDK:\n"
+        "  nuget install Microsoft.Web.WebView2 -Version 1.0.2210.55\n"
+        "and place build/native/x64/WebView2Loader.dll at:\n"
+        f"  {repo_dev}\n"
+        "Or point PICOLET_WEBVIEW2_LOADER_DLL at a copy on disk.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def _emit_webview_toml(
