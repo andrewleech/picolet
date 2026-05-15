@@ -816,8 +816,152 @@ Test harness `tests/phase-03/run.sh` lands 14 gates (16 subtests with
 
 ## Verification
 
-(scrum-tester writes here.)
+**Tester:** scrum-tester, attempt 1
+**Date:** 2026-05-15
+**Verdict: PASS**
 
-## Blockers
+### Method
 
-(none yet.)
+Re-ran `bash tests/phase-03/run.sh` from a cold working directory; executed an
+independent end-to-end pipeline under `/tmp/picolet-tester-verify/`; spot-checked
+the trailer bytes in Python; ran the produced binary inside `docker run --rm
+ubuntu:22.04`; mutated the `.version` sidecar to verify version mismatch
+detection; and audited gates 5 and 9 for the tautology claim.
+
+### Test harness results
+
+```
+=== PH03 gate results: 21 passed, 0 failed ===
+All gates PASS.
+```
+
+Wall time on warm cache: ~30 s. All 21 subtests across 19 gates pass.
+
+### Independent end-to-end pipeline
+
+```
+cd /tmp/picolet-tester-verify
+uv run .../picolet/__main__.py init myapp --template hello-cli
+cd myapp
+uv run .../picolet/__main__.py build
+./target/linux-x64/myapp   →  Hello from myapp
+```
+
+Binary size: 625 178 bytes (runtime 624 944 + payload 210 + trailer 24).
+
+### Trailer spot-check
+
+Last 24 bytes of `/tmp/picolet-tester-verify/myapp/target/linux-x64/myapp`:
+
+```
+50 59 4c 54  01 00  00 00  d2 00 00 00 00 00 00 00  0b f9 d6 fa  00 00 00 00
+magic=PYLT  ver=1  flg=0  payload_size=210          crc=0xfad6f90b         pad=0
+```
+
+Python cross-check: `zlib.crc32(payload) & 0xFFFFFFFF == 0xfad6f90b` → True.
+Runtime ELF portion: 624 944 bytes (matches `wc -c` of unappended runtime artifact).
+
+### Requirements coverage matrix
+
+| # | Spec id | Requirement | Implemented? | Evidence | Test gate | Notes |
+|---|---------|-------------|--------------|----------|-----------|-------|
+| 1 | FR-CLI-3 | `picolet build [--target T]` emits `target/<target>/<app>` | Yes | `build_cmd.py:199-209` | 4, 5, 16 | |
+| 2 | FR-BP-1 | Variant from `[ui]` (absent → cli); target from `--target` or host | Yes | `build_cmd.py:109-145` | 6a, 6b, 16 | webview/lvgl raise `NotImplementedError` per phase plan |
+| 3 | FR-BP-3 | `.py` → `.mpy` via bundled mpy-cross | Yes | `build_cmd.py:316-375` | 7 | Entry point also compiled to `romfs/main.mpy` for auto-run |
+| 4 | FR-BP-4 | romfs image from `[romfs] include` dirs + compiled `.mpy` | Yes | `build_cmd.py:378-406`, `420-437` | 8, 17 | |
+| 5 | FR-BP-5 | Final binary = runtime + romfs + 24-byte trailer | Yes | `romfs_trailer.c:139-238`, `build_cmd.py:440-478`, `_trailer.py:31-46` | 5, 9, 11, 12, 18 | C detection + Python packing symmetric |
+| 6 | FR-BP-6 | Same inputs → same output bytes | Yes | `build_cmd.py:408-418` (`_zero_mtimes`), sorted iteration | 10 | Two independent builds produce identical bytes |
+| 7 | NFR-1 | Runtime ≤ 1 MB | Yes | runtime = 624 944 bytes (59.6% of ceiling) | 2, 13a | |
+| 8 | NFR-4 | No system Python in runtime | Yes | `ldd` output: libm.so.6, libc.so.6 only; no libpython | — | `ldd` verified independently; NFR-4 partial (no sterile env test, per SQE note) |
+| 9 | NFR-8 | Linux artifacts run on Ubuntu 22.04 | Yes | max glibc version in binary: 2.34; Ubuntu 22.04 ships 2.35 | 13b | Docker run confirmed |
+| 10 | FR-CLI-8 | Invalid `picolet.toml` rejected before build work | Yes | `build_cmd.py:92-97` | 15 | |
+
+### Build verification
+
+`bash packages/picolet-runtime/scripts/rebuild-integration.sh` exits 0 on warm
+cache (gate 1). Runtime artifact: 624 944 bytes. NFR-1 satisfied.
+
+### NFR-4 (no system Python)
+
+`ldd packages/picolet-runtime/build/picolet-runtime-linux-x64-cli` shows:
+- libm.so.6
+- libc.so.6
+- /lib64/ld-linux-x86-64.so.2
+
+No libpython present. The `picolet build` pipeline runs under `uv` on the host
+but this does not affect the produced binary, which embeds MicroPython.
+
+### NFR-8 (Ubuntu 22.04)
+
+Max glibc version required by the binary: GLIBC_2.34 (from `readelf -V`).
+Ubuntu 22.04 provides glibc 2.35. NFR-8 satisfied.
+
+Docker run confirmed independently:
+```
+docker run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" --user "$(id -u):$(id -g)" ubuntu:22.04 \
+    ./target/linux-x64/myapp
+→ Hello from myapp
+```
+
+### mpy-cross version sidecar test
+
+Sidecar at `packages/picolet-runtime/build/picolet-runtime-linux-x64-cli.version`
+contains `mpy v6.3`. Mutated to `mpy v9.99`; `picolet build` exited 1 with:
+
+```
+error: mpy-cross version mismatch
+  mpy-cross reports: mpy v6.3
+  runtime expects:   mpy v9.99
+```
+
+Sidecar restored. Version mismatch detection works correctly.
+
+### Reproducibility test (FR-BP-6)
+
+Built twice into separate output paths; `cmp` reported no differences.
+Byte-identical confirmed independently.
+
+### FR-BP-1 variant resolution
+
+- App with no `[ui]`: `picolet build -v` prints `runtime variant: cli` ✓
+- App with `[ui] renderer = "webview"`: exits 1 with
+  `error: not implemented: webview variant builds land in PH09` ✓
+
+### Gate 9 tautology audit
+
+Confirmed the SQE finding: gates 5 and 9 both run `$APP4/target/linux-x64/hello-cli-test`
+and assert `Hello from hello-cli-test`. The binary is the same object in both
+gates. Gate 9 provides no independent signal beyond gate 5. Logged below as an
+audit finding for scrum-po; it does not affect the pass verdict since the
+underlying requirement (FR-BP-5) is proved by the correct output — which can only
+come from the trailer-loaded romfs given the runtime's linked romfs is empty.
+
+### UTF-8 filename failure mode
+
+Manually ran `picolet build` inside `tests/phase-03/fixtures/hello-cli-utf8-asset/`.
+The build fails at the `mpremote romfs build` step with a `CalledProcessError`
+traceback (not a clean `error: ...` message). The failure is controlled — no
+crash, no corrupted output — but the user sees a raw traceback. This is a UX
+issue, not a spec violation (FR-CLI-8 applies to picolet.toml validation, not
+to build-time subprocess failures). Logged as a minor finding for a later phase.
+
+### TODO/FIXME scan
+
+All `TODO(PH05)` markers in `runtime_resolver.py` are intentional, documented
+PH05 deferrals per the phase plan's explicit out-of-scope list. No unplanned
+incomplete markers found in new code.
+
+### Audit finding for scrum-po
+
+**Gate 9 tautological with gate 5.** Both gates test the same binary with the
+same assertion. Future SQE should replace gate 9 with a test that directly
+probes the trailer detection path — e.g., verify that running the stock runtime
+(no trailer) with an empty romfs produces no output, then verify that the same
+runtime binary with a trailer appended produces the expected output. This would
+make the FR-BP-5 proof independent of gate 5.
+
+**UTF-8 build failure surface is an unhandled exception.** `_build_romfs()` in
+`build_cmd.py:420-437` propagates `subprocess.CalledProcessError` as an
+unhandled exception rather than catching it and printing `error: romfs build
+failed`. Low priority; does not affect correctness.
+
