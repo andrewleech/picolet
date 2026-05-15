@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "picolet-templates"
+version = "0.2.0"
+description = "Starter templates for picolet init"
+requires-python = ">=3.11"
+
+[tool.hatch.build.targets.wheel]
+packages = ["picolet_templates"]
+
+[tool.hatch.build.targets.wheel.sources]
+"picolet_templates" = "picolet_templates"

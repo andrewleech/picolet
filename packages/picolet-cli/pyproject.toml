@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "picolet-cli"
+version = "0.2.0"
+description = "The picolet command-line tool"
+requires-python = ">=3.11"
+dependencies = [
+    "picolet-templates",
+]
+
+[project.scripts]
+picolet = "picolet.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["picolet"]
+
+[tool.uv.sources]
+picolet-templates = { workspace = true }
