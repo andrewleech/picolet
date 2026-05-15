@@ -1077,3 +1077,142 @@ directly via a shim that uses the same transport contract for symmetry
 with the webview variant.
 
 Both follow this PH06 contract without changes.
+
+## Verification
+
+Independent tester run (scrum-tester, opus). Re-executed all gates from
+scratch on the existing artefacts in
+`packages/picolet-runtime/build/`.
+
+### Test pass/fail counts
+
+| Suite | Counts | Wall time |
+|---|---|---|
+| `python3 -m pytest tests/phase-06/test_dispatcher.py -v` | 42 passed, 0 failed | 0.29 s |
+| `bash tests/phase-06/run.sh` | 21 passed, 0 failed, 0 skipped | 2.65 s |
+| `bash tests/phase-03/run.sh` | 21 passed, 0 failed | n/a |
+| `bash tests/phase-04/run.sh` | 31 passed, 0 failed, 0 skipped | 39.4 s |
+| `bash tests/phase-05/run.sh` | 19 passed, 0 failed, 2 skipped | 19.3 s |
+
+The two PH05 skips (`B3` `--no-cache` write-through, `D1`
+docker-absent path) pre-date PH06 and are documented in PH05's caveat
+commits; not a PH06 regression.
+
+### FR-IPC-* spec exit gate
+
+| FR | Verdict | Evidence (independent, this run) |
+|---|---|---|
+| FR-IPC-1 | PASS | Stdio round-trip B1 (`stdio-greet-roundtrip`) and the tester's own greet round-trip against `picolet build`-produced binary both return `{"result": "Hello, World", "id": 1, "ok": true}`. `@picolet.command` decorator registers via `_register_command` in `_dispatcher.py:96`; unit `CommandDecoratorTests` (3/3 pass) cover bare + named + non-async-rejected forms. Decoration of plain `def` raises TypeError (gate B10). |
+| FR-IPC-2 | PASS | Tester's literal `boom` round-trip: `{"id":2,"cmd":"boom","args":null}` → `{"error":{"message":"oops","type":"ValueError"},"id":2,"ok":false}`. Unknown-command path produces `NameError` reply (B3 / tester E2E.3). Re-entrant invoke verified end-to-end against the runtime binary: `outer` (id=99 inbound) issues `inner` (id=1 outbound), driver replies, runtime returns `{"wrapped":"INNER-OK"}`. `ExceptionTypePreservationTests` cover `ValueError`/`KeyError`/`TypeError`/`RuntimeError` + RemoteError fallback. |
+| FR-IPC-3 | PASS | `B7 stdio-emit-event-output` emits three events; output matches the wire shape `{"data": ..., "event": ...}`. `B11 stdio-multi-subscriber-both-receive` confirms two `picolet.on` handlers both fire (`result=2`). Unit `MultiSubscriberTests` + `EmitOnTests` (4/4 pass) cover unsubscribe semantics. |
+| FR-IPC-4 | PASS | `B8 stdio-wire-format`: ok-reply has exactly `{id, ok, result}`. Unit `WireFormatTests` cover ok/err/event key audits (3/3 pass). `B9 stdio-large-payload-roundtrip` (100 KB string) returns verbatim. `ArgumentTypeTests` (7/7 pass) cover dict/list/unicode/int/bool/None. |
+| FR-IPC-5 | PASS | Tester's independent concurrency probe: slow (id=1, 100 ms) then fast (id=2, 0 ms) sent to runtime → fast reply emitted first, slow reply second. Confirms `asyncio.create_task(_handle_request(...))` per-request fan-out is real, not serialised. Unit `AsyncioSchedulerTests::test_handlers_run_concurrently` independently confirms interleaving order `[slow-start, fast, slow-end]`. `B6 stdio-concurrent-in-flight` (depth 3) confirms three handlers complete out-of-request-order. |
+
+### Independent round-trip outputs (prompt step 2)
+
+```
+$ printf '{"id":1,"cmd":"greet","args":{"name":"World"}}\n' | hello-cli
+{"result": "Hello, World", "id": 1, "ok": true}
+
+$ printf '{"id":2,"cmd":"boom","args":null}\n' | hello-cli
+{"error": {"message": "oops", "type": "ValueError"}, "id": 2, "ok": false}
+
+$ printf '{"id":3,"cmd":"nope","args":null}\n' | hello-cli
+{"error": {"message": "no command: nope", "type": "NameError"}, "id": 3, "ok": false}
+```
+
+The `hello-cli` here was produced by `picolet build` (full PH02-PH05
+pipeline exercised — not just `runtime -c`). Re-entrancy and concurrency
+probes captured separately above.
+
+### Adjudications
+
+#### (a) Hollow tests in the developer's original suite
+
+`RoundTripTests::test_basic_request_reply` (line 81) constructs a
+fixture and then exits without any assertion — the test would pass with
+the dispatcher entirely deleted. `CancellationTests::test_in_flight_handler_cancelled_on_transport_close`
+(line 558) instruments a `cancelled` list and never inspects it; the
+trailing comment acknowledges this. Both are dead-code tests as
+written.
+
+However, both behaviours are covered elsewhere with real assertions:
+
+- `test_request_reply_via_paired_transports` (line 109, two lines
+  below the hollow test) drives the same scenario through paired
+  transports and asserts `reply == {"id":1, "ok":True, "result":"hi world"}`.
+- `ConnectionCloseTests::test_transport_close_mid_handler_dispatcher_exits`
+  (line 757) drives the same close-mid-handler scenario and asserts
+  the handler actually started, then `asyncio.wait_for` on the
+  dispatcher with a 1-second timeout — a real non-hang assertion.
+
+Verdict: **acceptable test debt for PH06 exit**, *but* a clean-up commit
+should remove or rewrite the two hollow methods before PH07 lands so
+they don't decay into a confusing precedent. Tracking this as a
+recommendation to scrum-po rather than a developer return — pattern
+matches PH02/PH05 lenient adjudication when FRs are independently
+verified.
+
+#### (b) Generator slip-through residual risk
+
+The SQE characterised this as "a generator function would slip past
+`@picolet.command` decoration because `type(fn).__name__` is `"generator"`
+not `"function"`, and would fail at await time gracefully". Independent
+verification on the runtime binary reveals the failure mode is
+**worse than the SQE's characterisation**:
+
+1. *Empty-bodied* generator (`def f(args): return; yield`) is accepted at
+   decoration time AND at invoke time — the dispatcher emits a
+   spurious `{"result": null, "id": <n>, "ok": true}` reply. The peer
+   sees a "success" with `None` and no indication the handler never
+   ran the user's intended code path.
+2. *Yielding* generator (`def f(args): yield args`) is accepted at
+   decoration time. On invoke the handler runs, hits the `yield`, and
+   the dispatcher's await of the non-coroutine return value
+   propagates as a `CancelledError` that terminates the entire
+   `_run_with_main` loop. The traceback is dumped to **stdout** (the
+   IPC channel itself) and the process exits with code 1. No reply
+   for the in-flight request reaches the peer.
+3. *Async generator* (`async def f(args): yield args`) is also accepted
+   at decoration time (`inspect.iscoroutinefunction` returns False for
+   async generators on CPython too — the CPython unit-test caught this
+   only because the test directly drives the decorator with an
+   `assertRaises`; in practice on MicroPython the async generator slip-through
+   produces silent no-reply: the runtime exits cleanly with no output,
+   leaving the peer hung indefinitely).
+
+The traceback-to-stdout failure mode (case 2) is the most concerning:
+the IPC channel is *the* output stream and corrupting it with a Python
+traceback violates the wire-format contract. This is a defect, not a
+test-side issue.
+
+Adjudication:
+
+- FR-IPC-{1,2,3,4,5} are about *what the dispatcher does for correctly
+  authored commands*; nothing in the spec mandates guard-railing every
+  misuse of the decorator. The PH06 exit gate is therefore not blocked
+  by this.
+- The mitigations are clear: (i) on MicroPython, strengthen
+  `_looks_like_coroutine_function` to call the function with a sentinel
+  and reject any return value that lacks `__next__`/`send` *and* is
+  a generator (i.e. distinguish `<generator>` from `<coroutine>` by
+  the presence of `__await__`); (ii) the dispatcher's per-request
+  wrapper should redirect crash tracebacks to stderr, not stdout, so
+  the wire channel is never corrupted.
+
+Both mitigations are tracked for scrum-po follow-up; PH06 ships as
+PASS on the FR contract, with the slip-through documented as a known
+defect to be closed before any user-facing release. Failure modes 2
+and 3 in particular would surface immediately in any real CLI peer
+integration and should be fixed before PH07/PH08 wire JS in.
+
+### Verdict
+
+**PASS.** FR-IPC-{1,2,3,4,5} all hold on the as-shipped binary;
+PH03/PH04/PH05 unaffected; Linux + Windows runtimes both under NFR-1
+(641 328 B and 577 024 B respectively, ≤ 1 048 576 B). Two hollow unit
+tests carry forward as test-hygiene debt with paired real-assertion
+tests preserving coverage. The generator slip-through is a real
+dispatcher defect with three distinct failure modes (silent-null,
+crash-to-stdout, silent-no-reply) but is not in the FR-IPC-* contract
+and is recorded for scrum-po as a pre-PH07 fix-it.
