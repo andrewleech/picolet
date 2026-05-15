@@ -19,6 +19,13 @@
 #
 #   - MockTransport: in-process transport for unit tests.  No JSON
 #     round-trip, no real IO — just inbox/outbox lists.
+#
+# PH11 adds InProcessTransport: a paired in-process transport for the
+# lvgl variant's FR-LV-4 case (Python-to-Python IPC via the same PH06
+# dispatcher).  Unlike MockTransport, InProcessTransport JSON-encodes
+# its messages so the wire format is byte-identical to StdioTransport
+# and WebviewTransport — PH13 SBOM tooling and `picolet dev` log shapes
+# don't need a special case for lvgl.
 
 import sys
 import json
@@ -279,3 +286,116 @@ class MockTransport:
         if self._evt is not None:
             # Wake any pending recv() so it returns None.
             self._evt.set()
+
+
+# ---------------------------------------------------------------------------
+# InProcessTransport (PH11, FR-LV-4)
+# ---------------------------------------------------------------------------
+
+
+class InProcessTransport:
+    """Paired in-process Transport for Python-Python IPC (FR-LV-4).
+
+    Constructed via the ``pair()`` classmethod which returns two
+    endpoint instances sharing two queues.  send() on endpoint A
+    routes to recv() on endpoint B and vice-versa.  Both endpoints
+    run on the same asyncio loop.
+
+    Wire format is byte-identical to ``StdioTransport`` and
+    ``WebviewTransport``: every send/recv round-trips through
+    ``json.dumps`` / ``json.loads``.  This costs microseconds per call
+    but keeps the dispatcher and PH13 SBOM tooling oblivious to the
+    in-process case.
+
+    Pair-close semantics: ``close()`` on either endpoint marks itself
+    closed.  Subsequent ``recv()`` returns None (the EOF signal the
+    dispatcher honours); a pending recv() on the peer is woken with
+    None too (its outgoing queue is its peer's incoming queue, so
+    closing one side means the peer cannot deliver new messages).
+    """
+
+    @classmethod
+    def pair(cls):
+        """Return two paired InProcessTransport endpoints.
+
+        Each endpoint has its own incoming queue; sending on A pushes
+        onto B's incoming queue, and vice-versa.
+        """
+        if not _HAVE_ASYNCIO:
+            raise RuntimeError(
+                "InProcessTransport.pair requires asyncio"
+            )
+        q_a_in = asyncio.Queue()
+        q_b_in = asyncio.Queue()
+        a = cls(_in=q_a_in, _out=q_b_in)
+        b = cls(_in=q_b_in, _out=q_a_in)
+        a._peer = b
+        b._peer = a
+        return a, b
+
+    def __init__(self, _in=None, _out=None):
+        # _in: queue this endpoint receives from
+        # _out: queue this endpoint sends into (== peer's _in)
+        if not _HAVE_ASYNCIO:
+            raise RuntimeError(
+                "InProcessTransport requires asyncio"
+            )
+        if _in is None:
+            _in = asyncio.Queue()
+        if _out is None:
+            _out = asyncio.Queue()
+        self._in = _in
+        self._out = _out
+        self._closed = False
+        self._peer = None
+
+    @property
+    def closed(self):
+        return self._closed
+
+    async def recv(self):
+        if self._closed:
+            return None
+        # Sentinel: ``None`` placed by close() on either side ends recv.
+        try:
+            raw = await self._in.get()
+        except asyncio.CancelledError:
+            raise
+        if raw is None:
+            return None
+        # Round-trip through json so byte-shape matches StdioTransport.
+        try:
+            return json.loads(raw)
+        except (ValueError, Exception) as e:
+            sys.stderr.write(
+                "picolet: InProcessTransport malformed JSON: " + str(e) + "\n"
+            )
+            return await self.recv()
+
+    async def send(self, msg):
+        if self._closed:
+            return
+        line = json.dumps(msg)
+        # If the peer is closed, drop silently — matches StdioTransport
+        # behaviour where writes to a closed stdout silently no-op.
+        peer = self._peer
+        if peer is None or peer._closed:
+            return
+        await self._out.put(line)
+
+    async def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        # Wake any recv() on this side that is blocked on its incoming
+        # queue.  Put a None sentinel onto its OWN queue (self._in).
+        try:
+            self._in.put_nowait(None)
+        except (BaseException,):
+            pass
+        # Wake the peer's recv() too: the peer's incoming queue is
+        # this endpoint's _out queue.
+        try:
+            self._out.put_nowait(None)
+        except (BaseException,):
+            pass
