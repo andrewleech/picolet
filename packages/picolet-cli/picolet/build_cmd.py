@@ -33,7 +33,12 @@ from pathlib import Path
 
 from picolet.validator import validate_toml
 from picolet._trailer import pack_trailer
-from picolet.runtime_resolver import locate_mpy_cross, resolve_runtime, RuntimeNotFound
+from picolet.runtime_resolver import (
+    locate_mpy_cross,
+    resolve_runtime,
+    ResolvedRuntime,
+    RuntimeNotFound,
+)
 
 
 def add_parser(subparsers) -> None:
@@ -72,6 +77,20 @@ def add_parser(subparsers) -> None:
         "--runtime",
         default=None,
         help=argparse.SUPPRESS,
+    )
+    p.add_argument(
+        "--from-source",
+        action="store_true",
+        default=False,
+        dest="from_source",
+        help="build the runtime locally using build-runtime.sh (requires Docker)",
+    )
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        default=False,
+        dest="no_cache",
+        help="skip the runtime artifact cache; always download fresh",
     )
     p.set_defaults(func=run)
 
@@ -148,20 +167,22 @@ def run(args) -> None:
     # -------------------------------------------------------------------------
     # Step 4 – Locate runtime artifact and mpy-cross; verify version match.
     # -------------------------------------------------------------------------
-    if args.runtime:
-        runtime_path = Path(args.runtime)
-        if not runtime_path.is_file():
-            print(
-                f"error: --runtime path not found: {runtime_path}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-    else:
-        try:
-            runtime_path = resolve_runtime(target, variant)
-        except RuntimeNotFound as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(1)
+    try:
+        resolved: ResolvedRuntime = resolve_runtime(
+            target,
+            variant,
+            explicit_path=Path(args.runtime) if args.runtime else None,
+            from_source=args.from_source,
+            no_cache=args.no_cache,
+            config=data,
+            verbose=args.verbose,
+        )
+    except RuntimeNotFound as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    runtime_path = resolved.binary
+    # resolved.sbom is preserved for PH13's SBOM emitter; unused here.
 
     try:
         mpy_cross = locate_mpy_cross()
