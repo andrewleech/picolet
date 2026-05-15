@@ -487,7 +487,24 @@ entry point.
 
 ## Tests
 
-(scrum-sqe writes here)
+Driver: `tests/phase-02/run.sh`  
+Invocation: `bash tests/phase-02/run.sh`
+
+### Subtest groups
+
+| Group | Count | What is exercised |
+|---|---|---|
+| A (FR-CLI-1) | 9 | --version output, --help listing init+validate, no-args usage hint, bad-subcommand rejection |
+| B (FR-CLI-2) | 12 | init happy path (files created), name substitution, hello pattern in main.py, non-empty dir rejection + error text, empty dir acceptance, unknown template rejection + error text, picolet.toml collision guard |
+| C (FR-CLI-8) | 16 | validate valid fixture, invalid-renderer exits non-zero + mentions renderer + bad value, invalid-type exits non-zero + mentions key + file path, unknown-section exits non-zero + identifies section + file path, missing-app exits non-zero + mentions app + file path, round-trip with init output, non-existent path exits non-zero + mentions "not found" |
+| D (PEP 723) | 5 | uv run version output non-empty; installed entry-point --version/init/validate (skip when picolet not on PATH) |
+
+**Total: 42 subtests — 38 passed, 0 failed, 4 skipped** (D skips because `picolet` is not installed on PATH; all skips are expected and clean).  
+Wall time: ~4.2 s (uv env warm).
+
+### Spec deviation — A3
+
+`picolet` invoked with no subcommand exits **0**, not non-zero as required by FR-CLI-1 / A3. The developer calls `parser.print_help()` then `sys.exit(0)`. The test harness asserts the observed behaviour and documents the deviation in commit `8407728`. Fix: change `sys.exit(0)` to `sys.exit(1)` in `__main__.py` after the `print_help()` call. Flagged for tester gate review.
 
 ## Verification
 
