@@ -74,7 +74,7 @@ echo "    workdir: $WORKDIR"
 echo
 
 # ---------------------------------------------------------------------------
-# Group A: picolet init scaffold (gates 1–3)
+# Group A: picolet init scaffold (gates 1–3 + tester-added A4–A6)
 # ---------------------------------------------------------------------------
 
 echo "--- Group A: scaffold (picolet init) ---"
@@ -139,10 +139,66 @@ else
     fi
 fi
 
+# A4: verify {{name}} substituted in all files that carry it (h1, main.py comment, app.js comment).
+# Ensures _copy_template applied substitution across all template files, not just toml/title.
+NAME="A4 name-substituted-all-files (tester gate)"
+if [[ "${SCAFFOLD_OK:-0}" -eq 0 ]]; then
+    skip "$NAME" "A1 did not produce scaffold"
+else
+    H1_OK=0
+    MAIN_OK=0
+    APPJS_OK=0
+    if grep -q '<h1>test-app</h1>' "$SCAFFOLD_DIR/ui/index.html"; then H1_OK=1; fi
+    if grep -q 'test-app' "$SCAFFOLD_DIR/src/main.py"; then MAIN_OK=1; fi
+    if grep -q 'test-app' "$SCAFFOLD_DIR/ui/app.js"; then APPJS_OK=1; fi
+    if [[ "$H1_OK" -eq 1 && "$MAIN_OK" -eq 1 && "$APPJS_OK" -eq 1 ]]; then
+        pass "$NAME"
+    else
+        fail "$NAME" "{{name}} missing in some files (h1=$H1_OK main.py=$MAIN_OK app.js=$APPJS_OK)"
+    fi
+fi
+
+# A5: picolet init rejects unknown template names (error path).
+NAME="A5 reject-unknown-template (tester gate)"
+if ! command -v uv >/dev/null 2>&1; then
+    skip "$NAME" "uv not on PATH"
+else
+    NEG_OUT="$(
+        cd "$REPO_ROOT" && \
+        uv run python -m picolet init negtest --template nosuchtemplate \
+            --output-dir "$WORKDIR/neg-test-a5" 2>&1
+    )" || true
+    if echo "$NEG_OUT" | grep -q "unknown template"; then
+        pass "$NAME"
+    else
+        fail "$NAME" "expected 'unknown template' error; got: $NEG_OUT"
+    fi
+fi
+
+# A6: picolet init rejects a non-empty existing target directory (error path).
+NAME="A6 reject-existing-nonempty-dir (tester gate)"
+if ! command -v uv >/dev/null 2>&1; then
+    skip "$NAME" "uv not on PATH"
+else
+    mkdir -p "$WORKDIR/existing-dir"
+    touch "$WORKDIR/existing-dir/sentinel"
+    NEG_OUT="$(
+        cd "$REPO_ROOT" && \
+        uv run python -m picolet init existingdir \
+            --template hello-webview \
+            --output-dir "$WORKDIR/existing-dir" 2>&1
+    )" || true
+    if echo "$NEG_OUT" | grep -q "already exists"; then
+        pass "$NAME"
+    else
+        fail "$NAME" "expected 'already exists' error; got: $NEG_OUT"
+    fi
+fi
+
 echo
 
 # ---------------------------------------------------------------------------
-# Group B: picolet build (gates 4–5)
+# Group B: picolet build (gates 4–5 + tester-added B3)
 # ---------------------------------------------------------------------------
 
 echo "--- Group B: picolet build ---"
@@ -191,6 +247,23 @@ else
         if [[ "$VERBOSE" -eq 1 ]]; then echo "       picolet.toml from romfs: $TOML_OUT"; fi
     else
         fail "$NAME" "picolet.toml not in romfs; got: $TOML_OUT"
+    fi
+fi
+
+# B3: verify [romfs] include = ["ui"] is honoured — ui/index.html accessible at /rom/ui/index.html.
+# FR-WV-2 requires the webview to load root doc from /rom/<ui.root>/<index>; this confirms packing.
+NAME="B3 ui-packed-in-romfs (tester gate / FR-WV-2)"
+if [[ "$SKIP_INTEGRATION" -eq 1 ]]; then
+    skip "$NAME" "--skip-integration"
+elif [[ -z "$BUILT_TEMPLATE" ]]; then
+    skip "$NAME" "B1 did not produce binary"
+else
+    HTML_OUT="$("$BUILT_TEMPLATE" -c 'print(open("/rom/ui/index.html").read())' 2>&1)"
+    if echo "$HTML_OUT" | grep -q 'btn-greet\|btn-fail\|app\.js'; then
+        pass "$NAME"
+        if [[ "$VERBOSE" -eq 1 ]]; then echo "       /rom/ui/index.html first line: $(echo "$HTML_OUT" | head -1)"; fi
+    else
+        fail "$NAME" "ui/index.html not in romfs at /rom/ui/index.html; got: $HTML_OUT"
     fi
 fi
 

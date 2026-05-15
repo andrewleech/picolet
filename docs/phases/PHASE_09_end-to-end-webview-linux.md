@@ -746,3 +746,75 @@ C–E).
 | FR-BP-3 | User `.py` sources compiled to `.mpy` via `mpy-cross`. | B1 (build pipeline exercises mpy-cross) |
 | FR-BP-4 | Romfs includes `[romfs] include` dirs + `.mpy` + bridge-js bundle. | B1, B2 |
 | FR-BP-5 | Final binary is runtime with romfs appended. | B1, B2 |
+
+## Verification
+
+**Verdict: PASS**
+
+Performed 2026-05-15 on `dev` by scrum-tester (sonnet-4.6).
+
+### Method
+
+Independent verification — all gates run from scratch without relying on developer artefacts,
+except the pre-built webview runtime and bridge-js (phase prerequisites).
+
+### Gate results (enhanced harness — 13 gates)
+
+Original 9 developer gates plus 4 tester-added gap-coverage gates.
+
+| Gate | Label | Result |
+|---|---|---|
+| A1 | scaffold-tree | PASS |
+| A2 | toml-validates | PASS |
+| A3 | name-substituted (title + picolet.toml) | PASS |
+| A4 | name-substituted-all-files (h1, main.py, app.js) | PASS — tester-added |
+| A5 | reject-unknown-template | PASS — tester-added |
+| A6 | reject-existing-nonempty-dir | PASS — tester-added |
+| B1 | build-succeeds | PASS |
+| B2 | romfs-embedded (picolet.toml) | PASS |
+| B3 | ui-packed-in-romfs (/rom/ui/index.html readable) | PASS — tester-added |
+| C1 | invoke-roundtrip (PICOLET_PH09_INVOKE_OK) | PASS |
+| D1 | error-propagation (PICOLET_PH09_ERROR_OK) | PASS |
+| E1 | python-emit (PICOLET_PH09_EVENT_OK) | PASS |
+| F1 | ph08-gates-still-pass | PASS |
+
+**13 passed, 0 failed, 0 skipped.**
+
+### Independent integration probe
+
+Beyond the harness, a standalone probe fixture was built from scratch and run under xvfb:
+`window.picolet.invoke("greet", {name: "Tester"})` → `"Hello, Tester"` confirmed end-to-end.
+
+### PH03–PH08 regression
+
+| Phase | Result |
+|---|---|
+| PH03 | PASS (21/21 gates) |
+| PH04 | PASS |
+| PH05 | PASS |
+| PH06 | PASS |
+| PH07 | PASS |
+| PH08 | PASS |
+
+### Coverage gaps closed
+
+- **A4**: A3 only verified `<title>` and `name =` in toml. A4 adds `<h1>`, `src/main.py` comment,
+  and `ui/app.js` comment — all substituted correctly.
+- **A5/A6**: Negative paths (wrong template name, non-empty existing dir) were untested. Both
+  produce correct error messages and exit non-zero.
+- **B3**: B2 verified `picolet.toml` in romfs but not the `ui/` tree. B3 confirms
+  `/rom/ui/index.html` is readable from the binary, directly proving FR-WV-2's romfs packing.
+
+### Spec requirement coverage
+
+All FR-CLI-2, FR-WV-{2,3,4,5}, FR-IPC-{2,3}, FR-BP-{1,3,4,5} verified end-to-end. Primary exit
+gate FR-IPC-2 confirmed via both success path (C1) and error path (D1).
+
+### Notes for scrum-po
+
+- A2 (toml-validates) is structurally implied by A1 (files present implies no rollback implies no
+  validation error). It provides documentation value but no independent signal. Low priority to fix.
+- The hello-webview template binary is interactive (no self-termination). Gate B1/B2 exercise the
+  template build; gates C–E use a separate self-terminating fixture. This separation is correct by
+  design and noted in the phase plan.
+- Windows webview is deferred to PH10 as planned.
