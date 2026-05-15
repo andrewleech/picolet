@@ -340,6 +340,184 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
+# Group F: SQE-authored additional gates
+# ---------------------------------------------------------------------------
+
+echo "--- Group F: additional coverage gates ---"
+
+# F1: NFR-5 — objdump NEEDED confirms no LGPL/GPL static link.
+# A3 already checks ldd; this gate uses objdump -p as the spec-authoritative tool.
+NAME="F1 nfr-5-objdump-needed-clean"
+NEEDED_OUT="$(objdump -p "$WEBVIEW_RUNTIME" | grep NEEDED || true)"
+# Should list only libm and libc; no gui/gtk/webkit NEEDED entries.
+if echo "$NEEDED_OUT" | grep -qE "(libwebkit2gtk|libgtk|libgobject|libjavascriptcore|libssl|libcrypto)"; then
+    fail "$NAME" "unexpected NEEDED entry (static gui link?): $NEEDED_OUT"
+else
+    pass "$NAME"
+    echo "       NEEDED: $(echo "$NEEDED_OUT" | tr '\n' ' ')"
+fi
+
+# F2: manifest isolation — manifest_cli.py must NOT mention picolet_ui.
+NAME="F2 manifest-isolation"
+CLI_MANIFEST="$PKG_ROOT/manifests/manifest_cli.py"
+WV_MANIFEST="$PKG_ROOT/manifests/manifest_webview.py"
+if [[ ! -f "$CLI_MANIFEST" ]]; then
+    fail "$NAME" "manifest_cli.py not found at $CLI_MANIFEST"
+elif grep -q "picolet_ui" "$CLI_MANIFEST"; then
+    fail "$NAME" "manifest_cli.py mentions picolet_ui — cli variant would pull in webview code"
+elif [[ ! -f "$WV_MANIFEST" ]]; then
+    fail "$NAME" "manifest_webview.py not found at $WV_MANIFEST"
+elif ! grep -q "picolet_ui" "$WV_MANIFEST"; then
+    fail "$NAME" "manifest_webview.py does not freeze picolet_ui"
+else
+    pass "$NAME"
+fi
+
+# F3: PICOLET_WV_THREADED=1 raises NotImplementedError.
+# NOTE: MicroPython's os module does not expose os.environ on this port,
+# so the env-var check silently falls back to same-thread pump in the frozen
+# runtime.  The NotImplementedError path is exercisable via CPython (where
+# os.environ.get exists), which is the correct test surface for the stub.
+NAME="F3 threaded-stub-raises-not-implemented"
+if ! command -v python3 >/dev/null 2>&1; then
+    skip "$NAME" "python3 not on PATH"
+else
+    THREADED_OUT="$(env PICOLET_WV_THREADED=1 python3 -c "
+import sys
+sys.path.insert(0, '${REPO_ROOT}/packages/picolet-runtime/python')
+from picolet_ui._loop import _maybe_take_threaded_branch
+try:
+    _maybe_take_threaded_branch()
+    print('no exception')
+except NotImplementedError as e:
+    print('NotImplementedError')
+" 2>&1)"
+    if echo "$THREADED_OUT" | grep -q "NotImplementedError"; then
+        pass "$NAME"
+    else
+        fail "$NAME" "expected NotImplementedError via CPython; got: $(printf '%q' "$THREADED_OUT")"
+    fi
+fi
+
+# F4: unit test suite for this phase (both test files) passes.
+NAME="F4 unit-tests-pass"
+if ! command -v python3 >/dev/null 2>&1; then
+    skip "$NAME" "python3 not on PATH"
+else
+    PYTESTOUT="$(python3 -m pytest \
+        "$SCRIPT_DIR/test_transport_contract.py" \
+        "$SCRIPT_DIR/test_webview_additional.py" \
+        -q 2>&1)"
+    RC=$?
+    if [[ "$RC" -eq 0 ]]; then
+        pass "$NAME"
+        # Print just the summary line.
+        echo "$PYTESTOUT" | grep -E "passed|failed|error" | tail -1 | sed 's/^/       /'
+    else
+        fail "$NAME" "unit tests failed"
+        echo "$PYTESTOUT" | tail -20
+    fi
+fi
+
+# F5: Gate 15 — visual pixel confirmation (SLOW; requires xwd + convert).
+# Skips gracefully when:
+#   - xvfb-run is absent
+#   - xwd or convert is absent
+#   - the captured PNG is trivially small (Xvfb + software renderer returns
+#     a black framebuffer — a known limitation of Xvfb + MESA ZINK failure)
+NAME="F5 visual-pixel-gate15 (SLOW)"
+if ! command -v xvfb-run >/dev/null 2>&1; then
+    skip "$NAME" "xvfb-run not on PATH"
+elif ! command -v xwd >/dev/null 2>&1; then
+    skip "$NAME" "xwd not on PATH"
+elif ! command -v convert >/dev/null 2>&1; then
+    skip "$NAME" "convert (ImageMagick) not on PATH"
+else
+    # Write a stay-open HTML fixture.
+    GATE15_HTML="$WORKDIR/gate15.html"
+    GATE15_PY="$WORKDIR/gate15.py"
+    cat > "$GATE15_HTML" << 'HTML15'
+<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="background:#336699;margin:0;padding:0"><script>
+  document.title='LOADED';
+  window.webkit.messageHandlers.picolet.postMessage(
+    JSON.stringify({event:'loaded',data:{}}));
+</script></body></html>
+HTML15
+    # The runtime script: open the window, wait for postMessage, then stay
+    # open briefly for the capture to complete.
+    cat > "$GATE15_PY" << 'PY15'
+import asyncio, sys
+from picolet_ui._webview import WebviewTransport
+from picolet_ui._window import Window
+from picolet_ui._webview import Webview
+from picolet_ui._loop import run
+window = Window(title="Gate15Pixel", size=[640, 480], resizable=False)
+transport = WebviewTransport()
+webview = Webview(window, root_uri="GATE15_URI_PLACEHOLDER", transport=transport)
+window.show()
+async def main(transport):
+    try:
+        await asyncio.wait_for(transport.recv(), 4.0)
+    except asyncio.TimeoutError:
+        pass
+    await asyncio.sleep(2)
+run(transport, main=lambda: main(transport))
+PY15
+    GATE15_URI="file://${GATE15_HTML}"
+    sed -i "s|GATE15_URI_PLACEHOLDER|${GATE15_URI}|g" "$GATE15_PY"
+
+    # Wrapper script: start app, wait for page to render, capture, kill.
+    GATE15_WRAP="$WORKDIR/gate15_wrap.sh"
+    GATE15_XWD="$WORKDIR/gate15.xwd"
+    cat > "$GATE15_WRAP" << WRAP15
+#!/bin/bash
+"$WEBVIEW_RUNTIME" "$GATE15_PY" 2>/dev/null &
+APP_PID=\$!
+sleep 2
+xwd -root -silent -out "$GATE15_XWD" 2>/dev/null || true
+kill \$APP_PID 2>/dev/null || true
+wait \$APP_PID 2>/dev/null || true
+WRAP15
+    chmod +x "$GATE15_WRAP"
+
+    xvfb-run -a -s "-screen 0 800x600x24" bash "$GATE15_WRAP" > "$WORKDIR/gate15.out" 2>&1
+
+    if [[ ! -f "$GATE15_XWD" ]]; then
+        skip "$NAME" "xwd produced no output"
+    else
+        GATE15_PNG="$WORKDIR/gate15.png"
+        convert "$GATE15_XWD" "$GATE15_PNG" 2>/dev/null
+        PNG_SIZE=$(wc -c < "$GATE15_PNG" 2>/dev/null || echo 0)
+        if [[ "$PNG_SIZE" -lt 1024 ]]; then
+            # Xvfb + software renderer (MESA ZINK failure) returns a black
+            # framebuffer; xwd captures it as an almost-empty PNG.  This is
+            # a known platform limitation, not a product defect.  Skip so the
+            # gate doesn't false-fail on CI without GPU.
+            skip "$NAME" "PNG trivially small (${PNG_SIZE} bytes) — Xvfb framebuffer not exposed by MESA software renderer; gate 5 (postMessage) already confirms page rendered"
+        else
+            # Real framebuffer — sample the pixel and assert the background colour.
+            PIXEL=$(convert "$GATE15_PNG" -format "%[pixel:p{100,100}]" info: 2>/dev/null)
+            # #336699 → srgb(51,102,153)  or  rgb(51,102,153) depending on IM version.
+            # Accept either form.
+            if echo "$PIXEL" | grep -qE "srgb\(51,102,153\)|rgb\(51,102,153\)"; then
+                pass "$NAME"
+                echo "       pixel(100,100)=$PIXEL matches #336699"
+            else
+                fail "$NAME" "expected #336699 at pixel(100,100); got $PIXEL"
+            fi
+        fi
+    fi
+fi
+
+# F6: Window resize — no runtime resize API exposed in PH07.
+# This is noted but intentionally skipped; the gate covers PH11+ scope.
+NAME="F6 window-resize-api (deferred to PH11)"
+skip "$NAME" "picolet_ui.Window has no runtime resize method in PH07; only startup-size via [window] in picolet.toml (FR-WV-3)"
+
+echo
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
