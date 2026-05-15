@@ -585,3 +585,70 @@ in AD2.
 | `/home/anl/picolet/packages/picolet-cli/picolet/runtime_resolver.py` | `ResolvedRuntime.sbom` field; `sbom_url` / `sbom_path` download logic (lines 283–356); `_find_repo_root` pattern. |
 | `/home/anl/picolet/packages/picolet-runtime/mbm.toml` | PR list (7 entries) that feeds the MicroPython component notes. |
 | `/home/anl/picolet/docs/phases/PHASE_11_lvgl-renderer-linux.md` | Phase file format and section structure reference. |
+
+## Verification
+
+**Tester:** scrum-tester, model claude-sonnet-4-6, 2026-05-16.
+
+**Verdict: PASS**
+
+### Build
+
+No compilation step required (pure Python). Import check passes: `from picolet.sbom_gen import emit_app_sbom, emit_runtime_sbom, SbomViolation` succeeds cleanly.
+
+### Test results
+
+| Suite | Pass | Fail | Skip |
+|---|---|---|---|
+| `pytest tests/phase-13/` (unit) | 45 | 0 | 0 |
+| `run.sh --skip-build` (integration gates) | 12 | 0 | 0 |
+| PH03 regression (`tests/phase-03/run.sh`) | 21 | 0 | 0 |
+
+**Total: 78 pass, 0 fail, 0 skip.**
+
+Gate 2 was verified via pre-existing artifact (`--skip-build`): `/home/anl/picolet/packages/picolet-runtime/build/picolet-runtime-linux-x64-cli.cdx.json` present (2481 bytes, written by build-runtime.sh post-build SBOM call).
+
+### Independent SBOM emission spot-check
+
+Fresh `picolet build` on a hello-cli-tester app (linux-x64 cli):
+
+- Binary produced at `target/linux-x64/hello-cli13-tester` (641 558 bytes).
+- Sibling `hello-cli13-tester.cdx.json` produced.
+- `bomFormat: CycloneDX`, `specVersion: 1.5`.
+- `serialNumber: urn:uuid:e808aa38-c114-46c0-b059-9c8aefc5ba87` — valid RFC 4122 UUID4 URN.
+- `metadata.component.type: application` (correct for app SBOM).
+- 2 components: MicroPython v1.24.0 [MIT, static] + libffi v3.4.6 [MIT, static].
+- No SDL2, LVGL, WebKitGTK, WebView2 (correct for cli variant).
+
+Runtime SBOM (`picolet-runtime-linux-x64-cli.cdx.json`):
+
+- 2 components: MicroPython (framework, MIT, static) + libffi (library, MIT, static).
+- MicroPython description includes 7 PR entries from mbm.toml (pr/ prefix present).
+- `bomFormat/specVersion/serialNumber` all valid.
+
+### FR-SBOM coverage
+
+| FR | Gate(s) | Verified |
+|---|---|---|
+| FR-SBOM-1 (runtime sidecar) | 2, 3 | Yes — `.cdx.json` present alongside binary in `build/` |
+| FR-SBOM-1 (app sidecar) | 4 | Yes — `.cdx.json` sibling produced by `picolet build` |
+| FR-SBOM-2 (union: runtime + app deps) | 5, 10, 11 | Yes — app SBOM is superset of runtime; mbm.toml PRs in MicroPython component; cli SBOM contains only MicroPython + libffi |
+| FR-SBOM-3 (allowlist enforcement) | 6, 7, 8 | Yes — fail path exits 1 with "sbom policy" in stderr; validator rejects wrong types |
+
+### Policy enforcement verification
+
+- **Fail path** (`fail_unknown = true`, dep with `LicenseRef-Unknown`): exits 1, stderr contains `error: sbom policy violation` and `error: sbom policy — build failed`. Confirmed.
+- **Warn path** (`allow_licences = ["MIT"]`, cli variant): exits 0. No warn emitted because cli variant only has MIT components. The gate correctly notes this and passes. Unit test `test_warn_path_unknown_licence` verifies the warn code path at the API level.
+- **`--no-sbom` flag**: binary produced, no `.cdx.json` emitted. Confirmed.
+
+### NFR compliance
+
+- **NFR-5** (no static GPL/AGPL): `runtime.toml` declares LGPL-2.1-or-later (WebKitGTK) as `dynamic`; no GPL/AGPL component has `link_type = static`. Gate 11 confirms cli SBOM contains only MIT components.
+- **NFR-6** (picolet code is MIT): `WebView2_min.h (derived)` declared MIT in `runtime.toml`.
+- **NFR-7** (CI emits SBOMs): `build-runtime.sh` post-build step wired; runtime `.cdx.json` present.
+
+### Notes for scrum-po
+
+1. Gate 6's warn-path fixture (`strict-sbom-warn`) runs against cli/linux-x64 which has only MIT components, so no `warn:` line is emitted in practice on that fixture. The warn code path is exercised fully in the unit tests. This is not a defect — it is a fixture design choice correctly documented in the run.sh comment.
+2. Gate 12 (PH03 non-regression) passes: all 21 PH03 gates green with SBOM step 10 wired in. Older tests pass naturally because they use the existing runtime and the new SBOM step has no observable side-effects on them (it writes a sibling file and exits 0 for MIT-only cli builds).
+3. The pre-existing PH11 threading flakiness noted by the developer is unrelated to PH13 and was not observed during this verification run.
