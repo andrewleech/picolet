@@ -164,10 +164,8 @@ def _artifact_name(target: str, variant: str) -> str:
     e.g. linux-x64 / cli → picolet-runtime-linux-x64-cli
          windows-x64 / cli → picolet-runtime-windows-x64-cli.exe
     """
-    name = f"picolet-runtime-{target}-{variant}"
-    if target == "windows-x64":
-        name += ".exe"
-    return name
+    from picolet._targets import target_exe_suffix
+    return f"picolet-runtime-{target}-{variant}{target_exe_suffix(target)}"
 
 
 # ---------------------------------------------------------------------------

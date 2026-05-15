@@ -69,10 +69,12 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        args.func(args)
+        rc = args.func(args)
     except NotImplementedError as exc:
         print(f"error: not implemented: {exc}", file=sys.stderr)
         sys.exit(1)
+    if rc is not None:
+        sys.exit(rc)
 
 
 if __name__ == "__main__":

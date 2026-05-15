@@ -5,7 +5,7 @@ Usage:
     picolet run [--target TARGET] [--verbose] [--no-build]
 
 The binary is rebuilt if it does not exist or if any source file
-(src/, ui/, picolet.toml) is newer than the binary.  Pass --no-build
+(src/, ui/, picolet.toml) is newer than the binary.  Pass ``--no-build``
 to skip the freshness check and run whatever binary is already present.
 
 Closes: FR-CLI-6.
@@ -15,7 +15,8 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from picolet._paths import invoke_build, resolve_app, sources_newer_than
+from picolet import build_cmd
+from picolet._paths import resolve_app, sources_newer_than
 
 
 def add_parser(subparsers) -> None:
@@ -50,17 +51,17 @@ def add_parser(subparsers) -> None:
     p.set_defaults(func=run)
 
 
-def run(args) -> None:
-    """Entry point for `picolet run`."""
+def run(args) -> int:
+    """Entry point for `picolet run`. Returns the exit code."""
     toml_path, data, _target, binary_path = resolve_app(args)
 
     if not args.no_build:
         if not binary_path.exists() or sources_newer_than(toml_path, data, binary_path):
             if args.verbose:
                 print("binary out of date; running build first", file=sys.stderr)
-            rc = invoke_build(args.target, args.verbose)
+            rc = build_cmd.run(_build_args_for(args))
             if rc != 0:
-                sys.exit(rc)
+                return rc
 
     if not binary_path.exists():
         print(
@@ -68,9 +69,27 @@ def run(args) -> None:
             "Run `picolet build` to produce it.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     if args.verbose:
         print(f"exec: {binary_path}", file=sys.stderr)
 
-    sys.exit(subprocess.run([str(binary_path)]).returncode)
+    return subprocess.run([str(binary_path)]).returncode
+
+
+def _build_args_for(args):
+    """Synthesise a ``picolet build`` argparse Namespace from ``picolet run`` args.
+
+    ``build_cmd.run`` reads its args by attribute access; the fields it
+    consults are listed here in one place so the two stay in sync.
+    """
+    import argparse
+    return argparse.Namespace(
+        target=args.target,
+        verbose=args.verbose,
+        keep_staging=False,
+        runtime=None,
+        from_source=False,
+        no_cache=False,
+        no_sbom=False,
+    )

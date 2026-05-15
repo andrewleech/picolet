@@ -16,6 +16,7 @@ Closes: FR-CLI-7.
 """
 from __future__ import annotations
 
+import argparse
 import atexit
 import signal
 import subprocess
@@ -24,9 +25,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from picolet import build_cmd
 from picolet._paths import (
     collect_watch_paths,
-    invoke_build,
     iter_watched_files,
     resolve_app,
 )
@@ -66,7 +67,6 @@ def run(args) -> None:
     """Entry point for `picolet dev`."""
     toml_path, data, target, binary_path = resolve_app(args)
     app_root = toml_path.parent
-
     watch_dirs = collect_watch_paths(app_root, data)
 
     print(f"picolet dev: watching {app_root}", file=sys.stderr)
@@ -78,6 +78,7 @@ def run(args) -> None:
 
     watcher = _Watcher(watch_dirs, args.verbose)
     child: Optional[subprocess.Popen] = None
+    build_args = _build_args_for(args)
 
     def _kill_child() -> None:
         nonlocal child
@@ -94,7 +95,11 @@ def run(args) -> None:
 
     def _build_and_launch() -> Optional[subprocess.Popen]:
         print("dev: building …", file=sys.stderr)
-        rc = invoke_build(target, args.verbose, cwd=app_root)
+        # In-process call to build_cmd.run — no subprocess overhead per
+        # rebuild. build_cmd raises BuildFailed on failure; run() catches
+        # and returns rc=1, so we get the same int-rc contract subprocess
+        # would have provided.
+        rc = build_cmd.run(build_args)
         if rc != 0:
             print("dev: build failed; waiting for next change …", file=sys.stderr)
             return None
@@ -150,8 +155,29 @@ def run(args) -> None:
     sys.exit(0)
 
 
+def _build_args_for(args):
+    """Synthesise a ``picolet build`` argparse Namespace from dev args."""
+    return argparse.Namespace(
+        target=args.target,
+        verbose=args.verbose,
+        keep_staging=False,
+        runtime=None,
+        from_source=False,
+        no_cache=False,
+        no_sbom=False,
+    )
+
+
 class _Watcher:
-    """Poll-based file watcher using mtime + size fingerprints."""
+    """Poll-based file watcher using mtime + size fingerprints.
+
+    Hot-path discipline: ``changed()`` does NOT allocate a fresh dict
+    every tick. It streams the current file state and compares against
+    the previous snapshot in place — on a no-change tick we touch
+    nothing but a counter and the iterator's tuple yields. Snapshot
+    materialisation is deferred to ``snapshot()``, called only after
+    a real change has been processed.
+    """
 
     def __init__(self, watch_paths: list[Path], verbose: bool = False) -> None:
         self._paths = watch_paths
@@ -167,24 +193,27 @@ class _Watcher:
         }
 
     def changed(self) -> bool:
-        """Return True if any file has changed; update snapshot on change."""
-        current: dict[Path, tuple[float, int]] = {}
-        diff = False
+        """Return True if anything has changed; commit new snapshot on change.
+
+        No-change ticks stream-compare against state and allocate nothing —
+        avoiding the dict-per-tick churn that would fragment heap on
+        MicroPython. Change ticks pay one extra scan to commit the new
+        snapshot, which is the cost of having state to compare against
+        on the next tick.
+        """
+        seen = 0
         for path, mtime, size in iter_watched_files(self._paths):
-            current[path] = (mtime, size)
-            if not diff and self._state.get(path) != (mtime, size):
+            old = self._state.get(path)
+            if old is None or old != (mtime, size):
                 if self._verbose:
-                    print(f"  changed: {path}", file=sys.stderr)
-                diff = True
-
-        if not diff:
-            for path in self._state:
-                if path not in current:
-                    if self._verbose:
-                        print(f"  deleted: {path}", file=sys.stderr)
-                    diff = True
-                    break
-
-        if diff:
-            self._state = current
-        return diff
+                    label = "changed" if old is not None else "new"
+                    print(f"  {label}: {path}", file=sys.stderr)
+                self.snapshot()
+                return True
+            seen += 1
+        if seen != len(self._state):
+            if self._verbose:
+                print("  files deleted from watched tree", file=sys.stderr)
+            self.snapshot()
+            return True
+        return False

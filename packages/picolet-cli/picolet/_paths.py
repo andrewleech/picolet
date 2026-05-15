@@ -1,19 +1,20 @@
 """
 Shared path / project-resolution helpers for the picolet CLI.
 
-Used by run_cmd, dev_cmd, and build_cmd. Pulled out of run_cmd in PH16 cleanup
-so command modules can be symmetric leaves rather than importing from
-siblings.
+Used by run_cmd, dev_cmd, and build_cmd. Plain str constants only —
+no enum, since the framework is intended to be self-hostable on
+MicroPython.
 """
 from __future__ import annotations
 
 import stat
-import subprocess
 import sys
 import tomllib
 from pathlib import Path
 
+from picolet._targets import host_target, target_exe_suffix
 from picolet.validator import validate_toml
+
 
 # Directory components that should never be watched or scanned for source
 # freshness — build outputs, caches, compiled artifacts.
@@ -24,10 +25,10 @@ _IGNORE_SUFFIXES = frozenset({".pyc", ".mpy"})
 def resolve_app(args) -> tuple[Path, dict, str, Path]:
     """Validate picolet.toml and resolve the binary path.
 
-    Returns (toml_path, data, target, binary_path). Exits 1 on any
+    Returns ``(toml_path, data, target, binary_path)``. Exits 1 on any
     validation error.
     """
-    from picolet.build_cmd import _find_picolet_toml, _host_target
+    from picolet.build_cmd import _find_picolet_toml
 
     toml_path = _find_picolet_toml(Path.cwd())
     if toml_path is None:
@@ -46,13 +47,11 @@ def resolve_app(args) -> tuple[Path, dict, str, Path]:
     with open(toml_path, "rb") as fh:
         data = tomllib.load(fh)
 
-    target = args.target if args.target else _host_target()
+    target = args.target if args.target else host_target()
     app_name: str = data["app"]["name"]
     app_root: Path = toml_path.parent
 
-    binary_path = app_root / "target" / target / app_name
-    if target == "windows-x64":
-        binary_path = binary_path.with_suffix(".exe")
+    binary_path = app_root / "target" / target / (app_name + target_exe_suffix(target))
 
     return toml_path, data, target, binary_path
 
@@ -96,9 +95,10 @@ def sources_newer_than(
 
 
 def iter_watched_files(watch_paths):
-    """Yield (path, mtime, size) for every watched non-ignored regular file.
+    """Yield ``(path, mtime, size)`` for each watched non-ignored regular file.
 
-    Single stat per file via stat.S_ISREG — no separate is_file() pass.
+    Single ``stat()`` per file via ``stat.S_ISREG`` — no separate
+    ``is_file()`` pass.
     """
     for watch_path in watch_paths:
         if should_ignore(watch_path):
@@ -121,15 +121,3 @@ def iter_watched_files(watch_paths):
                 continue
             if stat.S_ISREG(fst.st_mode):
                 yield f, fst.st_mtime, fst.st_size
-
-
-def invoke_build(
-    target: str | None, verbose: bool, cwd: Path | None = None
-) -> int:
-    """Spawn `picolet build` with the given flags. Returns the rc."""
-    cmd = [sys.executable, "-m", "picolet", "build"]
-    if target:
-        cmd += ["--target", target]
-    if verbose:
-        cmd += ["--verbose"]
-    return subprocess.run(cmd, cwd=str(cwd) if cwd else None).returncode

@@ -31,7 +31,17 @@ import sys
 import tomllib
 from pathlib import Path
 
-from picolet.validator import validate_toml
+from picolet._targets import (
+    SUPPORTED_RENDERERS,
+    SUPPORTED_TARGETS,
+    TARGET_WINDOWS_X64,
+    VARIANT_CLI,
+    VARIANT_LVGL,
+    VARIANT_WEBVIEW,
+    host_target,
+    target_exe_suffix,
+    variant_for_renderer,
+)
 from picolet._trailer import pack_trailer
 from picolet.runtime_resolver import (
     locate_mpy_cross,
@@ -40,6 +50,17 @@ from picolet.runtime_resolver import (
     RuntimeNotFound,
 )
 from picolet.sbom_gen import emit_app_sbom, SbomViolation
+from picolet.validator import validate_toml
+
+
+class BuildFailed(Exception):
+    """Raised by build helpers to abort the build with a structured error.
+
+    The error message (if any) is expected to have been printed to stderr
+    before raising. ``run()`` catches this and converts it into an exit
+    code; callers (``dev_cmd``, ``run_cmd``) can also catch it to keep a
+    long-lived process alive across a failed build.
+    """
 
 
 def add_parser(subparsers) -> None:
@@ -103,8 +124,17 @@ def add_parser(subparsers) -> None:
     p.set_defaults(func=run)
 
 
-def run(args) -> None:
-    """Entry point for `picolet build`."""
+def run(args) -> int:
+    """Entry point for `picolet build`. Returns the exit code (0 on success)."""
+    try:
+        return _do_build(args)
+    except BuildFailed as exc:
+        if str(exc):
+            print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _do_build(args) -> int:
     # -------------------------------------------------------------------------
     # Step 1 – Find and validate picolet.toml.
     # -------------------------------------------------------------------------
@@ -114,13 +144,13 @@ def run(args) -> None:
             "error: picolet.toml not found in current directory or any ancestor",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     errors = validate_toml(toml_path)
     if errors:
         for e in errors:
             print(str(e), file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     with open(toml_path, "rb") as fh:
         data = tomllib.load(fh)
@@ -133,35 +163,26 @@ def run(args) -> None:
     # -------------------------------------------------------------------------
     # Step 2 – Resolve runtime variant (FR-BP-1).
     # -------------------------------------------------------------------------
-    if "ui" not in data:
-        variant = "cli"
-    else:
-        renderer = data["ui"].get("renderer", "")
-        if renderer == "webview":
-            # PH07: linux-x64 webview variant.  Windows webview is PH10.
-            variant = "webview"
-        elif renderer == "lvgl":
-            # PH11: linux-x64 lvgl variant.  Windows lvgl is PH12.
-            variant = "lvgl"
-        else:
-            # Validator already rejected invalid renderer values; this branch
-            # is a belt-and-suspenders guard.
-            raise NotImplementedError(
-                f"unknown ui renderer {renderer!r}; "
-                "valid values are 'webview' and 'lvgl' (PH09/PH11)"
-            )
+    renderer = data.get("ui", {}).get("renderer") if "ui" in data else None
+    try:
+        variant = variant_for_renderer(renderer)
+    except ValueError:
+        # Validator already rejected invalid renderer values; this is a
+        # belt-and-suspenders guard.
+        raise NotImplementedError(
+            f"unknown ui renderer {renderer!r}; "
+            f"valid values are {sorted(SUPPORTED_RENDERERS)}"
+        )
 
     # -------------------------------------------------------------------------
     # Step 3 – Resolve target (FR-BP-1).
     # -------------------------------------------------------------------------
-    target = args.target if args.target else _host_target()
+    target = args.target if args.target else host_target()
 
-    SUPPORTED_TARGETS = {"linux-x64", "windows-x64"}
     if target not in SUPPORTED_TARGETS:
         raise NotImplementedError(
             f"--target {target!r} not implemented; "
-            f"supported targets: {', '.join(sorted(SUPPORTED_TARGETS))}. "
-            "webview targets land in PH09/PH10; lvgl in PH11/PH12."
+            f"supported targets: {', '.join(sorted(SUPPORTED_TARGETS))}."
         )
 
     if args.verbose:
@@ -183,7 +204,7 @@ def run(args) -> None:
         )
     except RuntimeNotFound as exc:
         print(f"error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     runtime_path = resolved.binary
     # resolved.sbom is preserved for PH13's SBOM emitter; unused here.
@@ -192,7 +213,7 @@ def run(args) -> None:
         mpy_cross = locate_mpy_cross()
     except RuntimeNotFound as exc:
         print(f"error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     _verify_mpy_cross_version(runtime_path, mpy_cross, args.verbose)
 
@@ -217,9 +238,9 @@ def run(args) -> None:
         # romfs root so the runtime can read [window] and [ui] at
         # startup (FR-WV-3 webview, FR-LV-2 lvgl).  The user does not
         # need to add picolet.toml to [romfs] include manually.
-        if variant in ("webview", "lvgl"):
+        if variant in (VARIANT_WEBVIEW, VARIANT_LVGL):
             _emit_webview_toml(data, romfs_root, args.verbose)
-        if variant == "webview":
+        if variant == VARIANT_WEBVIEW:
             # Step 6c – Copy the picolet-bridge-js bundle into the romfs
             # at picolet/picolet-bridge.js (FR-BP-4, FR-WV-4).  The runtime
             # reads it from /rom/picolet/picolet-bridge.js and injects it
@@ -231,7 +252,7 @@ def run(args) -> None:
             # and LoadLibraryW's it from there (the loader DLL is not
             # in System32, so the search-path-based default load is
             # unreliable).
-            if target == "windows-x64":
+            if target == TARGET_WINDOWS_X64:
                 _copy_webview2_loader(romfs_root, args.verbose)
 
         # Step 7 – Zero mtimes for reproducibility (FR-BP-6).
@@ -243,9 +264,7 @@ def run(args) -> None:
 
         # Step 9 – Append + trailer → final binary.
         output_dir = app_root / "target" / target
-        output_path = output_dir / app_name
-        if target == "windows-x64":
-            output_path = output_path.with_suffix(".exe")
+        output_path = output_dir / (app_name + target_exe_suffix(target))
         _append_with_trailer(runtime_path, romfs_img, output_path, args.verbose)
         output_path.chmod(0o755)
 
@@ -270,7 +289,11 @@ def run(args) -> None:
         if args.verbose:
             print(f"  sbom: written {sbom_path}", file=sys.stderr)
 
-    print(f"Built {output_path}")
+    # flush=True so callers consuming stdout in real time (notably
+    # `picolet dev`, which now invokes build in-process) see this without
+    # waiting for the process to exit.
+    print(f"Built {output_path}", flush=True)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -330,28 +353,7 @@ def _handle_sbom_violations(
             "see [sbom] allow_licences / allow_dynamic / fail_unknown in picolet.toml",
             file=sys.stderr,
         )
-        sys.exit(1)
-
-
-def _host_target() -> str:
-    """Return the target string for the current host.
-
-    WSL2 reports sys.platform == 'linux', so the host default on WSL is
-    'linux-x64'.  Cross-compilation for Windows from WSL requires an explicit
-    --target windows-x64.  The 'windows-x64' path here only triggers when
-    running natively on Win32 CPython.
-    """
-    machine = platform.machine().lower()
-    system = sys.platform
-    if system == "linux" and machine in ("x86_64", "amd64"):
-        return "linux-x64"
-    if system == "win32" and machine in ("x86_64", "amd64"):
-        return "windows-x64"
-    raise NotImplementedError(
-        f"host auto-detection: unsupported platform {sys.platform}/{platform.machine()}; "
-        "use --target to specify explicitly. "
-        "Supported targets: linux-x64, windows-x64."
-    )
+        raise BuildFailed()
 
 
 def _verify_mpy_cross_version(
@@ -387,7 +389,7 @@ def _verify_mpy_cross_version(
             f"error: could not run mpy-cross at {mpy_cross}: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        raise BuildFailed()
 
     # mpy-cross --version outputs something like:
     #   "MicroPython v1.24.0 on 2025-01-01; mpy-cross emitting mpy v6.3"
@@ -405,7 +407,7 @@ def _verify_mpy_cross_version(
             f"--variant {_guess_variant(runtime_path)}.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        raise BuildFailed()
 
     if verbose:
         print(f"mpy-cross version: {mpy_ver} (matches runtime)", file=sys.stderr)
@@ -458,7 +460,7 @@ def _copy_bridge_js(romfs_root: Path, verbose: bool) -> None:
             "run: cd packages/picolet-bridge-js && node build.mjs",
             file=sys.stderr,
         )
-        sys.exit(1)
+        raise BuildFailed()
     dest = romfs_root / "picolet" / "picolet-bridge.js"
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(bridge_src, dest)
@@ -529,7 +531,7 @@ def _copy_webview2_loader(romfs_root: Path, verbose: bool) -> None:
         "Or point PICOLET_WEBVIEW2_LOADER_DLL at a copy on disk.",
         file=sys.stderr,
     )
-    sys.exit(1)
+    raise BuildFailed()
 
 
 def _emit_webview_toml(
@@ -613,7 +615,7 @@ def _compile_mpy(
             f"error: entry directory not found: {src_dir}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        raise BuildFailed()
 
     py_files = sorted(src_dir.rglob("*.py"))
     if not py_files:
@@ -665,7 +667,7 @@ def _copy_includes(
                 f"error: [romfs] include directory not found: {src}",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            raise BuildFailed()
         for f in sorted(src.rglob("*")):
             if f.is_dir():
                 continue
