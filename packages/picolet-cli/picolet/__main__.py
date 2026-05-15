@@ -49,11 +49,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # Register subcommands.
-    from picolet import build_cmd, init_cmd, validate_cmd
+    from picolet import build_cmd, dev_cmd, init_cmd, run_cmd, validate_cmd
 
     init_cmd.add_parser(subparsers)
     validate_cmd.add_parser(subparsers)
     build_cmd.add_parser(subparsers)
+    run_cmd.add_parser(subparsers)
+    dev_cmd.add_parser(subparsers)
 
     return parser
 
