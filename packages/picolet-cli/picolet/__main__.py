@@ -66,7 +66,11 @@ def main() -> None:
         parser.print_help()
         sys.exit(0)
 
-    args.func(args)
+    try:
+        args.func(args)
+    except NotImplementedError as exc:
+        print(f"error: not implemented: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
