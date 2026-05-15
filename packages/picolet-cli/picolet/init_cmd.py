@@ -23,7 +23,7 @@ from picolet.validator import validate_toml
 
 # Templates known to exist in this phase. `picolet init --template <name>` will
 # be rejected with a clear error for any name not in this set.
-_KNOWN_TEMPLATES: frozenset[str] = frozenset({"hello-cli"})
+_KNOWN_TEMPLATES: frozenset[str] = frozenset({"hello-cli", "hello-webview"})
 
 # Name validation: alphanumerics, hyphens, underscores; no leading digit.
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_-]*$")
@@ -40,7 +40,7 @@ def add_parser(subparsers) -> None:
     p.add_argument(
         "--template",
         default="hello-cli",
-        help='template to use (default: hello-cli; only "hello-cli" available in PH02)',
+        help='template to use (default: hello-cli; available: "hello-cli", "hello-webview")',
     )
     p.add_argument(
         "--output-dir",
