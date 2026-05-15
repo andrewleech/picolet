@@ -9,7 +9,7 @@
 #       [--clean]
 #
 # Supported targets / variants in PH01:
-#   --target linux-x64 --variant cli   (native Linux build, no docker)
+#   --target linux-x64 --variant cli   (builds inside ubuntu:22.04 container)
 #
 # PH04 will add --target windows-x64 (dockcross cross-compile).
 # PH07/PH11 will add --variant webview and --variant lvgl.
@@ -18,11 +18,14 @@
 #   packages/picolet-runtime/build/picolet-runtime-{target}-{variant}
 #
 # The build script is idempotent on a warm tree (make skips up-to-date
-# objects; libffi is only rebuilt if its sources changed).
+# objects; libffi is only rebuilt if its sources changed).  Build outputs
+# land under the bind-mounted repo tree so they persist across container
+# runs.
 #
 # Prerequisites (linux-x64/cli):
-#   - gcc, make, python3, strip (binutils)
-#   - mpremote (pip install mpremote)  — used for romfs assembly
+#   - docker (runs compilation inside ubuntu:22.04; image is built on first run)
+#   - python3 + mpremote (pip install mpremote)  — host-side romfs assembly only
+#   - strip (binutils)  — host-side final strip pass
 #   - git (for submodule checks)
 
 set -euo pipefail
@@ -96,7 +99,51 @@ ARTIFACT="$BUILD_DIR/$ARTIFACT_NAME"
 UNIX_PORT="$SUBMODULE/ports/unix"
 VARIANT_BUILD="$UNIX_PORT/build-${VARIANT_NAME}"
 
+# ---------------------------------------------------------------------------
+# linux-x64 build container setup
+#
+# Compilation runs inside picolet-linux-x64-build:22.04 (ubuntu:22.04 +
+# build-essential + pkg-config + python3) to pin the resulting binary's
+# minimum GLIBC requirement to 2.35.  Building on the host (Ubuntu 24.04
+# / glibc 2.39 / gcc 13) silently emits GLIBC_2.38 versioned symbols
+# (__isoc23_sscanf, fmod) that break on 22.04 at runtime.
+#
+# The image is built from the Dockerfile in scripts/dockerfiles/linux-x64-build/
+# on first run and cached by Docker.  Subsequent runs skip the build step.
+# Build outputs land under the bind-mounted repo tree and are reused across
+# runs (make's normal incremental behaviour).
+# ---------------------------------------------------------------------------
+
+LINUX_BUILD_IMAGE="picolet-linux-x64-build:22.04"
+LINUX_DOCKERFILE="$SCRIPT_DIR/dockerfiles/linux-x64-build/Dockerfile"
+
+# Helper: run a command inside the build container with the full repo bind-mounted.
+# Usage: docker_linux <working-dir-relative-to-REPO_ROOT> <cmd...>
+# The working dir is passed as an absolute path so Make's relative references work.
+docker_linux() {
+    local workdir="$1"; shift
+    docker run --rm \
+        -v "$REPO_ROOT:$REPO_ROOT" \
+        -w "$workdir" \
+        --user "$(id -u):$(id -g)" \
+        "$LINUX_BUILD_IMAGE" \
+        "$@"
+}
+
 echo "=== build-runtime.sh: target=$TARGET variant=$VARIANT ==="
+
+# ---------------------------------------------------------------------------
+# Step 0 – Ensure the linux build image is present (idempotent docker build)
+# ---------------------------------------------------------------------------
+
+echo "[0/8] Ensuring linux build image: $LINUX_BUILD_IMAGE"
+
+if ! docker image inspect "$LINUX_BUILD_IMAGE" >/dev/null 2>&1; then
+    echo "  image not found; building from $LINUX_DOCKERFILE"
+    docker build -t "$LINUX_BUILD_IMAGE" "$(dirname "$LINUX_DOCKERFILE")"
+else
+    echo "  image present; skipping build"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 1 – Ensure submodule is on the integration branch
@@ -155,14 +202,23 @@ if [[ ! -d "$OS_PATH_DIR" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3 – Build mpy-cross
+# Step 3 – Build mpy-cross inside the container
+#
+# mpy-cross must be compiled by the same toolchain that builds the port so
+# that the host-run mpy-cross binary's bytecode format matches the runtime.
+# Running it in the container also ensures any compiler-generated symbols
+# remain in the glibc 2.35 baseline.
 # ---------------------------------------------------------------------------
 
-echo "[3/8] Building mpy-cross"
-make -C "$SUBMODULE/mpy-cross" -j
+echo "[3/8] Building mpy-cross (inside $LINUX_BUILD_IMAGE)"
+docker_linux "$SUBMODULE/mpy-cross" make -j
 
 # ---------------------------------------------------------------------------
 # Step 4 – Fetch libffi submodule (triggered by MICROPY_STANDALONE=1)
+#
+# The submodules target only fetches / initialises the libffi git submodule;
+# it doesn't compile anything.  Running on the host avoids a docker exec for
+# a pure git operation.
 # ---------------------------------------------------------------------------
 
 echo "[4/8] Fetching port submodules (libffi)"
@@ -171,7 +227,7 @@ make -C "$UNIX_PORT" -j submodules \
     MICROPY_STANDALONE=1
 
 # ---------------------------------------------------------------------------
-# Step 5 – Build the test romfs image
+# Step 5 – Build the test romfs image (host — pure Python, no compiler)
 # ---------------------------------------------------------------------------
 
 echo "[5/8] Building test romfs from tests/phase-01/${TEST_ROMFS}"
@@ -198,36 +254,45 @@ python3 -m mpremote romfs --output "$ROMFS_IMG" build "$ROMFS_FIXTURE"
 # Makefile's $(subst) would keep the hyphen while objcopy converts it, so
 # the --redefine-sym old name does not match and the rename silently fails.
 #
-# Fix: hard-link the romfs to a hyphen-free path in /tmp before passing it
-# to make. /tmp is a safe staging area with no project-specific path chars.
-ROMFS_IMG_SAFE="/tmp/picolet_romfs_${TEST_ROMFS}.romfs"
+# Fix: pass ROMFS_IMG as a path relative to the unix port working directory.
+# The relative path traverses only directories with no hyphens (mpy-cross
+# has a hyphen but is not on this path: ../micropython/ports/unix → ../../../build/).
+# The staging filename also uses underscores.  This avoids the /tmp workaround
+# which is inaccessible inside the Docker build container.
+ROMFS_IMG_SAFE="$ROMFS_STAGING/picolet_romfs_${TEST_ROMFS}.romfs"
 cp "$ROMFS_IMG" "$ROMFS_IMG_SAFE"
-ROMFS_IMG="$ROMFS_IMG_SAFE"
+# Relative path from $UNIX_PORT (micropython/ports/unix) to $ROMFS_STAGING.
+# The path ../../../build/romfs_staging contains no hyphens.
+ROMFS_IMG_REL="$(realpath --relative-to="$UNIX_PORT" "$ROMFS_IMG_SAFE")"
 
-echo "  romfs image: $ROMFS_IMG ($(wc -c < "$ROMFS_IMG") bytes)"
+echo "  romfs image: $ROMFS_IMG_SAFE ($(wc -c < "$ROMFS_IMG_SAFE") bytes, relative: $ROMFS_IMG_REL)"
 
 # ---------------------------------------------------------------------------
-# Step 6 – Build the unix port variant
+# Step 6 – Build the unix port variant inside the container
+#
+# Two make invocations mirror the host-native pattern but run inside the
+# container.  deplibs first (libffi configure + compile), then the main
+# port build.  The PICOLET_RUNTIME_ROOT absolute path is the same inside the
+# container because we bind-mount at the same host path.
 # ---------------------------------------------------------------------------
 
-echo "[6/8] Building unix port variant=${VARIANT_NAME}"
+echo "[6/8] Building unix port variant=${VARIANT_NAME} (inside $LINUX_BUILD_IMAGE)"
 
-# Build libffi (and any other deplibs) first in a separate make invocation.
+# deplibs first: libffi configure + compile.
 # The unix port Makefile evaluates LIBFFI_CFLAGS at parse time via a shell
 # $(ls ...) of the build output dir.  That directory doesn't exist until
-# deplibs runs, so deplibs must complete before the main compile invocation
-# starts (which is when Make evaluates the $(shell ...) expression).
-make -C "$UNIX_PORT" \
+# deplibs runs, so deplibs must complete before the main compile invocation.
+docker_linux "$UNIX_PORT" make \
     -j \
     VARIANT="${VARIANT_NAME}" \
     MICROPY_STANDALONE=1 \
     PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
     deplibs
 
-make -C "$UNIX_PORT" \
+docker_linux "$UNIX_PORT" make \
     -j \
     VARIANT="${VARIANT_NAME}" \
-    ROMFS_IMG="$(realpath "$ROMFS_IMG")" \
+    ROMFS_IMG="$ROMFS_IMG_REL" \
     PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")"
 
 # ---------------------------------------------------------------------------
