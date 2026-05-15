@@ -930,7 +930,214 @@ Empirical metrics:
 
 ## Verification
 
-(scrum-tester writes Pass/Fail here)
+**Status: PASS.** All spec exit-gate items (FR-WV-{1,2,3}, FR-RT-2 webview
+half, NFR-2) hold; NFR-5 regression-constraint upheld; PH00-PH06 regression
+suites green except for one stale assertion in PH03 gate 6b that is itself
+a positive consequence of PH07 landing.
+
+### Independent re-runs
+
+- `bash tests/phase-07/run.sh` — **21 pass, 0 fail, 2 skip / 23 total** in
+  11.3 s (wall). The two skips are gate F5 (visual-pixel — software MESA
+  renderer doesn't expose Xvfb framebuffer; gate B1 already proves the
+  page rendered + script ran + postMessage round-tripped) and gate F6
+  (runtime window-resize API — explicitly deferred to PH11, no FR mandates
+  it).
+- `PYTHONPATH=packages/picolet-runtime/python python3 -m unittest    tests/phase-07/test_webview_additional.py    tests/phase-07/test_transport_contract.py` — **32 pass / 0 fail** in
+  0.58 s. The malformed-JSON stderr line is the expected output of the
+  drop-and-continue test (gate 17 / F-coverage).
+
+### Spec exit-gate matrix
+
+| Spec id | Requirement | Status | Evidence |
+|---|---|---|---|
+| FR-WV-1 | On Linux the webview is WebKitGTK 4.1. | PASS | `_gtk_ffi.py:154` opens `libwebkit2gtk-4.1.so.0` (the only WebKit contact point). Independent `objdump -p` shows zero static link to GTK or WebKit; only `libc.so.6` + `libm.so.6` are NEEDED. Gate A4 confirms the SONAME literal `"libwebkit2gtk-4.1.so.0"` is present in the binary. Gate B2 (callback-probe) exercises the end-to-end libffi call into `libwebkit2gtk-4.1`. |
+| FR-WV-2 | Webview loads `/rom/<ui.root>/<index>`. | PASS | `_app.py:50-100` reads `/rom/picolet.toml [ui]`, fetches `/rom/<root>/<index>` through MicroPython VFS, calls `webkit_web_view_load_html` (`b154495` documents the load_html-vs-load_uri deviation — necessary because WebKit can't see the MicroPython VFS overlay). Gate C3 builds a real `picolet build` fixture (`hello-webview-min`) and confirms it runs under xvfb. |
+| FR-WV-3 | Window title + size from `[window]` in `picolet.toml`. | PASS | `_window.py:54-95` reads `[window]` via `_toml.py`, applies `title`/`size`/`resizable` to GtkWindow. Gate B3 asserts the literal stderr line `window: title=PH07 Sanity size=640x480 resizable=False` is emitted by the fixture binary. |
+| FR-RT-2 (webview Linux half) | Three runtime variants per target; webview is one. | PASS | `packages/picolet-runtime/build/picolet-runtime-linux-x64-webview` exists, 665,904 bytes. `picolet build` correctly routes `[ui] renderer="webview"` to this variant (`build_cmd.py:128-148`). Idempotent warm rebuild ≤ 5 s (gate D1). |
+| NFR-2 | Webview runtime ≤ 2 MiB excluding system webview. | PASS | 665,904 bytes = 31.7 % of the 2 097 152-byte ceiling. Headroom 1 431 248 bytes. Variant config (`mpconfigvariant.h`) is byte-identical macro-set to cli; no hidden module bloat. Manifest pulls only `picolet` + `picolet_ui` + `asyncio` + `os-path`. |
+| NFR-5 (regression constraint) | No static GPL/LGPL link. | PASS | `ldd packages/picolet-runtime/build/picolet-runtime-linux-x64-webview` shows only `linux-vdso.so.1`, `libm.so.6`, `libc.so.6`, `ld-linux-x86-64.so.2`. `objdump -p \| grep NEEDED` confirms `libm.so.6` + `libc.so.6` only. WebKit / GTK / GObject / JavaScriptCore are dlopen-only at runtime (gate F1). |
+
+### NFR-2 budget margin
+
+Webview runtime 665,904 B vs ceiling 2,097,152 B → **31.7 %** consumed,
+68.3 % headroom. The variant config diff against cli is doc-only — same
+macro set, same module turn-offs (machine, websocket, deflate, hashlib,
+help, input, notimplemented). `manifest_webview.py` adds exactly one
+new entry over cli (`freeze("../python", "picolet_ui")`, ~15 KB frozen).
+No forgotten module pushing toward the ceiling.
+
+### NFR-5 dlopen audit (regression)
+
+```
+$ ldd build/picolet-runtime-linux-x64-webview
+        linux-vdso.so.1
+        libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6
+        libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
+        /lib64/ld-linux-x86-64.so.2
+
+$ objdump -p build/picolet-runtime-linux-x64-webview | grep NEEDED
+  NEEDED               libm.so.6
+  NEEDED               libc.so.6
+```
+
+WebKit (LGPL-2.1+) and GTK (LGPL-2.1+) reach the process exclusively via
+`ffi.open()` at runtime — no build-time link, no header dependency
+(`webkit2gtk-4.1-dev` is not installed in the build container).
+NFR-5 is honoured by construction.
+
+### Developer-caveat spot-checks
+
+- **`ffi.callback(lock=False)`.** Confirmed at `_webview.py:166-170` with
+  the rationale comment block `_webview.py:153-165` explaining why
+  lock=True is wrong for the same-thread Option C pump (gc_lock causes
+  MemoryError on the first allocation inside the callback). Caveat
+  commit `492ab33`.
+- **WebKitJavascriptResult unwrap.** Confirmed at `_webview.py:63-68`:
+  the callback first calls `webkit_javascript_result_get_js_value`
+  (guarded `is not None` for forward-compat) before
+  `jsc_value_to_string`. Caveat commit `7d619e8`.
+- **load_html for romfs.** Confirmed at `_app.py:50-100` and caveat
+  commit `b154495`.
+
+### libffi callback path spot-check (independent)
+
+Independent re-run of `run_callback_probe()`:
+```
+$ xvfb-run -a -s '-screen 0 800x600x24' timeout 15     packages/picolet-runtime/build/picolet-runtime-linux-x64-webview     -c 'import picolet_ui._test as t; t.run_callback_probe()'
+window: title=PH07 Probe size=320x240 resizable=False
+(libEGL MESA warnings — software-renderer noise, not picolet)
+PICOLET_WV_CALLBACK_OK
+```
+
+This exercises the full real path: GTK init → WebKitWebView creation →
+`webkit_user_content_manager_register_script_message_handler("picolet")` →
+GObject signal connect via libffi closure → user script `postMessage`
+fires from JS → libffi closure entered synchronously inside
+`gtk_main_iteration_do` → `WebKitJavascriptResult` unwrap → JSCValue
+to string → `WebviewTransport._inbox.append` → `asyncio.Event.set` →
+`recv()` resumes → `json.loads` returns the expected
+`{id:1,cmd:"ping",args:null}` dict. No simulation; production code on
+production WebKitGTK 4.1.
+
+### Env-var silent-ignore adjudication
+
+SQE flagged that `PICOLET_WV_THREADED=1` is silently no-op'd in the
+frozen runtime because the MicroPython unix port does not ship
+`os.environ`. Verified independently:
+
+```
+$ packages/picolet-runtime/build/picolet-runtime-linux-x64-webview -c     "import os; print(hasattr(os, 'environ'))"
+False
+
+$ PICOLET_WV_THREADED=1 xvfb-run -a -s '-screen 0 800x600x24' timeout 8     packages/picolet-runtime/build/picolet-runtime-linux-x64-webview     -c 'import picolet_ui._loop as L; L._maybe_take_threaded_branch(); print("returned-silently")'
+returned-silently
+```
+
+**Adjudication: acceptable as a known limitation. Not a defect.**
+
+Reasoning:
+
+1. The env var is **planner-derived**, not spec-derived. No FR or NFR
+   references `PICOLET_WV_THREADED`. The spec exit gate is silent on
+   threaded-pump selection.
+2. Option B (worker-thread pump) itself is **not implemented** in PH07;
+   `_worker_thread_pump_stub()` only raises `NotImplementedError`. So
+   even if the env var were observable, the runtime would refuse the
+   threaded path. The end state of the silent-ignore is identical to
+   the would-be-honoured state (fall back to same-thread Option C).
+   No functional surprise to the user.
+3. Risk-2's mitigation in the plan describes the threaded fallback as
+   "the developer flips the variant default" if gate 16 reveals
+   starvation — a code-change contingency, not a runtime user toggle.
+4. Gate 16 / F4-pump-responsiveness empirically passes with 5 ms ticks
+   and ≤ 25 ms p100 latency (32 unit tests green, including the 50-
+   message back-to-back burst test), so the threaded fallback isn't
+   needed in PH07 in the first place.
+5. The CPython side of the gate (test `F3-threaded-stub-raises`) does
+   exercise the `NotImplementedError` path via the import-time hook,
+   so the developer-facing contract is testable.
+6. Transparently logged in commit `0657070` (`[PH07] Note:
+   os.environ absent in MicroPython unix port; PICOLET_WV_THREADED
+   silently no-ops in frozen runtime`).
+
+Aligns with the PH02/PH05 lenient pattern for planner-derived
+limitations that don't violate a spec requirement. If a future
+MicroPython unix port adds `os.environ`, the existing guard at
+`_loop.py:69-75` starts working without code changes.
+
+### PH00–PH06 regression results
+
+| Suite | Result | Notes |
+|---|---|---|
+| `tests/phase-03/run.sh` | 20 pass / 1 fail / 0 skip | Gate 6b stale — see below. |
+| `tests/phase-04/run.sh` | 31 pass / 0 fail / 0 skip | Clean. |
+| `tests/phase-05/run.sh` | 19 pass / 0 fail / 2 skip | Skips are docker-absent path + a CI-only check. Pre-existing. |
+| `tests/phase-06/run.sh` | 21 pass / 0 fail / 0 skip | Clean. |
+
+**PH03 gate 6b: stale assertion, not a regression.** Gate 6b
+expected `picolet build` against a `[ui] renderer="webview"` app to
+emit `not implemented`. PH07 explicitly wired that path to a real
+webview build (commit `239c0b8` + `picolet-cli/picolet/build_cmd.py:128-148`).
+The build now succeeds (`warning: using in-tree build fallback (cache
+bypassed)`), which is the intended PH07 behaviour. The gate is
+asserting a stub that PH07 intentionally removed. **Action for
+scrum-po: PH03 gate 6b needs to be retired or rewritten to assert
+"webview now produces a working binary" in a future tidy-up phase.**
+This is not a PH07 defect; PH07 cannot pass that assertion without
+backing out its central deliverable.
+
+### Test-value assessment
+
+The CPython unit tests under `tests/phase-07/test_webview_additional.py`
+and `tests/phase-07/test_transport_contract.py` exercise real production
+code paths:
+
+- `PumpResponsivenessTest` drives `WebviewTransport._deliver_raw`,
+  `recv()`, asyncio scheduling — the actual transport implementation.
+  The "mock pump" is a CPython-side substitute for the GTK pump (the
+  real GTK path is covered by xvfb gates B1/B2/B3). Acceptable
+  separation: native and CPython are tested in their own runtimes.
+- `TomlParserTest` calls the production `picolet_ui._toml.loads`.
+- `MalformedPostMessage`, `EnvVarThreaded`, transport contract tests
+  all instantiate the production `WebviewTransport` and exercise its
+  methods directly.
+
+No fake-coverage smell. No tests that re-implement production logic
+inline.
+
+### TODO/FIXME/incomplete-marker scan
+
+No `TODO` / `FIXME` / `HACK` markers in any new code under
+`packages/picolet-runtime/python/picolet_ui/` or `tests/phase-07/`. The
+only `not implemented` / `NotImplementedError` references are the
+deliberate `_worker_thread_pump_stub()` raise and its assertion in
+the unit test — both intentional, documented, and not a deferred
+implementation gap (they're a forward-looking placeholder for
+Option B if PH10 or later needs it).
+
+### Anything for scrum-po
+
+1. **PH03 gate 6b is stale.** PH07 turned `picolet build --variant
+   webview` from a "see PH07" stub into a real path. The gate asserts
+   the stub message; it now fails because the message no longer
+   appears. The webview build path itself is correct. PH03's gate
+   harness needs a refresh (one-line edit) in a future tidy phase, or
+   the gate retired (its intent was "the unimplemented variant errors
+   cleanly", which PH07 obsoleted).
+2. **`os.environ` gap in MicroPython unix port.** Recorded as a note
+   in commit `0657070`. PH08+ may want a richer host-environment story
+   if user apps need to read env vars at runtime (e.g. for `DEBUG=1`
+   toggles). Out of PH07's scope; flagged for product-level
+   prioritisation.
+3. **Visual pixel-sampling gate (F5).** The MESA software renderer
+   under Xvfb doesn't expose the framebuffer through xwd cleanly on
+   this host. Gate B1 already proves the page rendered (postMessage
+   round-trip implies HTML loaded + JS ran + JIT/interpreter is alive)
+   so the visual gate is redundant rather than uncovered. If a future
+   phase ships a release-blocker pixel test, the harness needs a real
+   GPU or a different capture mechanism.
+
 
 ## Blockers
 
