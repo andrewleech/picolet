@@ -1,0 +1,4 @@
+[app]
+name = "hello-cli"
+version = "0.1.0"
+entry = "src/main.py"
