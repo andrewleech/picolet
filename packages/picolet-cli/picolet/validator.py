@@ -19,7 +19,7 @@ from typing import Any
 
 # Top-level sections the schema allows.
 _ALLOWED_SECTIONS: frozenset[str] = frozenset(
-    {"app", "ui", "window", "build", "romfs", "sbom"}
+    {"app", "ui", "window", "build", "romfs", "sbom", "runtime"}
 )
 
 # Keys allowed in each section, with their expected Python types.
@@ -53,6 +53,11 @@ _ROMFS_SCHEMA: dict[str, type | tuple[type, ...]] = {
 
 _SBOM_SCHEMA: dict[str, type | tuple[type, ...]] = {}
 
+_RUNTIME_SCHEMA: dict[str, type | tuple[type, ...]] = {
+    "source": str,
+    "tag": str,
+}
+
 _SECTION_SCHEMAS: dict[str, dict[str, type | tuple[type, ...]]] = {
     "app": _APP_SCHEMA,
     "ui": _UI_SCHEMA,
@@ -60,6 +65,7 @@ _SECTION_SCHEMAS: dict[str, dict[str, type | tuple[type, ...]]] = {
     "build": _BUILD_SCHEMA,
     "romfs": _ROMFS_SCHEMA,
     "sbom": _SBOM_SCHEMA,
+    "runtime": _RUNTIME_SCHEMA,
 }
 
 
@@ -246,6 +252,21 @@ def validate_toml(path: Path) -> list[PicoletTomlError]:
                     reason='"[sbom]" must be a table',
                 )
             )
+
+    # [runtime] — optional; source (str URL) and tag (str).
+    if "runtime" in data:
+        runtime = data["runtime"]
+        if not isinstance(runtime, dict):
+            errors.append(
+                PicoletTomlError(
+                    file=file_str,
+                    section="runtime",
+                    key="(section)",
+                    reason='"[runtime]" must be a table',
+                )
+            )
+        else:
+            errors.extend(_check_section(file_str, "runtime", runtime, _RUNTIME_SCHEMA))
 
     return errors
 
