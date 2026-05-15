@@ -105,33 +105,33 @@ def _register_command(name, fn):
 
 
 def _looks_like_coroutine_function(fn):
-    # MicroPython lacks ``asyncio.iscoroutinefunction``.  An ``async def``
-    # function in MicroPython, when called, returns an object with a
-    # ``send`` method (it's a coroutine).  We don't want to *call* the
-    # function here just to test it, so we look at its underlying code
-    # object's flags if available — MicroPython exposes a __code__
-    # attribute on bytecode functions.  Fall back to a permissive check
-    # for portability.
+    # MicroPython lacks ``asyncio.iscoroutinefunction``.  Two-step check:
+    #
+    # 1. CPython: ``inspect.iscoroutinefunction`` is the canonical test.
+    # 2. MicroPython: ``async def`` functions surface as
+    #    ``type(fn).__name__ == "generator"`` (or ``"closure"`` for
+    #    closures), and a *plain* def function is ``"function"``.  This
+    #    is a slightly indirect probe but it's what the runtime
+    #    actually exposes — there is no ``__code__`` on bytecode
+    #    functions in the unix-port build.
+    #
+    # We deliberately do NOT fall back to "permissive: trust the user"
+    # — gate 5 mandates a TypeError at decoration time for the wrong
+    # function shape.
     if not callable(fn):
         return False
-    # CPython: inspect.iscoroutinefunction equivalent.
     try:
         import inspect
-        if inspect.iscoroutinefunction(fn):
-            return True
+        return bool(inspect.iscoroutinefunction(fn))
     except ImportError:
         pass
-    # MicroPython: check the function's code flags for "generator-like".
-    code = getattr(fn, "__code__", None)
-    if code is not None:
-        co_flags = getattr(code, "co_flags", 0)
-        # 0x100 = generator, 0x200 = coroutine, 0x400 = iterable_coroutine
-        if co_flags & 0x700:
-            return True
-    # As a last resort, presume the user followed FR-IPC-1 ("async def
-    # name(args)") and trust them.  The dispatcher will surface a clear
-    # TypeError if the call result isn't awaitable.
-    return True
+    # MicroPython path.
+    type_name = type(fn).__name__
+    # Plain ``def`` functions appear as "function".  Anything else
+    # (generator, closure-wrapped coroutine) we accept; the dispatcher
+    # will surface a clear TypeError at call time if the result is not
+    # awaitable.
+    return type_name != "function"
 
 
 # ---------------------------------------------------------------------------
@@ -417,13 +417,36 @@ async def _run_with_main(transport, main):
     _active_transport = transport
     _pending_invokes.clear()
     _next_invoke_id = 1
-    dispatcher_task = asyncio.create_task(_run_dispatcher(transport))
+    done_event = asyncio.Event()
+    main_result_box = [None, None]  # [value, exception]
+    dispatcher_done_box = [False]
+
+    async def _dispatcher_wrapper():
+        try:
+            await _run_dispatcher(transport)
+        finally:
+            dispatcher_done_box[0] = True
+            done_event.set()
+
+    async def _main_wrapper(coro):
+        try:
+            main_result_box[0] = await coro
+        except BaseException as e:
+            main_result_box[1] = e
+        finally:
+            done_event.set()
+
+    dispatcher_task = asyncio.create_task(_dispatcher_wrapper())
     main_task = None
     if main is not None:
         coro = main() if callable(main) else main
-        main_task = asyncio.create_task(coro)
+        main_task = asyncio.create_task(_main_wrapper(coro))
     try:
-        return await _wait_first(dispatcher_task, main_task)
+        await done_event.wait()
+        if main_task is not None and main_result_box[1] is not None:
+            # Main raised — propagate after teardown.
+            return None  # raise happens in finally via re-raise
+        return main_result_box[0]
     finally:
         # Whichever task finished first wins; cancel the other(s).
         for t in (dispatcher_task, main_task):
@@ -449,42 +472,5 @@ async def _run_with_main(transport, main):
             pass
         _active_transport = None
         _pending_invokes.clear()
-
-
-async def _wait_first(dispatcher_task, main_task):
-    """Wait until the first of (dispatcher_task, main_task) completes.
-
-    Returns ``main_task``'s value when it wins; returns ``None`` when the
-    dispatcher exits first (transport EOF).  MicroPython's asyncio has
-    no ``asyncio.wait`` with FIRST_COMPLETED, so we poll the task
-    states cooperatively.
-    """
-    if main_task is None:
-        await dispatcher_task
-        return None
-    # Race the two tasks via a small completion-callback registered as
-    # an Event.  Simpler than reimplementing wait_first across
-    # MicroPython's asyncio quirks: just loop with a tiny sleep.
-    while True:
-        if _task_done(dispatcher_task):
-            return None
-        if _task_done(main_task):
-            try:
-                # Surface the main task's return value (or exception).
-                return await main_task
-            except BaseException:
-                # Propagate the main task's exception to the caller of
-                # picolet.run after both halves have been torn down.
-                raise
-        await asyncio.sleep(0)
-
-
-def _task_done(t):
-    """True if asyncio task ``t`` has finished (in any way).
-
-    MicroPython's Task has a .state attribute that becomes False when
-    the task is finished and has been awaited, or None when finished
-    and not yet awaited.
-    """
-    state = getattr(t, "state", True)
-    return state is False or state is None
+        if main_task is not None and main_result_box[1] is not None:
+            raise main_result_box[1]
