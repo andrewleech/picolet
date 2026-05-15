@@ -8,14 +8,14 @@
 #       [--test-romfs <fixture-name>] \
 #       [--clean]
 #
-# Supported targets / variants in PH01:
-#   --target linux-x64 --variant cli   (builds inside ubuntu:22.04 container)
+# Supported targets / variants:
+#   --target linux-x64  --variant cli   (builds inside ubuntu:22.04 container)
+#   --target windows-x64 --variant cli  (cross-compiles inside dockcross/windows-static-x64-posix)
 #
-# PH04 will add --target windows-x64 (dockcross cross-compile).
 # PH07/PH11 will add --variant webview and --variant lvgl.
 #
 # Outputs:
-#   packages/picolet-runtime/build/picolet-runtime-{target}-{variant}
+#   packages/picolet-runtime/build/picolet-runtime-{target}-{variant}[.exe]
 #
 # The build script is idempotent on a warm tree (make skips up-to-date
 # objects; libffi is only rebuilt if its sources changed).  Build outputs
@@ -27,6 +27,11 @@
 #   - python3 + mpremote (pip install mpremote)  — host-side romfs assembly only
 #   - strip (binutils)  — host-side final strip pass
 #   - git (for submodule checks)
+#
+# Prerequisites (windows-x64/cli):
+#   - docker with dockcross/windows-static-x64-posix image
+#   - python3 + mpremote  — host-side romfs assembly only
+#   - git
 
 set -euo pipefail
 
@@ -73,15 +78,17 @@ if [[ -z "$TARGET" || -z "$VARIANT" ]]; then
 fi
 
 # Validate combinations; unsupported ones exit early with a clear message so
-# PH04/PH07/PH11 only have to add a branch, not redesign the contract.
+# PH07/PH11 only have to add a branch, not redesign the contract.
 case "${TARGET}/${VARIANT}" in
     linux-x64/cli)
         ;;
-    windows-x64/*)
-        echo "error: --target windows-x64 not implemented in PH01; see PH04" >&2
-        exit 1 ;;
+    windows-x64/cli)
+        ;;
     linux-x64/webview|linux-x64/lvgl)
-        echo "error: --variant $VARIANT for linux-x64 not implemented in PH01; see PH07/PH11" >&2
+        echo "error: --variant $VARIANT for linux-x64 not implemented; see PH07/PH11" >&2
+        exit 1 ;;
+    windows-x64/webview|windows-x64/lvgl)
+        echo "error: --variant $VARIANT for windows-x64 not implemented; see PH10/PH12" >&2
         exit 1 ;;
     *)
         echo "error: unsupported target/variant combination: $TARGET/$VARIANT" >&2
@@ -89,15 +96,12 @@ case "${TARGET}/${VARIANT}" in
 esac
 
 # ---------------------------------------------------------------------------
-# Derived names
+# Derived names (common to both targets)
 # ---------------------------------------------------------------------------
 
 VARIANT_NAME="picolet-${VARIANT}"          # e.g. picolet-cli
-ARTIFACT_NAME="picolet-runtime-${TARGET}-${VARIANT}"   # e.g. picolet-runtime-linux-x64-cli
 BUILD_DIR="$PKG_ROOT/build"
-ARTIFACT="$BUILD_DIR/$ARTIFACT_NAME"
 UNIX_PORT="$SUBMODULE/ports/unix"
-VARIANT_BUILD="$UNIX_PORT/build-${VARIANT_NAME}"
 
 # ---------------------------------------------------------------------------
 # linux-x64 build container setup
@@ -117,9 +121,8 @@ VARIANT_BUILD="$UNIX_PORT/build-${VARIANT_NAME}"
 LINUX_BUILD_IMAGE="picolet-linux-x64-build:22.04"
 LINUX_DOCKERFILE="$SCRIPT_DIR/dockerfiles/linux-x64-build/Dockerfile"
 
-# Helper: run a command inside the build container with the full repo bind-mounted.
-# Usage: docker_linux <working-dir-relative-to-REPO_ROOT> <cmd...>
-# The working dir is passed as an absolute path so Make's relative references work.
+# Helper: run a command inside the linux build container with the full repo
+# bind-mounted.  Usage: docker_linux <working-dir> <cmd...>
 docker_linux() {
     local workdir="$1"; shift
     docker run --rm \
@@ -130,296 +133,359 @@ docker_linux() {
         "$@"
 }
 
-echo "=== build-runtime.sh: target=$TARGET variant=$VARIANT ==="
-
 # ---------------------------------------------------------------------------
-# Step 0 – Ensure the linux build image is present (idempotent docker build)
-# ---------------------------------------------------------------------------
-
-echo "[0/8] Ensuring linux build image: $LINUX_BUILD_IMAGE"
-
-if ! docker image inspect "$LINUX_BUILD_IMAGE" >/dev/null 2>&1; then
-    echo "  image not found; building from $LINUX_DOCKERFILE"
-    docker build -t "$LINUX_BUILD_IMAGE" "$(dirname "$LINUX_DOCKERFILE")"
-else
-    echo "  image present; skipping build"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 1 – Ensure submodule is on the integration branch
-# ---------------------------------------------------------------------------
-
-echo "[1/8] Checking integration branch"
-
-if [[ "$CLEAN" -eq 1 ]]; then
-    echo "  --clean: re-running rebuild-integration.sh"
-    "$SCRIPT_DIR/rebuild-integration.sh"
-elif ! git -C "$SUBMODULE" show-ref --quiet refs/heads/integration; then
-    echo "  integration branch not found; running rebuild-integration.sh"
-    "$SCRIPT_DIR/rebuild-integration.sh"
-else
-    # Fast path: integration branch exists; check whether the overlay has
-    # been applied (look for the variant directory in the submodule tree).
-    if [[ ! -d "$UNIX_PORT/variants/${VARIANT_NAME}" ]]; then
-        echo "  overlay not applied; running rebuild-integration.sh"
-        "$SCRIPT_DIR/rebuild-integration.sh"
-    else
-        echo "  integration branch warm; skipping rebuild"
-    fi
-fi
-
-# Ensure submodule working tree is on the integration tip.
-git -C "$SUBMODULE" checkout integration --quiet
-
-# Always ensure nested submodules (micropython-lib, libffi, etc.) are
-# initialised after a branch switch — the checkout above may re-point them.
-echo "  updating nested submodules"
-git -C "$SUBMODULE" submodule update --init --recursive --quiet
-
-# ---------------------------------------------------------------------------
-# Step 2 – Verify micropython-lib submodule is present
-# ---------------------------------------------------------------------------
-
-echo "[2/8] Verifying submodule presence"
-
-# asyncio is built into extmod in this MicroPython version (not micropython-lib).
-# Verify the extmod/asyncio directory is present.
-ASYNCIO_EXTMOD="$SUBMODULE/extmod/asyncio"
-if [[ ! -d "$ASYNCIO_EXTMOD" ]]; then
-    echo "error: $ASYNCIO_EXTMOD not found." >&2
-    echo "       The submodule checkout looks incomplete." >&2
-    exit 1
-fi
-
-# Verify os-path is in micropython-lib (python-stdlib is an external submodule).
-MPL_DIR="$SUBMODULE/lib/micropython-lib"
-OS_PATH_DIR="$MPL_DIR/python-stdlib/os-path"
-if [[ ! -d "$OS_PATH_DIR" ]]; then
-    echo "error: $OS_PATH_DIR not found." >&2
-    echo "       The integration branch's lib/micropython-lib submodule is not initialised." >&2
-    echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
-    exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# Step 3 – Build mpy-cross inside the container
+# windows-x64 build container setup (dockcross MinGW cross-compile)
 #
-# mpy-cross must be compiled by the same toolchain that builds the port so
-# that the host-run mpy-cross binary's bytecode format matches the runtime.
-# Running it in the container also ensures any compiler-generated symbols
-# remain in the glibc 2.35 baseline.
+# dockcross/windows-static-x64-posix provides a statically linked MinGW-w64
+# cross toolchain targeting x86_64 Windows.  The output is a PE-COFF .exe
+# that runs under WSL interop and natively on Windows 10+.
 # ---------------------------------------------------------------------------
 
-echo "[3/8] Building mpy-cross (inside $LINUX_BUILD_IMAGE)"
-docker_linux "$SUBMODULE/mpy-cross" make -j
+DOCKCROSS_IMAGE="dockcross/windows-static-x64-posix:latest"
+CROSS="x86_64-w64-mingw32.static.posix-"
+
+# Helper: run a command inside the dockcross Windows container.
+# Usage: docker_windows <working-dir> <cmd...>
+docker_windows() {
+    local workdir="$1"; shift
+    docker run --rm \
+        -v "$REPO_ROOT:$REPO_ROOT" \
+        -w "$workdir" \
+        --user "$(id -u):$(id -g)" \
+        "$DOCKCROSS_IMAGE" \
+        "$@"
+}
 
 # ---------------------------------------------------------------------------
-# Step 4 – Fetch libffi submodule (triggered by MICROPY_STANDALONE=1)
-#
-# The submodules target only fetches / initialises the libffi git submodule;
-# it doesn't compile anything.  Running on the host avoids a docker exec for
-# a pure git operation.
-# ---------------------------------------------------------------------------
-
-echo "[4/8] Fetching port submodules (libffi)"
-make -C "$UNIX_PORT" -j submodules \
-    VARIANT="${VARIANT_NAME}" \
-    MICROPY_STANDALONE=1
-
-# After rebuild-integration.sh re-initialises the submodules (submodule deinit -f .
-# followed by update --init), the libffi source working tree is repopulated from git.
-# The generated `configure` script is not tracked in git (only configure.ac is), so
-# it gets deleted.  Make's dependency rule tries to regenerate it via autogen.sh /
-# autoreconf, which requires a libtool version that ships LT_SYS_SYMBOL_USCORE —
-# Ubuntu 22.04's libtool 2.4.6 does not have this macro.
-#
-# Mitigation: if the build directory already has a compiled ffi.h (from a prior
-# successful deplibs run), touch configure to satisfy Make's prerequisite chain
-# without re-running autoreconf.  If no prior build exists, run autogen.sh on
-# the host (host toolchain is newer and has the required macro support).
-LIBFFI_FFI_H="$VARIANT_BUILD/lib/libffi/include/ffi.h"
-LIBFFI_SRC="$SUBMODULE/lib/libffi"
-
-# When rebuild-integration.sh re-initialises submodules, the libffi source
-# working tree is repopulated from git without the generated build files
-# (configure, Makefile.in, etc).  The existing build cache at
-# $VARIANT_BUILD/lib/libffi/ was produced by a prior successful deplibs run.
-# If configure is absent but the build is warm, touching configure and the
-# build Makefile / config.status timestamps prevents make from trying to
-# re-run autogen.sh / configure (which requires libtool macros not available
-# in Ubuntu 22.04).  The generated configure is an empty placeholder — it
-# is never actually executed.
-if [[ -f "$LIBFFI_FFI_H" && ! -f "$LIBFFI_SRC/configure" ]]; then
-    echo "  libffi: warm cache detected; touching build timestamps to skip re-autogen"
-    # Create a placeholder configure so make doesn't try to generate it.
-    touch "$LIBFFI_SRC/configure"
-    chmod +x "$LIBFFI_SRC/configure"
-    # Touch build-dir timestamps to make them appear newer than source.
-    touch "$LIBFFI_FFI_H"
-    [[ -f "$VARIANT_BUILD/lib/libffi/config.status" ]] && \
-        touch "$VARIANT_BUILD/lib/libffi/config.status"
-    [[ -f "$VARIANT_BUILD/lib/libffi/Makefile" ]] && \
-        touch "$VARIANT_BUILD/lib/libffi/Makefile"
-    [[ -f "$VARIANT_BUILD/lib/libffi/include/Makefile" ]] && \
-        touch "$VARIANT_BUILD/lib/libffi/include/Makefile"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 5 – Build the embedded romfs image (host — pure Python, no compiler)
+# Shared step: build embedded romfs image (host — pure Python, no compiler)
 #
 # Default: empty romfs (4-byte d2 cd 31 00 sentinel) — the runtime ships
 # as a clean blank slate; user romfs is appended at picolet-build time (PH03).
 #
-# With --test-romfs <fixture>: embed the named fixture from tests/phase-01/
-# for PH01's own smoke tests.
+# With --test-romfs <fixture>: embed the named fixture from tests/phase-0*/
+# for per-phase smoke tests.
 # ---------------------------------------------------------------------------
 
-ROMFS_STAGING="$BUILD_DIR/romfs_staging"
-mkdir -p "$ROMFS_STAGING"
+build_romfs_image() {
+    local staging="$1"
+    local port_dir="$2"   # used to compute relative path for Make
+    ROMFS_STAGING="$BUILD_DIR/romfs_staging"
+    mkdir -p "$ROMFS_STAGING"
 
-if [[ -z "$TEST_ROMFS" ]]; then
-    echo "[5/8] Building empty embedded romfs (default — blank-slate runtime)"
-    EMPTY_ROMFS_DIR="$ROMFS_STAGING/empty_romfs_src"
-    mkdir -p "$EMPTY_ROMFS_DIR"
-    # An empty source directory produces the 4-byte d2 cd 31 00 sentinel.
-    python3 -m mpremote romfs --output "$ROMFS_STAGING/empty.romfs" build "$EMPTY_ROMFS_DIR"
-    ROMFS_IMG_SAFE="$ROMFS_STAGING/picolet_romfs_empty.romfs"
-    cp "$ROMFS_STAGING/empty.romfs" "$ROMFS_IMG_SAFE"
-else
-    echo "[5/8] Building test romfs from tests/phase-01/${TEST_ROMFS}"
-    ROMFS_FIXTURE="$PKG_ROOT/tests/phase-01/${TEST_ROMFS}"
-    if [[ ! -d "$ROMFS_FIXTURE" ]]; then
-        echo "error: romfs fixture directory not found: $ROMFS_FIXTURE" >&2
+    if [[ -z "$TEST_ROMFS" ]]; then
+        echo "[5/8] Building empty embedded romfs (default — blank-slate runtime)"
+        local empty_dir="$ROMFS_STAGING/empty_romfs_src"
+        mkdir -p "$empty_dir"
+        # An empty source directory produces the 4-byte d2 cd 31 00 sentinel.
+        python3 -m mpremote romfs --output "$ROMFS_STAGING/empty.romfs" build "$empty_dir"
+        ROMFS_IMG_SAFE="$ROMFS_STAGING/picolet_romfs_empty.romfs"
+        cp "$ROMFS_STAGING/empty.romfs" "$ROMFS_IMG_SAFE"
+    else
+        echo "[5/8] Building test romfs from tests/phase-*/${TEST_ROMFS}"
+        # Search for the fixture in any phase test dir under PKG_ROOT/tests.
+        local fixture=""
+        for dir in "$PKG_ROOT/tests"/phase-*/; do
+            if [[ -d "$dir/$TEST_ROMFS" ]]; then
+                fixture="$dir/$TEST_ROMFS"
+                break
+            fi
+        done
+        if [[ -z "$fixture" ]]; then
+            echo "error: romfs fixture '$TEST_ROMFS' not found under $PKG_ROOT/tests/phase-*/" >&2
+            exit 1
+        fi
+        python3 -m mpremote romfs --output "$ROMFS_STAGING/${TEST_ROMFS}.romfs" build "$fixture"
+        # Use a safe name (underscores only) for the embedded binary symbol.
+        # objcopy converts ALL non-alphanumeric chars to _ in symbol names;
+        # the Makefile's $(subst) does not, causing a symbol rename mismatch.
+        ROMFS_IMG_SAFE="$ROMFS_STAGING/picolet_romfs_${TEST_ROMFS}.romfs"
+        cp "$ROMFS_STAGING/${TEST_ROMFS}.romfs" "$ROMFS_IMG_SAFE"
+    fi
+
+    # Relative path from port_dir to romfs image (used by Make's ROMFS_IMG variable).
+    ROMFS_IMG_REL="$(realpath --relative-to="$port_dir" "$ROMFS_IMG_SAFE")"
+    echo "  romfs image: $ROMFS_IMG_SAFE ($(wc -c < "$ROMFS_IMG_SAFE") bytes, relative: $ROMFS_IMG_REL)"
+}
+
+# ---------------------------------------------------------------------------
+# Shared step: assert stock runtime tail + write version sidecar
+# ---------------------------------------------------------------------------
+
+finish_artifact() {
+    local artifact="$1"
+    local artifact_name="$(basename "$artifact")"
+
+    # Step [7a] — Assert the stock runtime's last 4 bytes are not "PYLT".
+    # romfs_trailer.c has "PYLT" as a .rodata string (for the memcmp), so
+    # `strings | grep PYLT` always fires.  Check the actual tail bytes.
+    echo "  [7a] Asserting stock runtime tail does not match trailer magic"
+    LAST4="$(tail -c 4 "$artifact" | od -An -tx1 | tr -d ' \n')"
+    if [[ "$LAST4" == "50594c54" ]]; then
+        echo "error: [7a] last 4 bytes of $artifact_name are 'PYLT' (50 59 4c 54)" >&2
+        echo "       The stock runtime would false-positive the trailer detector." >&2
+        echo "       Bump the magic to a longer/less-printable value." >&2
         exit 1
     fi
-    # Note: mpremote romfs requires --output before the 'build' subcommand.
-    python3 -m mpremote romfs --output "$ROMFS_STAGING/${TEST_ROMFS}.romfs" build "$ROMFS_FIXTURE"
-    # The unix port Makefile's romfs_data.o objcopy rule derives the symbol name
-    # by substituting / and . with _, but objcopy itself converts ALL
-    # non-alphanumeric characters (including -) to _ in embedded binary symbols.
-    # If the ROMFS_IMG path contains hyphens (e.g. from 'picolet-runtime'), the
-    # Makefile's $(subst) would keep the hyphen while objcopy converts it, so
-    # the --redefine-sym old name does not match and the rename silently fails.
-    #
-    # Fix: use a safe name (underscores only) for the embedded binary.
-    ROMFS_IMG_SAFE="$ROMFS_STAGING/picolet_romfs_${TEST_ROMFS}.romfs"
-    cp "$ROMFS_STAGING/${TEST_ROMFS}.romfs" "$ROMFS_IMG_SAFE"
-fi
+    echo "  [7a] OK: stock runtime tail ($LAST4) does not match trailer magic"
 
-# Relative path from $UNIX_PORT (micropython/ports/unix) to $ROMFS_STAGING.
-# The path ../../../build/romfs_staging contains no hyphens.
-ROMFS_IMG_REL="$(realpath --relative-to="$UNIX_PORT" "$ROMFS_IMG_SAFE")"
+    # Step [7b] — Write a .version sidecar (mpy-cross bytecode format token).
+    VERSION_FILE="${artifact}.version"
+    MPY_CROSS_SHA="$(git -C "$SUBMODULE" rev-parse --short HEAD)"
+    MPY_CROSS_BIN="$SUBMODULE/mpy-cross/build/mpy-cross"
+    if [[ -f "$MPY_CROSS_BIN" ]]; then
+        MPY_VER_LINE="$("$MPY_CROSS_BIN" --version 2>&1 || true)"
+        MPY_VER="$(echo "$MPY_VER_LINE" | grep -oE 'mpy v[0-9]+\.[0-9]+' || echo "$MPY_CROSS_SHA")"
+    else
+        MPY_VER="$MPY_CROSS_SHA"
+    fi
+    echo "$MPY_VER" > "$VERSION_FILE"
+    echo "  [7b] version sidecar: $VERSION_FILE ($MPY_VER)"
 
-echo "  romfs image: $ROMFS_IMG_SAFE ($(wc -c < "$ROMFS_IMG_SAFE") bytes, relative: $ROMFS_IMG_REL)"
+    # Step [8/8] — NFR-1 size gate (≤ 1 MiB = 1048576 bytes).
+    echo "[8/8] Checking binary size (NFR-1: ≤ 1 MiB)"
+    SIZE=$(wc -c < "$artifact")
+    CEILING=1048576
+    if [[ "$SIZE" -gt "$CEILING" ]]; then
+        echo "error: NFR-1 VIOLATED: $artifact_name is $SIZE bytes (ceiling $CEILING bytes / 1 MiB)" >&2
+        echo "       Consider disabling MICROPY_ENABLE_COMPILER=0 in mpconfigvariant.mk." >&2
+        exit 1
+    fi
+    PCT=$(( SIZE * 100 / CEILING ))
+    echo "  size: $SIZE bytes (${PCT}% of NFR-1 ceiling of $CEILING bytes)"
+    echo
+    echo "=== Build complete: $artifact ==="
+}
 
 # ---------------------------------------------------------------------------
-# Step 6 – Build the unix port variant inside the container
-#
-# Two make invocations mirror the host-native pattern but run inside the
-# container.  deplibs first (libffi configure + compile), then the main
-# port build.  The PICOLET_RUNTIME_ROOT absolute path is the same inside the
-# container because we bind-mount at the same host path.
+# linux-x64/cli build
 # ---------------------------------------------------------------------------
 
-echo "[6/8] Building unix port variant=${VARIANT_NAME} (inside $LINUX_BUILD_IMAGE)"
+build_linux_x64() {
+    local artifact_name="picolet-runtime-linux-x64-${VARIANT}"
+    local artifact="$BUILD_DIR/$artifact_name"
+    local variant_build="$UNIX_PORT/build-${VARIANT_NAME}"
+    local libffi_ffi_h="$variant_build/lib/libffi/include/ffi.h"
+    local libffi_src="$SUBMODULE/lib/libffi"
 
-# deplibs first: libffi configure + compile.
-# The unix port Makefile evaluates LIBFFI_CFLAGS at parse time via a shell
-# $(ls ...) of the build output dir.  That directory doesn't exist until
-# deplibs runs, so deplibs must complete before the main compile invocation.
-#
-# Skip deplibs if ffi.h is already built (warm incremental build).  The
-# libffi autogen.sh/configure cycle requires tools (autoreconf, newer libtool)
-# that may not be available; we only need it for the first build.
-if [[ -f "$LIBFFI_FFI_H" ]]; then
-    echo "  deplibs: ffi.h cached; skipping deplibs"
-else
+    echo "[0/8] Ensuring linux build image: $LINUX_BUILD_IMAGE"
+    if ! docker image inspect "$LINUX_BUILD_IMAGE" >/dev/null 2>&1; then
+        echo "  image not found; building from $LINUX_DOCKERFILE"
+        docker build -t "$LINUX_BUILD_IMAGE" "$(dirname "$LINUX_DOCKERFILE")"
+    else
+        echo "  image present; skipping build"
+    fi
+
+    echo "[1/8] Checking integration branch"
+    if [[ "$CLEAN" -eq 1 ]]; then
+        echo "  --clean: re-running rebuild-integration.sh"
+        "$SCRIPT_DIR/rebuild-integration.sh"
+    elif ! git -C "$SUBMODULE" show-ref --quiet refs/heads/integration; then
+        echo "  integration branch not found; running rebuild-integration.sh"
+        "$SCRIPT_DIR/rebuild-integration.sh"
+    else
+        if [[ ! -d "$UNIX_PORT/variants/${VARIANT_NAME}" ]]; then
+            echo "  overlay not applied; running rebuild-integration.sh"
+            "$SCRIPT_DIR/rebuild-integration.sh"
+        else
+            echo "  integration branch warm; skipping rebuild"
+        fi
+    fi
+
+    git -C "$SUBMODULE" checkout integration --quiet
+    echo "  updating nested submodules"
+    git -C "$SUBMODULE" submodule update --init --recursive --quiet
+
+    echo "[2/8] Verifying submodule presence"
+    if [[ ! -d "$SUBMODULE/extmod/asyncio" ]]; then
+        echo "error: $SUBMODULE/extmod/asyncio not found." >&2
+        exit 1
+    fi
+    if [[ ! -d "$SUBMODULE/lib/micropython-lib/python-stdlib/os-path" ]]; then
+        echo "error: micropython-lib/python-stdlib/os-path not found." >&2
+        echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
+        exit 1
+    fi
+
+    echo "[3/8] Building mpy-cross (inside $LINUX_BUILD_IMAGE)"
+    docker_linux "$SUBMODULE/mpy-cross" make -j
+
+    echo "[4/8] Fetching port submodules (libffi)"
+    make -C "$UNIX_PORT" -j submodules \
+        VARIANT="${VARIANT_NAME}" \
+        MICROPY_STANDALONE=1
+
+    # Warm-cache mitigation: if configure was removed by submodule reinit
+    # but ffi.h exists from a prior build, touch timestamps to skip autogen.
+    if [[ -f "$libffi_ffi_h" && ! -f "$libffi_src/configure" ]]; then
+        echo "  libffi: warm cache; touching timestamps to skip re-autogen"
+        touch "$libffi_src/configure"
+        chmod +x "$libffi_src/configure"
+        touch "$libffi_ffi_h"
+        [[ -f "$variant_build/lib/libffi/config.status" ]] && \
+            touch "$variant_build/lib/libffi/config.status"
+        [[ -f "$variant_build/lib/libffi/Makefile" ]] && \
+            touch "$variant_build/lib/libffi/Makefile"
+        [[ -f "$variant_build/lib/libffi/include/Makefile" ]] && \
+            touch "$variant_build/lib/libffi/include/Makefile"
+    fi
+
+    build_romfs_image "$BUILD_DIR" "$UNIX_PORT"
+
+    echo "[6/8] Building unix port variant=${VARIANT_NAME} (inside $LINUX_BUILD_IMAGE)"
+    if [[ -f "$libffi_ffi_h" ]]; then
+        echo "  deplibs: ffi.h cached; skipping deplibs"
+    else
+        docker_linux "$UNIX_PORT" make \
+            -j \
+            VARIANT="${VARIANT_NAME}" \
+            MICROPY_STANDALONE=1 \
+            PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+            deplibs
+    fi
     docker_linux "$UNIX_PORT" make \
         -j \
         VARIANT="${VARIANT_NAME}" \
-        MICROPY_STANDALONE=1 \
-        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
-        deplibs
-fi
+        ROMFS_IMG="$ROMFS_IMG_REL" \
+        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")"
 
-docker_linux "$UNIX_PORT" make \
-    -j \
-    VARIANT="${VARIANT_NAME}" \
-    ROMFS_IMG="$ROMFS_IMG_REL" \
-    PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")"
+    echo "[7/8] Stripping and installing artifact"
+    local built_binary="$variant_build/micropython"
+    if [[ ! -f "$built_binary" ]]; then
+        echo "error: expected binary not found: $built_binary" >&2
+        exit 1
+    fi
+    mkdir -p "$BUILD_DIR"
+    cp "$built_binary" "$artifact"
+    strip --strip-unneeded "$artifact"
+    echo "  artifact: $artifact"
 
-# ---------------------------------------------------------------------------
-# Step 7 – Strip, install artifact, and write version sidecar
-# ---------------------------------------------------------------------------
-
-echo "[7/8] Stripping and installing artifact"
-
-BUILT_BINARY="$VARIANT_BUILD/micropython"
-
-if [[ ! -f "$BUILT_BINARY" ]]; then
-    echo "error: expected binary not found: $BUILT_BINARY" >&2
-    exit 1
-fi
-
-mkdir -p "$BUILD_DIR"
-cp "$BUILT_BINARY" "$ARTIFACT"
-strip --strip-unneeded "$ARTIFACT"
-
-echo "  artifact: $ARTIFACT"
-
-# Step [7a] — Assert the stock runtime's last 24 bytes do not look like a
-# valid "PYLT" trailer (false-positive protection for the trailer detector).
-# The romfs_trailer.c necessarily contains the "PYLT" string literal in
-# .rodata (used in the memcmp), so `strings | grep PYLT` would always fire.
-# Instead we check the last 4 bytes of the binary, which must not be "PYLT"
-# for the stock runtime to be safe.
-echo "  [7a] Asserting stock runtime tail does not match trailer magic"
-LAST4="$(tail -c 4 "$ARTIFACT" | od -An -tx1 | tr -d ' \n')"
-if [[ "$LAST4" == "50594c54" ]]; then
-    echo "error: [7a] last 4 bytes of $ARTIFACT are 'PYLT' (50 59 4c 54)" >&2
-    echo "       The stock runtime would false-positive the trailer detector." >&2
-    echo "       Bump the magic to a longer/less-printable value." >&2
-    exit 1
-fi
-echo "  [7a] OK: stock runtime tail ($LAST4) does not match trailer magic"
-
-# Step [7b] — Write a .version sidecar containing the mpy-cross bytecode
-# format git SHA.  picolet build reads this to verify version match before
-# invoking mpy-cross (guards against user shadowing with a different version).
-VERSION_FILE="${ARTIFACT}.version"
-MPY_CROSS_SHA="$(git -C "$SUBMODULE" rev-parse --short HEAD)"
-# mpy-cross --version output format: "MicroPython v1.24.0 on 2025-01-01; mpy-cross emitting mpy v6.3"
-# We record the git SHA of the integration branch HEAD as the version token
-# because the mpy bytecode format is determined by the source, not a semver.
-# picolet build compares this against `mpy-cross --version` output.
-MPY_CROSS_BIN="$SUBMODULE/mpy-cross/build/mpy-cross"
-if [[ -f "$MPY_CROSS_BIN" ]]; then
-    MPY_VER_LINE="$("$MPY_CROSS_BIN" --version 2>&1 || true)"
-    # Extract the mpy version token (e.g. "mpy v6.3") to use as the sidecar.
-    # This is the bytecode format version that must match at user-build time.
-    MPY_VER="$(echo "$MPY_VER_LINE" | grep -oE 'mpy v[0-9]+\.[0-9]+'  || echo "$MPY_CROSS_SHA")"
-else
-    MPY_VER="$MPY_CROSS_SHA"
-fi
-echo "$MPY_VER" > "$VERSION_FILE"
-echo "  [7b] version sidecar: $VERSION_FILE ($MPY_VER)"
+    finish_artifact "$artifact"
+}
 
 # ---------------------------------------------------------------------------
-# Step 8 – NFR-1 size gate (≤ 1 MiB = 1048576 bytes)
+# windows-x64/cli build (dockcross MinGW cross-compile)
 # ---------------------------------------------------------------------------
 
-echo "[8/8] Checking binary size (NFR-1: ≤ 1 MiB)"
+build_windows_x64() {
+    local artifact_name="picolet-runtime-windows-x64-${VARIANT}.exe"
+    local artifact="$BUILD_DIR/$artifact_name"
+    local windows_port="$SUBMODULE/ports/windows"
+    local variant_build="$windows_port/build-${VARIANT_NAME}"
+    local libffi_ffi_h="$variant_build/lib/libffi/include/ffi.h"
+    local libffi_src="$SUBMODULE/lib/libffi"
 
-SIZE=$(wc -c < "$ARTIFACT")
-CEILING=1048576
+    echo "[0/8] Ensuring dockcross image: $DOCKCROSS_IMAGE"
+    if ! docker image inspect "$DOCKCROSS_IMAGE" >/dev/null 2>&1; then
+        echo "  image not found; pulling $DOCKCROSS_IMAGE (~1.5 GB)"
+        docker pull "$DOCKCROSS_IMAGE"
+    else
+        echo "  image present; skipping pull"
+    fi
 
-if [[ "$SIZE" -gt "$CEILING" ]]; then
-    echo "error: NFR-1 VIOLATED: $ARTIFACT is $SIZE bytes (ceiling is $CEILING bytes / 1 MiB)" >&2
-    echo "       Consider enabling MICROPY_ENABLE_COMPILER=0 in mpconfigvariant.mk." >&2
-    exit 1
+    echo "[1/8] Checking integration branch"
+    if [[ "$CLEAN" -eq 1 ]]; then
+        echo "  --clean: re-running rebuild-integration.sh"
+        "$SCRIPT_DIR/rebuild-integration.sh"
+    elif ! git -C "$SUBMODULE" show-ref --quiet refs/heads/integration; then
+        echo "  integration branch not found; running rebuild-integration.sh"
+        "$SCRIPT_DIR/rebuild-integration.sh"
+    else
+        if [[ ! -d "$windows_port/variants/${VARIANT_NAME}" ]]; then
+            echo "  Windows overlay not applied; running rebuild-integration.sh"
+            "$SCRIPT_DIR/rebuild-integration.sh"
+        else
+            echo "  integration branch warm; skipping rebuild"
+        fi
+    fi
+
+    git -C "$SUBMODULE" checkout integration --quiet
+    echo "  updating nested submodules"
+    git -C "$SUBMODULE" submodule update --init --recursive --quiet
+
+    echo "[2/8] Verifying submodule presence"
+    if [[ ! -d "$SUBMODULE/extmod/asyncio" ]]; then
+        echo "error: $SUBMODULE/extmod/asyncio not found." >&2
+        exit 1
+    fi
+    if [[ ! -d "$SUBMODULE/lib/micropython-lib/python-stdlib/os-path" ]]; then
+        echo "error: micropython-lib/python-stdlib/os-path not found." >&2
+        echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
+        exit 1
+    fi
+
+    echo "[3/8] Building mpy-cross (inside dockcross — produces Linux ELF host tool)"
+    # dockcross includes a Linux GCC alongside MinGW; mpy-cross is a host
+    # tool and is built as a Linux binary.  This matches the pydfu precedent.
+    docker_windows "$SUBMODULE/mpy-cross" make -j
+
+    echo "[4/8] Fetching port submodules (libffi)"
+    # The Windows Makefile's deplibs target adds lib/libffi to GIT_SUBMODULES
+    # when MICROPY_PY_FFI=1 (set in the variant .mk).  We run `submodules` on
+    # the host (pure git op, no compiler needed).
+    make -C "$windows_port" -j submodules VARIANT="${VARIANT_NAME}"
+
+    # Warm-cache mitigation for libffi: same pattern as linux-x64.
+    # After a submodule reinit, configure may be absent while ffi.h exists
+    # from a prior successful deplibs build.  Touch timestamps to skip autogen.
+    if [[ -f "$libffi_ffi_h" && ! -f "$libffi_src/configure" ]]; then
+        echo "  libffi: warm cache; touching timestamps to skip re-autogen"
+        touch "$libffi_src/configure"
+        chmod +x "$libffi_src/configure"
+        touch "$libffi_ffi_h"
+        [[ -f "$variant_build/lib/libffi/config.status" ]] && \
+            touch "$variant_build/lib/libffi/config.status"
+        [[ -f "$variant_build/lib/libffi/Makefile" ]] && \
+            touch "$variant_build/lib/libffi/Makefile"
+        [[ -f "$variant_build/lib/libffi/include/Makefile" ]] && \
+            touch "$variant_build/lib/libffi/include/Makefile"
+    fi
+
+    build_romfs_image "$BUILD_DIR" "$windows_port"
+
+    echo "[6/8] Building libffi (deplibs) inside dockcross"
+    if [[ -f "$libffi_ffi_h" ]]; then
+        echo "  deplibs: ffi.h cached; skipping deplibs"
+    else
+        docker_windows "$windows_port" make \
+            -j \
+            VARIANT="${VARIANT_NAME}" \
+            CROSS_COMPILE="$CROSS" \
+            PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+            deplibs
+    fi
+
+    echo "[6b/8] Building windows port variant=${VARIANT_NAME} inside dockcross"
+    docker_windows "$windows_port" make \
+        -j \
+        VARIANT="${VARIANT_NAME}" \
+        CROSS_COMPILE="$CROSS" \
+        ROMFS_IMG="$ROMFS_IMG_REL" \
+        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")"
+
+    echo "[7/8] Stripping and installing artifact"
+    local built_binary="$variant_build/micropython.exe"
+    if [[ ! -f "$built_binary" ]]; then
+        echo "error: expected binary not found: $built_binary" >&2
+        exit 1
+    fi
+    mkdir -p "$BUILD_DIR"
+    cp "$built_binary" "$artifact"
+    # Strip inside dockcross — the host strip is not MinGW-aware.
+    docker_windows "$PKG_ROOT" "${CROSS}strip" --strip-unneeded "$artifact" \
+        2>/dev/null || true
+    echo "  artifact: $artifact"
+
+    finish_artifact "$artifact"
+}
+
+# ---------------------------------------------------------------------------
+# Main dispatch
+# ---------------------------------------------------------------------------
+
+echo "=== build-runtime.sh: target=$TARGET variant=$VARIANT ==="
+
+if [[ "$TARGET" == "linux-x64" ]]; then
+    build_linux_x64
+elif [[ "$TARGET" == "windows-x64" ]]; then
+    build_windows_x64
 fi
-
-PCT=$(( SIZE * 100 / CEILING ))
-echo "  size: $SIZE bytes (${PCT}% of NFR-1 ceiling of $CEILING bytes)"
-echo
-echo "=== Build complete: $ARTIFACT ==="

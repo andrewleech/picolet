@@ -31,7 +31,8 @@
 // the preceding romfs payload.  Compiled only when MICROPY_VFS_ROM_TRAILER=1.
 //
 // Five fallback modes (in priority order):
-//   1. Cannot open /proc/self/exe              — silent fallback.
+//   1. Cannot open the running binary            — silent fallback.
+//      Linux: /proc/self/exe    Windows: GetModuleFileNameA(NULL, ...)
 //   2. File < 24 bytes                          — silent fallback.
 //   3. Magic mismatch                           — silent fallback.
 //      (This is the normal path for a stock runtime run directly.)
@@ -41,6 +42,10 @@
 // See romfs_trailer.h for the trailer format and FR-BP-5 reference.
 
 #include "romfs_trailer.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,10 +142,28 @@ static uint32_t picolet_crc32(const uint8_t *data, size_t len) {
 // ---------------------------------------------------------------------------
 
 bool picolet_load_romfs_trailer(const uint8_t **buf_out, size_t *size_out) {
-    // 1. Open the running binary via /proc/self/exe (Linux fast-path).
+    // 1. Open the running binary.
+    //    Linux: /proc/self/exe resolves to the running binary regardless of
+    //    how it was invoked.
+    //    Windows: GetModuleFileNameA(NULL,...) returns the full exe path.
+    //    argv[0] is unreliable on Windows (it is the command string as typed
+    //    and cannot be relied on when the binary is on PATH or invoked with
+    //    a relative path).
+#ifdef _WIN32
+    char exe_path[MAX_PATH];
+    DWORD len = GetModuleFileNameA(NULL, exe_path, (DWORD)MAX_PATH);
+    if (len == 0 || len >= (DWORD)MAX_PATH) {
+        // Fallback 1 (Windows): cannot determine exe path — silent.
+        // len == MAX_PATH may indicate truncation on systems with LongPath
+        // enabled; treat as failure and fall back to linked romfs.
+        return false;
+    }
+    FILE *f = fopen(exe_path, "rb");
+#else
     FILE *f = fopen("/proc/self/exe", "rb");
+#endif
     if (!f) {
-        // Fallback 1: cannot open /proc/self/exe — silent.
+        // Fallback 1: cannot open the binary — silent.
         return false;
     }
 

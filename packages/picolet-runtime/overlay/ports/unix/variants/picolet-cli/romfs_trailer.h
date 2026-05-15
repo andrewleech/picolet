@@ -44,7 +44,8 @@
 // The romfs payload immediately precedes the trailer in the file:
 //   [ELF runtime bytes][romfs payload N bytes][trailer 24 bytes]
 //
-// Detection: open /proc/self/exe, seek to file_size-24, read trailer.
+// Detection: open the running binary (Linux: /proc/self/exe;
+// Windows: GetModuleFileNameA(NULL,...)), seek to file_size-24, read trailer.
 // Magic mismatch -> silent fallback to linked empty romfs.
 // CRC mismatch   -> loud fallback (stderr warning).
 
@@ -64,7 +65,7 @@ typedef struct __attribute__((packed)) {
 } picolet_trailer_t;
 
 // Attempt to load a romfs image from the trailer appended to the running
-// binary (/proc/self/exe on Linux).
+// binary (/proc/self/exe on Linux; GetModuleFileNameA(NULL,...) on Windows).
 //
 // On success: *buf_out and *size_out are set to the malloced payload buffer
 //             and its size; returns true. Caller owns the buffer.

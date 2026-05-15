@@ -34,6 +34,8 @@ def resolve_runtime(target: str, variant: str) -> Path:
     """
     # TODO(PH05): consult ~/.picolet-cache/<tag>/ first; download if absent.
     artifact_name = f"picolet-runtime-{target}-{variant}"
+    if target == "windows-x64":
+        artifact_name += ".exe"
 
     # Walk up from this file to find the repo root, then locate the build dir.
     # This file lives at packages/picolet-cli/picolet/runtime_resolver.py.

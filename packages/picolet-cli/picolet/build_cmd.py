@@ -52,7 +52,7 @@ def add_parser(subparsers) -> None:
         metavar="TARGET",
         help=(
             "build target (default: host; "
-            "supported in PH03: linux-x64; windows-x64 lands in PH04)"
+            "supported: linux-x64, windows-x64)"
         ),
     )
     p.add_argument(
@@ -133,11 +133,12 @@ def run(args) -> None:
     # -------------------------------------------------------------------------
     target = args.target if args.target else _host_target()
 
-    if target != "linux-x64":
+    SUPPORTED_TARGETS = {"linux-x64", "windows-x64"}
+    if target not in SUPPORTED_TARGETS:
         raise NotImplementedError(
-            f"--target {target} not implemented in PH03; "
-            "linux-x64 is the only supported target. "
-            "windows-x64 lands in PH04."
+            f"--target {target!r} not implemented; "
+            f"supported targets: {', '.join(sorted(SUPPORTED_TARGETS))}. "
+            "webview targets land in PH09/PH10; lvgl in PH11/PH12."
         )
 
     if args.verbose:
@@ -225,15 +226,23 @@ def _find_picolet_toml(start: Path) -> Path | None:
 
 
 def _host_target() -> str:
-    """Return the target string for the current host."""
+    """Return the target string for the current host.
+
+    WSL2 reports sys.platform == 'linux', so the host default on WSL is
+    'linux-x64'.  Cross-compilation for Windows from WSL requires an explicit
+    --target windows-x64.  The 'windows-x64' path here only triggers when
+    running natively on Win32 CPython.
+    """
     machine = platform.machine().lower()
     system = sys.platform
     if system == "linux" and machine in ("x86_64", "amd64"):
         return "linux-x64"
+    if system == "win32" and machine in ("x86_64", "amd64"):
+        return "windows-x64"
     raise NotImplementedError(
         f"host auto-detection: unsupported platform {sys.platform}/{platform.machine()}; "
         "use --target to specify explicitly. "
-        "linux-x64 is the only target implemented in PH03."
+        "Supported targets: linux-x64, windows-x64."
     )
 
 
