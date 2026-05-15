@@ -163,6 +163,34 @@ else
     fail "$NAME" "unexpected dynamic dependencies:\n$BAD_DEPS"
 fi
 
+# A5 — Binary runs inside ubuntu:22.04 (NFR-8: glibc 2.35 baseline)
+#
+# The ldd name-check in A4 does not catch versioned symbol requirements.
+# A binary built on Ubuntu 24.04 may silently pick up GLIBC_2.38 symbols
+# (__isoc23_sscanf, fmod) that break at runtime on 22.04 even if ldd
+# shows only libc.so / libm.so.  This subtest is the authoritative gate.
+#
+# Skips cleanly if Docker is unavailable rather than failing, so CI
+# environments without Docker do not hard-block the suite.
+NAME="A5 ubuntu-2204-runtime (NFR-8)"
+if ! command -v docker >/dev/null 2>&1; then
+    skip "$NAME" "docker not available"
+elif ! docker image inspect ubuntu:22.04 >/dev/null 2>&1; then
+    skip "$NAME" "ubuntu:22.04 image not pulled; run: docker pull ubuntu:22.04"
+else
+    A5_OUT=$(docker run --rm \
+        -v "$REPO_ROOT:$REPO_ROOT" \
+        -w "$REPO_ROOT" \
+        ubuntu:22.04 \
+        packages/picolet-runtime/build/picolet-runtime-linux-x64-cli -c 'print("ok")' 2>&1)
+    A5_RC=$?
+    if [[ "$A5_RC" -eq 0 && "$A5_OUT" == "ok" ]]; then
+        pass "$NAME"
+    else
+        fail "$NAME" "exit=$A5_RC output=$(printf '%q' "$A5_OUT")"
+    fi
+fi
+
 echo
 
 # ---------------------------------------------------------------------------
@@ -301,17 +329,38 @@ echo
 # Group D: Romfs fallback with a rebuilt binary
 # ---------------------------------------------------------------------------
 # This group rebuilds the binary with test_romfs_no_frozen (prints "ok-from-rom")
-# to verify FR-RT-7 (both romfs fixtures work) and confirm the objcopy /tmp
-# staging workaround is applied correctly by build-runtime.sh.
+# to verify FR-RT-7 (both romfs fixtures work) and confirm the objcopy relative-
+# path staging workaround is applied correctly by build-runtime.sh.
+#
+# Rebuilds run inside the picolet-linux-x64-build:22.04 container, matching the
+# build-runtime.sh convention so the produced binary has the same glibc baseline.
+
+LINUX_BUILD_IMAGE="picolet-linux-x64-build:22.04"
+UNIX_PORT="$PKG_ROOT/micropython/ports/unix"
+
+# Helper: run make inside the build container, working dir = UNIX_PORT.
+docker_make() {
+    docker run --rm \
+        -v "$REPO_ROOT:$REPO_ROOT" \
+        -w "$UNIX_PORT" \
+        --user "$(id -u):$(id -g)" \
+        "$LINUX_BUILD_IMAGE" \
+        make "$@"
+}
 
 echo "--- Group D: romfs_no_frozen binary ---"
 
 if [[ "$SKIP_ROMFS_REBUILD" -eq 1 ]]; then
     skip "D1 no-frozen-romfs-main-runs" "--skip-romfs-rebuild requested"
     skip "D2 no-frozen-romfs-exit-code"  "--skip-romfs-rebuild requested"
+elif ! command -v docker >/dev/null 2>&1; then
+    skip "D1 no-frozen-romfs-main-runs" "docker not available; cannot run containerised rebuild"
+    skip "D2 no-frozen-romfs-exit-code"  "docker not available"
+elif ! docker image inspect "$LINUX_BUILD_IMAGE" >/dev/null 2>&1; then
+    skip "D1 no-frozen-romfs-main-runs" "$LINUX_BUILD_IMAGE not built; run build-runtime.sh first"
+    skip "D2 no-frozen-romfs-exit-code"  "$LINUX_BUILD_IMAGE not built"
 else
     # Warm rebuild with test_romfs_no_frozen takes ~3 s (only link step changes).
-    # The build script handles objcopy /tmp staging for hyphen-free paths.
     NOFROZEN_BIN="/tmp/picolet-runtime-linux-x64-cli-nofrozen"
 
     echo "    rebuilding with test_romfs_no_frozen (warm link ~3 s) ..."
@@ -324,18 +373,20 @@ else
             build "$PKG_ROOT/tests/phase-01/test_romfs_no_frozen"
     fi
 
-    # Stage at hyphen-free /tmp path (mirrors build-runtime.sh caveat workaround).
-    ROMFS_IMG_SAFE="/tmp/picolet_romfs_test_romfs_no_frozen.romfs"
-    cp "$ROMFS_STAGING/test_romfs_no_frozen.romfs" "$ROMFS_IMG_SAFE"
+    # Stage at hyphen-free path within the bind-mounted tree (same convention as
+    # build-runtime.sh).  The relative path from $UNIX_PORT traverses no hyphens.
+    ROMFS_IMG_NOFROZEN="$ROMFS_STAGING/picolet_romfs_test_romfs_no_frozen.romfs"
+    cp "$ROMFS_STAGING/test_romfs_no_frozen.romfs" "$ROMFS_IMG_NOFROZEN"
+    ROMFS_IMG_NOFROZEN_REL="$(realpath --relative-to="$UNIX_PORT" "$ROMFS_IMG_NOFROZEN")"
 
-    make -C "$PKG_ROOT/micropython/ports/unix" \
+    docker_make \
         -j \
         VARIANT=picolet-cli \
-        ROMFS_IMG="$ROMFS_IMG_SAFE" \
+        ROMFS_IMG="$ROMFS_IMG_NOFROZEN_REL" \
         PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
         >/dev/null 2>&1
 
-    BUILT="$PKG_ROOT/micropython/ports/unix/build-picolet-cli/micropython"
+    BUILT="$UNIX_PORT/build-picolet-cli/micropython"
     cp "$BUILT" "$NOFROZEN_BIN"
     strip --strip-unneeded "$NOFROZEN_BIN"
 
@@ -356,13 +407,14 @@ else
 
     # Restore the primary binary's romfs (re-link with test_romfs).
     echo "    restoring primary binary romfs (test_romfs) ..."
-    ROMFS_IMG_PRIMARY="/tmp/picolet_romfs_test_romfs.romfs"
+    ROMFS_IMG_PRIMARY="$ROMFS_STAGING/picolet_romfs_test_romfs.romfs"
     cp "$ROMFS_STAGING/test_romfs.romfs" "$ROMFS_IMG_PRIMARY"
+    ROMFS_IMG_PRIMARY_REL="$(realpath --relative-to="$UNIX_PORT" "$ROMFS_IMG_PRIMARY")"
 
-    make -C "$PKG_ROOT/micropython/ports/unix" \
+    docker_make \
         -j \
         VARIANT=picolet-cli \
-        ROMFS_IMG="$ROMFS_IMG_PRIMARY" \
+        ROMFS_IMG="$ROMFS_IMG_PRIMARY_REL" \
         PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
         >/dev/null 2>&1
 
