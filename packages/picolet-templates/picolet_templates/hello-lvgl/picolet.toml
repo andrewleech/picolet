@@ -1,0 +1,15 @@
+[app]
+name = "{{name}}"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "lvgl"
+
+[window]
+title = "{{name}}"
+size = [800, 600]
+resizable = true
+
+[romfs]
+include = []
