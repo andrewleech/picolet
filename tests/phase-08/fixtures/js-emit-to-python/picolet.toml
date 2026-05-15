@@ -1,0 +1,22 @@
+# PH08 SQE fixture: JS window.picolet.emit -> Python picolet.on subscriber.
+# JS calls window.picolet.emit("user-action", {button:"submit"}).
+# Python subscriber receives it, asserts the payload, and prints
+# PICOLET_WV_EMIT_OK.
+
+[app]
+name = "js-emit-to-python"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[window]
+title = "PH08 JSEmitToPython"
+size = [640, 480]
+resizable = false
+
+[romfs]
+include = ["ui"]

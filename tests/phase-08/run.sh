@@ -123,6 +123,12 @@ JS_TESTS=(
     "B4:gate6:test_event_dispatch.js"
     "B5:gate7:test_unsubscribe.js"
     "B6:gate8:test_emit.js"
+    "B7:sqe-concurrent-invokes:test_concurrent_invokes.js"
+    "B8:sqe-multi-subscriber:test_multi_subscriber.js"
+    "B9:sqe-error-empty-message:test_error_empty_message.js"
+    "B10:sqe-args-edge-cases:test_args_edge_cases.js"
+    "B11:sqe-bundle-size:test_bundle_size.js"
+    "B12:sqe-malformed-inbound:test_malformed_inbound.js"
 )
 
 if ! command -v node >/dev/null 2>&1; then
@@ -302,6 +308,10 @@ _run_fixture "d2b" "D2b error-propagation (gate 13 / FR-IPC-2)" \
 _run_fixture "d3" "D3 event-push (gate 12 / FR-IPC-3)" \
     "$SCRIPT_DIR/fixtures/event-push" \
     "PICOLET_WV_EVENT_OK" 15
+
+_run_fixture "d4" "D4 js-emit-fire-and-forget (sqe / FR-WV-5 emit)" \
+    "$SCRIPT_DIR/fixtures/js-emit-to-python" \
+    "PICOLET_WV_EMIT_OK" 12
 
 echo
 

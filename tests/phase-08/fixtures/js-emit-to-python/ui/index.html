@@ -1,0 +1,11 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>PH08 JSEmitToPython</title></head>
+<body>
+<script>
+  // SQE gate: window.picolet.emit fire-and-forget reaches Python picolet.on().
+  // No reply is expected; Python asserts the payload independently.
+  window.picolet.emit("user-action", { button: "submit" });
+</script>
+</body>
+</html>
