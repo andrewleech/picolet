@@ -774,3 +774,55 @@ the safest approach.
 | FR-RT-8 | `main.c` populates `sys.argv`. `MICROPY_PY_SYS_PATH_ARGV_DEFAULTS=0` pinned in `mpconfigport.h:157`. Exit gate 7. |
 | NFR-1 | Build script step [8/8] checks `wc -c ≤ 1 048 576`. Exit gates 12, 13. |
 | NFR-9 | Static MinGW build; dockcross targets Win10 (NT 6.2+ default). Exit gate 14. |
+
+## Verification
+
+**Tester:** scrum-tester (claude-sonnet-4-6), 2026-05-15.
+**Test suite:** `tests/phase-04/run.sh --skip-build` (runtime artifact already present on disk).
+**Result:** 30 passed, 0 failed, 1 skipped (A1 skipped by design with `--skip-build`).
+**Wall time:** 10,554 ms.
+
+### Requirements coverage matrix
+
+| # | Spec ID | Requirement | Gate(s) tested | Evidence | Verdict |
+|---|---------|-------------|----------------|----------|---------|
+| 1 | FR-CLI-3 | `picolet build --target windows-x64` emits `target/windows-x64/<app>.exe` | D1 | `build_cmd.py:200-202`; independent init+build+assert of `test-ph04-tester.exe` | PASS |
+| 2 | FR-CLI-4 | `picolet build` (no `--target`) defaults to `linux-x64` on WSL | D4 | `build_cmd.py:228-246` (`_host_target()` returns `"linux-x64"` on Linux) | PASS |
+| 3 | FR-RT-1 | Single executable, no renderer modules | B1, B2 | `strings` + `objdump -p` show only `bcrypt.dll`, `KERNEL32.dll`, `msvcrt.dll` | PASS |
+| 4 | FR-RT-3 | cli variant has no window, no webview, no LVGL | B1 | `strings` grep `-iE 'webview|gtk|sdl|lvgl'` → no output | PASS |
+| 5 | FR-RT-4 | `gc.add_heap()` callable | C1 | `"$RUNTIME_EXE" -c 'import gc; gc.add_heap(4096); print("heap-ok")'` → `heap-ok` | PASS |
+| 6 | FR-RT-5 | `ffi` module importable | C2 | `"$RUNTIME_EXE" -c 'import ffi; print("ffi-ok")'` → `ffi-ok` | PASS |
+| 7 | FR-RT-6 | romfs auto-mounted at `/rom`, prepended to `sys.path` | C3, C4, D3 | `/rom` stat succeeds; `/rom` in `sys.path`; hello-cli output confirms trailer path | PASS |
+| 8 | FR-RT-7 | `main.mpy` under `/rom` auto-runs at startup | D2, D3 | `Hello from d1app` output; trailer path confirmed explicitly | PASS |
+| 9 | FR-RT-8 | `sys.argv` populated from host command line | C5 | `sys.argv[0]` non-empty (`'-c'` for `-c` invocation) | PASS |
+| 10 | NFR-1 (runtime) | `picolet-runtime-windows-x64-cli.exe` ≤ 1 MB | B3 | 565,760 bytes (53% of 1,048,576 ceiling) | PASS |
+| 11 | NFR-1 (app) | Final app `.exe` ≤ 1 MB | F1 | 566,046 bytes (`test-ph04-tester.exe`) | PASS |
+| 12 | NFR-9 | Artifact runs on Windows 10 21H2+ | B4 | `MajorOSystemVersion=4`; runs via WSL interop; only Win32 system DLLs | PASS (see caveat) |
+| 13 | FR-BP-5 | Romfs appended at offset runtime expects; trailer PYLT magic | E1, E4 | `xxd -s -24` → `PYLT 0100` (magic + version=1); appended data 286 bytes beyond last PE section | PASS |
+| 14 | FR-BP-6 | Same inputs → same output bytes | F2 | Two sequential builds via `cmp -s` → IDENTICAL; independent tester confirm | PASS |
+
+### Independent verification steps
+
+| Step | Command / check | Result |
+|------|----------------|--------|
+| Init + build | `picolet init test-ph04-tester --template hello-cli; picolet build --target windows-x64` | `Built .../test-ph04-tester.exe` |
+| Run via WSL interop | `./target/windows-x64/test-ph04-tester.exe` | `Hello from test-ph04-tester` |
+| File size | `wc -c` | 566,046 bytes ≤ 1,048,576 |
+| Trailer hex | `xxd -s -24 test-ph04-tester.exe` | `PYLT 01 00` (magic OK, version=1) |
+| Reproducibility | Build twice, `cmp -s` | IDENTICAL |
+| Linux regression | `picolet build` (no `--target`) → `linux-x64` binary runs | `Hello from g2app` |
+| CRC mismatch | Flip byte at CRC field, run | `picolet: trailer crc mismatch; using linked romfs` on stderr; exit 0 |
+| Webview rejection | `[ui] renderer = "webview"` + `--target windows-x64` | `error: not implemented: webview variant builds land in PH09` |
+| PE-COFF appended data | Last PE section ends offset 565,312; appended payload starts 565,760 | Trailer is beyond all PE sections |
+
+### NFR-9 adjudication
+
+The developer's caveat commit `5736290` accurately identifies the limitation: WSL interop proves execution on the current Windows host (necessarily ≥ declared OS version), but cannot guarantee execution on exactly Windows 10 21H2 without a 21H2 VM.
+
+The static MinGW binary imports only `bcrypt.dll`, `KERNEL32.dll`, and `msvcrt.dll` — all present since Windows XP/Vista. `MajorOSystemVersion=4` (NT 4.0) is the declared minimum. No post-21H2 APIs are required. The caveat is **acceptable**: the practical risk is zero given the dependency profile, and the limitation is correctly documented. No escalation to scrum-po required.
+
+### Verdict
+
+**PASS**
+
+All spec requirements for PH04 (FR-CLI-3, FR-CLI-4, FR-RT-1, FR-RT-3, FR-RT-4, FR-RT-5, FR-RT-6, FR-RT-7, FR-RT-8, NFR-1 Windows, NFR-9) are fully implemented and independently verified. The Linux pipeline regresses cleanly. NFR-9 approximation is acceptable given the static MinGW dependency profile.
