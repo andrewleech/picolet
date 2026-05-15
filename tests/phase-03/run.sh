@@ -117,9 +117,12 @@ if echo "$vout" | grep -q "runtime variant: cli"; then
 else
     fail 6a "expected 'runtime variant: cli' in verbose output, got '$vout'"
 fi
-# Create webview app and verify NotImplementedError.
+# 6b updated for PH07: webview variant now resolves to the webview runtime
+# rather than raising NotImplementedError.  Verbose build output for a
+# webview app must say "runtime variant: webview" — and the build must
+# succeed (PH07 wires the full webview pipeline through picolet build).
 WV_APP="$WORKDIR/test-webview"
-mkdir -p "$WV_APP/src"
+mkdir -p "$WV_APP/src"/ui
 cat > "$WV_APP/picolet.toml" << 'TOML'
 [app]
 name = "test-webview"
@@ -127,13 +130,17 @@ version = "0.1.0"
 entry = "src/main.py"
 [ui]
 renderer = "webview"
+root = "ui"
+[romfs]
+include = ["ui"]
 TOML
-echo 'print("x")' > "$WV_APP/src/main.py"
-wverr=$(cd "$WV_APP" && $PICOLET build 2>&1 || true)
-if echo "$wverr" | grep -q "not implemented"; then
-    pass 6b "webview variant raises NotImplementedError"
+echo 'import picolet_ui' > "$WV_APP/src/main.py"
+echo '<html><body>x</body></html>' > "$WV_APP/src/ui/index.html"
+wvout=$(cd "$WV_APP" && $PICOLET build -v 2>&1 | grep "runtime variant:" || true)
+if echo "$wvout" | grep -q "runtime variant: webview"; then
+    pass 6b "webview variant resolves to webview runtime (PH07)"
 else
-    fail 6b "expected not-implemented error for webview, got '$wverr'"
+    fail 6b "expected 'runtime variant: webview' in verbose output, got '$wvout'"
 fi
 
 # ---------------------------------------------------------------------------
