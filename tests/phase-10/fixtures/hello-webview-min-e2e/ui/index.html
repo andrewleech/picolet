@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>PH10 E2E</title></head>
+<body>
+<script>
+(async function() {
+  // Gate 8 — bridge-inject order: window.picolet exists before this script
+  // had a chance to run.  Tells Python so it can print the sentinel.
+  if (typeof window.picolet === "object" && typeof window.picolet.invoke === "function") {
+    window.picolet.emit("bridge-check", { present: true });
+  } else {
+    // Fall back to direct chrome.webview channel if bridge missing.
+    var ch = (window.chrome && window.chrome.webview) || null;
+    if (ch) ch.postMessage(JSON.stringify({ event: "bridge-check", data: { present: false } }));
+    return;
+  }
+
+  // Gate 9 — invoke roundtrip.
+  try {
+    var val = await window.picolet.invoke("greet", { name: "World" });
+    window.picolet.emit("invoke-result", { value: val });
+  } catch (e) {
+    window.picolet.emit("invoke-result", { error: e.message });
+  }
+
+  // Gate 10 — error propagation.
+  try {
+    await window.picolet.invoke("fail_example");
+    window.picolet.emit("error-result", { unexpected: "no error" });
+  } catch (e) {
+    window.picolet.emit("error-result", { name: e.name, message: e.message });
+  }
+
+  // Gate 11 — Python emit -> JS on.  Register handler BEFORE signalling
+  // page-ready so Python can safely emit immediately.
+  window.picolet.on("server-push", function(data) {
+    window.picolet.emit("event-echo", data);
+  });
+  window.picolet.emit("page-ready", {});
+})();
+</script>
+</body>
+</html>

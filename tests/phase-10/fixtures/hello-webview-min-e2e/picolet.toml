@@ -1,0 +1,21 @@
+# PH10 end-to-end fixture: invoke / error-prop / event-push gates over
+# WebView2 (Windows).  Mirrors PH09's hello-webview-e2e but targets the
+# windows-x64 webview runtime and uses chrome.webview / window.picolet.
+
+[app]
+name = "hello-webview-min-e2e"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[window]
+title = "PH10 E2E"
+size = [800, 600]
+resizable = false
+
+[romfs]
+include = ["ui"]

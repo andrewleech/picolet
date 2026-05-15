@@ -428,12 +428,13 @@ def _copy_webview2_loader(romfs_root: Path, verbose: bool) -> None:
         sources.append(Path(env_path))
 
     # Repo-relative dev path: ../picolet-runtime/overlay/ports/windows/
-    # modules/picolet_webview2/redist/WebView2Loader.x64.dll
+    # variants/picolet-webview/redist/WebView2Loader.x64.dll
     here = Path(__file__).parent
     repo_dev = (
         here.parent.parent
-        / "picolet-runtime" / "overlay" / "ports" / "windows" / "modules"
-        / "picolet_webview2" / "redist" / "WebView2Loader.x64.dll"
+        / "picolet-runtime" / "overlay" / "ports" / "windows"
+        / "variants" / "picolet-webview" / "redist"
+        / "WebView2Loader.x64.dll"
     )
     sources.append(repo_dev)
 
