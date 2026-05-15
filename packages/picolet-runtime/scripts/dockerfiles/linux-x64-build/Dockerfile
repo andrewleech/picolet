@@ -22,6 +22,8 @@ RUN apt-get update && \
         automake \
         libtool \
         libwebkit2gtk-4.1-0 \
+        libsdl2-dev \
+        libsdl2-2.0-0 \
         xvfb \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -31,3 +33,10 @@ RUN apt-get update && \
 # runtime dlopens webkit2gtk-4.1 via libffi at startup, so headers are
 # never needed at build time (NFR-5: no GPL/LGPL static link).  xvfb is
 # only used by the test harness on a headless host; NFR-8 carve-out.
+#
+# PH11: libsdl2-dev + libsdl2-2.0-0 for the lvgl variant.  The dev
+# package provides SDL2 headers at build time (lv_binding_micropython
+# #include's <SDL2/SDL.h> from its SDL2 driver glue); the -2.0-0
+# package provides libSDL2-2.0.so.0 at runtime (the lvgl variant is
+# dynamically linked against SDL2 per PHASE_11 §D2 — SDL2 itself
+# dlopens its audio/video backends so a static link is pyrrhic).

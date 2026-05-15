@@ -90,8 +90,10 @@ case "${TARGET}/${VARIANT}" in
         # dynamically at runtime.  NFR-2 ceiling is 2 MiB, not 1 MiB.
         ;;
     linux-x64/lvgl)
-        echo "error: --variant $VARIANT for linux-x64 not implemented; see PH11" >&2
-        exit 1 ;;
+        # PH11: SDL2-backed LVGL variant.  USER_C_MODULES points at
+        # the lv_binding_micropython submodule under overlay/lib/.
+        # NFR-3 ceiling is 2 MiB.
+        ;;
     windows-x64/webview)
         # PH10: WebView2 (Edge Chromium) webview variant.  Built as
         # windows-x64/cli plus the picolet_webview2 C overlay + the
@@ -255,11 +257,12 @@ finish_artifact() {
     # Step [8/8] — size gate.  Variant-specific NFR ceiling.
     #   cli      → NFR-1, 1 MiB.
     #   webview  → NFR-2, 2 MiB.
-    #   lvgl     → NFR-3, 3 MiB (PH11).
+    #   lvgl     → NFR-3, 2 MiB (PH11; reconciled with spec — earlier
+    #              CEILING quoted 3 MiB which mismatched docs/v1-spec.md).
     case "$VARIANT" in
         cli)     CEILING=1048576;  NFR_ID="NFR-1" ;;
         webview) CEILING=2097152;  NFR_ID="NFR-2" ;;
-        lvgl)    CEILING=3145728;  NFR_ID="NFR-3" ;;
+        lvgl)    CEILING=2097152;  NFR_ID="NFR-3" ;;
         *)       CEILING=1048576;  NFR_ID="NFR-1" ;;
     esac
     SIZE=$(wc -c < "$artifact")
@@ -323,6 +326,21 @@ build_linux_x64() {
         echo "error: micropython-lib/python-stdlib/os-path not found." >&2
         echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
         exit 1
+    fi
+
+    # PH11: lvgl variant pulls lv_binding_micropython (+ its nested
+    # lvgl/lvgl and pycparser submodules) under overlay/lib/.  Init
+    # them here so the USER_C_MODULES path is populated before make.
+    if [[ "$VARIANT" == "lvgl" ]]; then
+        local lvbm_dir="$PKG_ROOT/overlay/lib/lv_binding_micropython"
+        echo "  ensuring lv_binding_micropython nested submodules"
+        if [[ ! -d "$lvbm_dir/lvgl/src" ]] || [[ ! -d "$lvbm_dir/pycparser/pycparser" ]]; then
+            git -C "$lvbm_dir" submodule update --init --recursive --quiet
+        fi
+        if [[ ! -d "$lvbm_dir/lvgl/src" ]]; then
+            echo "error: lvgl source tree not present after submodule update" >&2
+            exit 1
+        fi
     fi
 
     echo "[3/8] Building mpy-cross (inside $LINUX_BUILD_IMAGE)"

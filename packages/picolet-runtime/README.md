@@ -165,3 +165,51 @@ system-installed and never redistributed by picolet.  NFR-5's no-static-
 GPL/LGPL constraint is satisfied: the loader is dynamically loaded
 and the Microsoft license is permissive.  PH13's SBOM will record
 both as runtime dependencies.
+
+## LVGL variant
+
+PH11.  The lvgl variant of the runtime
+(`picolet-runtime-linux-x64-lvgl`) embeds `lv_binding_micropython` as a
+`USER_C_MODULE` and links the LVGL widget library statically.  The
+SDL2 desktop driver is used on Linux for a desktop window (FR-LV-1);
+Windows LVGL via SDL2 lands in PH12.
+
+### Runtime dependency
+
+`libsdl2-2.0-0` on Ubuntu 22.04 / 24.04.  Install with:
+
+```
+sudo apt install libsdl2-2.0-0
+```
+
+The lvgl variant binary is dynamically linked against
+`libSDL2-2.0.so.0`.  Static linking SDL2 is not pursued: SDL2 itself
+`dlopen`s its audio/video backends (PulseAudio, ALSA, X11, Wayland)
+at runtime, so the size saving is illusory.
+
+### NFR-8 scoping
+
+NFR-8 reads "no extra packages beyond `webkit2gtk-4.1` (webview
+variant only)".  PH11 reads the parenthetical as a per-variant
+scoping clause and declares `libsdl2-2.0-0` as the lvgl variant's
+extra package, mirroring the webview variant's `webkit2gtk-4.1-0`.
+See the `[PH11] Decision: SDL2 system dep declared per-variant`
+commit body for the reading.
+
+### Headless / CI testing
+
+Use `xvfb-run` on a host without a real display:
+
+```
+xvfb-run -a -s "-screen 0 1024x768x24" \
+    ./picolet-runtime-linux-x64-lvgl -c 'import lvgl as lv; print(lv.version_info())'
+```
+
+### lvgl variant size
+
+NFR-3 ceiling: 2 MiB (2 097 152 bytes).  Achieved via the hand-tuned
+`overlay/ports/unix/variants/picolet-lvgl/lv_conf.h` which disables all
+widgets except `LV_USE_OBJ`, `LV_USE_LABEL`, `LV_USE_BUTTON`, and
+`LV_USE_IMAGE`, plus image decoders, file-system drivers, and demos.
+Re-enabling a widget is a deliberate dev-branch commit recording the
+size delta.

@@ -133,10 +133,8 @@ def run(args) -> None:
             # PH07: linux-x64 webview variant.  Windows webview is PH10.
             variant = "webview"
         elif renderer == "lvgl":
-            raise NotImplementedError(
-                "lvgl variant builds land in PH11; "
-                "remove [ui] from picolet.toml to build a cli app"
-            )
+            # PH11: linux-x64 lvgl variant.  Windows lvgl is PH12.
+            variant = "lvgl"
         else:
             # Validator already rejected invalid renderer values; this branch
             # is a belt-and-suspenders guard.
@@ -207,12 +205,13 @@ def run(args) -> None:
         # Step 6 – Copy [romfs] include dirs (FR-BP-4).
         _copy_includes(app_root, romfs_includes, romfs_root, args.verbose)
 
-        # Step 6b – Webview variant: drop a sanitised picolet.toml at the
+        # Step 6b – UI variants: drop a sanitised picolet.toml at the
         # romfs root so the runtime can read [window] and [ui] at
-        # startup (FR-WV-3).  The user does not need to add picolet.toml
-        # to [romfs] include manually.
-        if variant == "webview":
+        # startup (FR-WV-3 webview, FR-LV-2 lvgl).  The user does not
+        # need to add picolet.toml to [romfs] include manually.
+        if variant in ("webview", "lvgl"):
             _emit_webview_toml(data, romfs_root, args.verbose)
+        if variant == "webview":
             # Step 6c – Copy the picolet-bridge-js bundle into the romfs
             # at picolet/picolet-bridge.js (FR-BP-4, FR-WV-4).  The runtime
             # reads it from /rom/picolet/picolet-bridge.js and injects it
