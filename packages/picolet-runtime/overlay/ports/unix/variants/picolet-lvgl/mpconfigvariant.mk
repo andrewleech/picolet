@@ -44,6 +44,29 @@ USER_C_MODULES = $(PICOLET_RUNTIME_ROOT)/overlay/lib
 # enables most widgets and blows NFR-3).
 LV_CONF_PATH = $(PICOLET_RUNTIME_ROOT)/overlay/ports/unix/variants/picolet-lvgl/lv_conf.h
 
+# Force the binding's CPP preprocessing step (which feeds gen_mpy.py)
+# to also include lv_drivers.h so SDL window/input functions land in
+# the generated lv_mpy.c.  The binding's micropython.mk preprocesses
+# lvgl_private.h, which does NOT include lvgl.h, so without this
+# -include directive `lv.sdl_window_create` and friends are missing
+# from the Python surface even though their C symbols are linked in.
+# (Upstream commit 3f32386 changed the preprocessing target from
+# lvgl.h to lvgl_private.h, regressing SDL exposure for our use case.)
+#
+# Note: CFLAGS_USERMOD := is reset by py.mk *after* this variant .mk
+# loads, so appending here is wiped.  Use CFLAGS_EXTRA instead — it
+# survives to the final CFLAGS line in the unix port Makefile and
+# also reaches the binding's CPP step because the binding's
+# micropython.mk appends to CFLAGS_USERMOD itself after py.mk's reset.
+# To survive into the binding's CPP step, the simplest path is to
+# inject into the global CC flags via CFLAGS_EXTRA which is appended
+# to CFLAGS but NOT to CFLAGS_USERMOD.  The binding's micropython.mk
+# uses $(CFLAGS_USERMOD) for the CPP invocation, so CFLAGS_EXTRA
+# doesn't reach it directly — instead we extend CFLAGS_USERMOD via
+# a deferred assignment hook by setting LV_CFLAGS which the binding
+# explicitly forwards (CFLAGS_USERMOD += $(LV_CFLAGS)).
+LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/overlay/lib/lv_binding_micropython/lvgl/src/drivers/lv_drivers.h
+
 # Drop SDL2 build flags into CFLAGS_USERMOD / LDFLAGS_USERMOD.  We do
 # this here rather than rely on the binding's pkg-config detection
 # because the binding's micropython.mk runs the pkg-config probe only
