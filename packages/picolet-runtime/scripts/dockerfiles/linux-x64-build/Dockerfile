@@ -18,4 +18,7 @@ RUN apt-get update && \
         pkg-config \
         python3 \
         git \
+        autoconf \
+        automake \
+        libtool \
     && rm -rf /var/lib/apt/lists/*

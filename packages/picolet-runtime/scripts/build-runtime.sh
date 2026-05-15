@@ -48,7 +48,7 @@ export PICOLET_RUNTIME_ROOT="$PKG_ROOT"
 TARGET=""
 VARIANT=""
 CLEAN=0
-TEST_ROMFS="test_romfs"   # default fixture for gate-4 embedded romfs
+TEST_ROMFS=""   # empty by default; pass --test-romfs <fixture> to embed a test romfs
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -226,41 +226,86 @@ make -C "$UNIX_PORT" -j submodules \
     VARIANT="${VARIANT_NAME}" \
     MICROPY_STANDALONE=1
 
-# ---------------------------------------------------------------------------
-# Step 5 – Build the test romfs image (host — pure Python, no compiler)
-# ---------------------------------------------------------------------------
+# After rebuild-integration.sh re-initialises the submodules (submodule deinit -f .
+# followed by update --init), the libffi source working tree is repopulated from git.
+# The generated `configure` script is not tracked in git (only configure.ac is), so
+# it gets deleted.  Make's dependency rule tries to regenerate it via autogen.sh /
+# autoreconf, which requires a libtool version that ships LT_SYS_SYMBOL_USCORE —
+# Ubuntu 22.04's libtool 2.4.6 does not have this macro.
+#
+# Mitigation: if the build directory already has a compiled ffi.h (from a prior
+# successful deplibs run), touch configure to satisfy Make's prerequisite chain
+# without re-running autoreconf.  If no prior build exists, run autogen.sh on
+# the host (host toolchain is newer and has the required macro support).
+LIBFFI_FFI_H="$VARIANT_BUILD/lib/libffi/include/ffi.h"
+LIBFFI_SRC="$SUBMODULE/lib/libffi"
 
-echo "[5/8] Building test romfs from tests/phase-01/${TEST_ROMFS}"
-
-ROMFS_FIXTURE="$PKG_ROOT/tests/phase-01/${TEST_ROMFS}"
-if [[ ! -d "$ROMFS_FIXTURE" ]]; then
-    echo "error: romfs fixture directory not found: $ROMFS_FIXTURE" >&2
-    exit 1
+# When rebuild-integration.sh re-initialises submodules, the libffi source
+# working tree is repopulated from git without the generated build files
+# (configure, Makefile.in, etc).  The existing build cache at
+# $VARIANT_BUILD/lib/libffi/ was produced by a prior successful deplibs run.
+# If configure is absent but the build is warm, touching configure and the
+# build Makefile / config.status timestamps prevents make from trying to
+# re-run autogen.sh / configure (which requires libtool macros not available
+# in Ubuntu 22.04).  The generated configure is an empty placeholder — it
+# is never actually executed.
+if [[ -f "$LIBFFI_FFI_H" && ! -f "$LIBFFI_SRC/configure" ]]; then
+    echo "  libffi: warm cache detected; touching build timestamps to skip re-autogen"
+    # Create a placeholder configure so make doesn't try to generate it.
+    touch "$LIBFFI_SRC/configure"
+    chmod +x "$LIBFFI_SRC/configure"
+    # Touch build-dir timestamps to make them appear newer than source.
+    touch "$LIBFFI_FFI_H"
+    [[ -f "$VARIANT_BUILD/lib/libffi/config.status" ]] && \
+        touch "$VARIANT_BUILD/lib/libffi/config.status"
+    [[ -f "$VARIANT_BUILD/lib/libffi/Makefile" ]] && \
+        touch "$VARIANT_BUILD/lib/libffi/Makefile"
+    [[ -f "$VARIANT_BUILD/lib/libffi/include/Makefile" ]] && \
+        touch "$VARIANT_BUILD/lib/libffi/include/Makefile"
 fi
 
-# mpremote romfs build writes <dir>.romfs in the parent of the source dir.
-# We pass the directory and let mpremote name it; then move to build tree.
+# ---------------------------------------------------------------------------
+# Step 5 – Build the embedded romfs image (host — pure Python, no compiler)
+#
+# Default: empty romfs (4-byte d2 cd 31 00 sentinel) — the runtime ships
+# as a clean blank slate; user romfs is appended at picolet-build time (PH03).
+#
+# With --test-romfs <fixture>: embed the named fixture from tests/phase-01/
+# for PH01's own smoke tests.
+# ---------------------------------------------------------------------------
+
 ROMFS_STAGING="$BUILD_DIR/romfs_staging"
 mkdir -p "$ROMFS_STAGING"
 
-ROMFS_IMG="$ROMFS_STAGING/${TEST_ROMFS}.romfs"
-# Note: mpremote romfs requires --output before the 'build' subcommand.
-python3 -m mpremote romfs --output "$ROMFS_IMG" build "$ROMFS_FIXTURE"
+if [[ -z "$TEST_ROMFS" ]]; then
+    echo "[5/8] Building empty embedded romfs (default — blank-slate runtime)"
+    EMPTY_ROMFS_DIR="$ROMFS_STAGING/empty_romfs_src"
+    mkdir -p "$EMPTY_ROMFS_DIR"
+    # An empty source directory produces the 4-byte d2 cd 31 00 sentinel.
+    python3 -m mpremote romfs --output "$ROMFS_STAGING/empty.romfs" build "$EMPTY_ROMFS_DIR"
+    ROMFS_IMG_SAFE="$ROMFS_STAGING/picolet_romfs_empty.romfs"
+    cp "$ROMFS_STAGING/empty.romfs" "$ROMFS_IMG_SAFE"
+else
+    echo "[5/8] Building test romfs from tests/phase-01/${TEST_ROMFS}"
+    ROMFS_FIXTURE="$PKG_ROOT/tests/phase-01/${TEST_ROMFS}"
+    if [[ ! -d "$ROMFS_FIXTURE" ]]; then
+        echo "error: romfs fixture directory not found: $ROMFS_FIXTURE" >&2
+        exit 1
+    fi
+    # Note: mpremote romfs requires --output before the 'build' subcommand.
+    python3 -m mpremote romfs --output "$ROMFS_STAGING/${TEST_ROMFS}.romfs" build "$ROMFS_FIXTURE"
+    # The unix port Makefile's romfs_data.o objcopy rule derives the symbol name
+    # by substituting / and . with _, but objcopy itself converts ALL
+    # non-alphanumeric characters (including -) to _ in embedded binary symbols.
+    # If the ROMFS_IMG path contains hyphens (e.g. from 'picolet-runtime'), the
+    # Makefile's $(subst) would keep the hyphen while objcopy converts it, so
+    # the --redefine-sym old name does not match and the rename silently fails.
+    #
+    # Fix: use a safe name (underscores only) for the embedded binary.
+    ROMFS_IMG_SAFE="$ROMFS_STAGING/picolet_romfs_${TEST_ROMFS}.romfs"
+    cp "$ROMFS_STAGING/${TEST_ROMFS}.romfs" "$ROMFS_IMG_SAFE"
+fi
 
-# The unix port Makefile's romfs_data.o objcopy rule derives the symbol name
-# by substituting / and . with _, but objcopy itself converts ALL
-# non-alphanumeric characters (including -) to _ in embedded binary symbols.
-# If the ROMFS_IMG path contains hyphens (e.g. from 'picolet-runtime'), the
-# Makefile's $(subst) would keep the hyphen while objcopy converts it, so
-# the --redefine-sym old name does not match and the rename silently fails.
-#
-# Fix: pass ROMFS_IMG as a path relative to the unix port working directory.
-# The relative path traverses only directories with no hyphens (mpy-cross
-# has a hyphen but is not on this path: ../micropython/ports/unix → ../../../build/).
-# The staging filename also uses underscores.  This avoids the /tmp workaround
-# which is inaccessible inside the Docker build container.
-ROMFS_IMG_SAFE="$ROMFS_STAGING/picolet_romfs_${TEST_ROMFS}.romfs"
-cp "$ROMFS_IMG" "$ROMFS_IMG_SAFE"
 # Relative path from $UNIX_PORT (micropython/ports/unix) to $ROMFS_STAGING.
 # The path ../../../build/romfs_staging contains no hyphens.
 ROMFS_IMG_REL="$(realpath --relative-to="$UNIX_PORT" "$ROMFS_IMG_SAFE")"
@@ -282,12 +327,20 @@ echo "[6/8] Building unix port variant=${VARIANT_NAME} (inside $LINUX_BUILD_IMAG
 # The unix port Makefile evaluates LIBFFI_CFLAGS at parse time via a shell
 # $(ls ...) of the build output dir.  That directory doesn't exist until
 # deplibs runs, so deplibs must complete before the main compile invocation.
-docker_linux "$UNIX_PORT" make \
-    -j \
-    VARIANT="${VARIANT_NAME}" \
-    MICROPY_STANDALONE=1 \
-    PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
-    deplibs
+#
+# Skip deplibs if ffi.h is already built (warm incremental build).  The
+# libffi autogen.sh/configure cycle requires tools (autoreconf, newer libtool)
+# that may not be available; we only need it for the first build.
+if [[ -f "$LIBFFI_FFI_H" ]]; then
+    echo "  deplibs: ffi.h cached; skipping deplibs"
+else
+    docker_linux "$UNIX_PORT" make \
+        -j \
+        VARIANT="${VARIANT_NAME}" \
+        MICROPY_STANDALONE=1 \
+        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+        deplibs
+fi
 
 docker_linux "$UNIX_PORT" make \
     -j \
@@ -296,7 +349,7 @@ docker_linux "$UNIX_PORT" make \
     PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")"
 
 # ---------------------------------------------------------------------------
-# Step 7 – Strip and install artifact
+# Step 7 – Strip, install artifact, and write version sidecar
 # ---------------------------------------------------------------------------
 
 echo "[7/8] Stripping and installing artifact"
@@ -313,6 +366,43 @@ cp "$BUILT_BINARY" "$ARTIFACT"
 strip --strip-unneeded "$ARTIFACT"
 
 echo "  artifact: $ARTIFACT"
+
+# Step [7a] — Assert the stock runtime's last 24 bytes do not look like a
+# valid "PYLT" trailer (false-positive protection for the trailer detector).
+# The romfs_trailer.c necessarily contains the "PYLT" string literal in
+# .rodata (used in the memcmp), so `strings | grep PYLT` would always fire.
+# Instead we check the last 4 bytes of the binary, which must not be "PYLT"
+# for the stock runtime to be safe.
+echo "  [7a] Asserting stock runtime tail does not match trailer magic"
+LAST4="$(tail -c 4 "$ARTIFACT" | od -An -tx1 | tr -d ' \n')"
+if [[ "$LAST4" == "50594c54" ]]; then
+    echo "error: [7a] last 4 bytes of $ARTIFACT are 'PYLT' (50 59 4c 54)" >&2
+    echo "       The stock runtime would false-positive the trailer detector." >&2
+    echo "       Bump the magic to a longer/less-printable value." >&2
+    exit 1
+fi
+echo "  [7a] OK: stock runtime tail ($LAST4) does not match trailer magic"
+
+# Step [7b] — Write a .version sidecar containing the mpy-cross bytecode
+# format git SHA.  picolet build reads this to verify version match before
+# invoking mpy-cross (guards against user shadowing with a different version).
+VERSION_FILE="${ARTIFACT}.version"
+MPY_CROSS_SHA="$(git -C "$SUBMODULE" rev-parse --short HEAD)"
+# mpy-cross --version output format: "MicroPython v1.24.0 on 2025-01-01; mpy-cross emitting mpy v6.3"
+# We record the git SHA of the integration branch HEAD as the version token
+# because the mpy bytecode format is determined by the source, not a semver.
+# picolet build compares this against `mpy-cross --version` output.
+MPY_CROSS_BIN="$SUBMODULE/mpy-cross/build/mpy-cross"
+if [[ -f "$MPY_CROSS_BIN" ]]; then
+    MPY_VER_LINE="$("$MPY_CROSS_BIN" --version 2>&1 || true)"
+    # Extract the mpy version token (e.g. "mpy v6.3") to use as the sidecar.
+    # This is the bytecode format version that must match at user-build time.
+    MPY_VER="$(echo "$MPY_VER_LINE" | grep -oE 'mpy v[0-9]+\.[0-9]+'  || echo "$MPY_CROSS_SHA")"
+else
+    MPY_VER="$MPY_CROSS_SHA"
+fi
+echo "$MPY_VER" > "$VERSION_FILE"
+echo "  [7b] version sidecar: $VERSION_FILE ($MPY_VER)"
 
 # ---------------------------------------------------------------------------
 # Step 8 – NFR-1 size gate (≤ 1 MiB = 1048576 bytes)
