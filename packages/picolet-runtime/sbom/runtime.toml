@@ -1,0 +1,155 @@
+# packages/picolet-runtime/sbom/runtime.toml
+#
+# Hand-curated component declarations for every native dependency that
+# ships inside a built picolet runtime.  This is the authoritative source
+# for components not discoverable from Python package metadata (C
+# libraries, vendored DLLs, submodule-pinned bindings).
+#
+# Schema
+# ------
+# Each entry in the [[component]] array MUST have:
+#   name        string   human-readable component name
+#   version     string   version string (SemVer, git SHA, or "picolet-authored")
+#   licence     string   SPDX expression (or LicenseRef-* for non-SPDX)
+#   source_url  string   canonical source / homepage URL
+#   link_type   string   "static" | "dynamic" | "build-time-only"
+#
+# Optional keys:
+#   variants    list     inclusion filter — entry applies only to listed variants
+#               omit     entry applies to all variants
+#   targets     list     inclusion filter — entry applies only to listed targets
+#               omit     entry applies to all targets
+#   purl        string   package URL (pkg:type/namespace/name@version)
+#   notes       string   free-text; citations, caveats, PR lists, etc.
+#
+# link_type meanings:
+#   static          object code is part of the runtime binary
+#   dynamic         loaded at runtime; binary carries no copy
+#   build-time-only used only during the build; absent from the shipped artifact
+#
+# Supported variants:  cli | webview | lvgl
+# Supported targets:   linux-x64 | windows-x64
+
+# ---------------------------------------------------------------------------
+# Universal components — present in every runtime artifact
+# ---------------------------------------------------------------------------
+
+[[component]]
+name        = "MicroPython"
+version     = "1.24.0"
+licence     = "MIT"
+source_url  = "https://github.com/micropython/micropython"
+link_type   = "static"
+purl        = "pkg:github/micropython/micropython@1.24.0"
+notes       = """MicroPython integration PRs (MicroPython-derived patches, MIT licence):
+pr/38: lib/micropython-lib: Update pyusb with Windows support.
+pr/39: py/mkrules.mk: Allow PROG to be set on the command line for .exe targets.
+pr/40: py/mkrules.mk: Make MICROPY_MODULE_FROZEN_STR conditional on compiler.
+pr/41: py/modgc: Add gc.add_heap() function for runtime heap expansion.
+pr/42: ports/windows: Add FFI module support with libffi.
+pr/43: ports/unix,windows: Add embedded romfs support with auto-mount.
+pr/44: ports/windows: Allow variant override of common config defines."""
+
+[[component]]
+name        = "libffi"
+version     = "3.4.6"
+licence     = "MIT"
+source_url  = "https://github.com/libffi/libffi"
+link_type   = "static"
+purl        = "pkg:github/libffi/libffi@3.4.6"
+notes       = "Statically linked into all runtime variants to support ctypes / ffi module."
+
+# ---------------------------------------------------------------------------
+# LVGL-specific components (variants = ["lvgl"])
+# ---------------------------------------------------------------------------
+
+[[component]]
+name        = "lv_binding_micropython"
+version     = "4a569cd"
+licence     = "MIT"
+source_url  = "https://github.com/lvgl/lv_binding_micropython"
+link_type   = "static"
+variants    = ["lvgl"]
+purl        = "pkg:github/lvgl/lv_binding_micropython@4a569cd"
+notes       = "MicroPython binding for LVGL; git SHA pinned via submodule."
+
+[[component]]
+name        = "LVGL"
+version     = "9.x"
+licence     = "MIT"
+source_url  = "https://github.com/lvgl/lvgl"
+link_type   = "static"
+variants    = ["lvgl"]
+purl        = "pkg:github/lvgl/lvgl@9.x"
+notes       = "Pulled in as a nested submodule of lv_binding_micropython."
+
+# SDL2 — dynamic on Linux (system package), static on Windows (from-source MXE build).
+
+[[component]]
+name        = "SDL2"
+version     = "2.0.20"
+licence     = "Zlib"
+source_url  = "https://www.libsdl.org/"
+link_type   = "dynamic"
+variants    = ["lvgl"]
+targets     = ["linux-x64"]
+purl        = "pkg:github/libsdl-org/SDL@release-2.0.20"
+notes       = "System-provided SDL2 on Ubuntu 22.04; loaded dynamically via dlopen at runtime."
+
+[[component]]
+name        = "SDL2"
+version     = "2.26.2"
+licence     = "Zlib"
+source_url  = "https://www.libsdl.org/"
+link_type   = "static"
+variants    = ["lvgl"]
+targets     = ["windows-x64"]
+purl        = "pkg:github/libsdl-org/SDL@release-2.26.2"
+notes       = "Built from source inside dockcross/windows-static-x64-posix with -ffunction-sections and --gc-sections for dead-code elimination. Version pinned in build-runtime.sh SDL2_VERSION variable."
+
+# ---------------------------------------------------------------------------
+# WebView components (variants = ["webview"])
+# ---------------------------------------------------------------------------
+
+[[component]]
+name        = "WebKitGTK"
+version     = "4.1"
+licence     = "LGPL-2.1-or-later"
+source_url  = "https://webkitgtk.org/"
+link_type   = "dynamic"
+variants    = ["webview"]
+targets     = ["linux-x64"]
+purl        = "pkg:deb/ubuntu/libwebkit2gtk-4.1-0"
+notes       = "LGPL-2.1-or-later; loaded dynamically — the Picolet runtime binary does not statically incorporate any LGPL object code. Relinking is possible by replacing the system WebKitGTK package. NFR-5 is satisfied."
+
+[[component]]
+name        = "Microsoft.Web.WebView2"
+version     = "1.0.2210.55"
+licence     = "LicenseRef-MS-WebView2-Fixed"
+source_url  = "https://aka.ms/webview2"
+link_type   = "dynamic"
+variants    = ["webview"]
+targets     = ["windows-x64"]
+purl        = "pkg:nuget/Microsoft.Web.WebView2@1.0.2210.55"
+notes       = "Redistributable under Microsoft's fixed-terms licence; not an OSI-approved SPDX identifier. Governing licence: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.2210.55/License"
+
+[[component]]
+name        = "WebView2Loader.dll"
+version     = "1.0.2210.55"
+licence     = "LicenseRef-MS-WebView2-Fixed"
+source_url  = "https://aka.ms/webview2"
+link_type   = "dynamic"
+variants    = ["webview"]
+targets     = ["windows-x64"]
+purl        = "pkg:nuget/Microsoft.Web.WebView2@1.0.2210.55#WebView2Loader.dll"
+notes       = "Loader DLL bundled inside the app romfs at picolet/WebView2Loader.dll; extracted to %LOCALAPPDATA%\\picolet\\<pid>\\ at runtime. Governing licence: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.2210.55/License"
+
+[[component]]
+name        = "WebView2_min.h (derived)"
+version     = "picolet-authored"
+licence     = "MIT"
+source_url  = "https://github.com/andrewleech/picolet"
+link_type   = "build-time-only"
+variants    = ["webview"]
+targets     = ["windows-x64"]
+notes       = "Picolet-authored minimal header derived from the public Microsoft WebView2 C API; used only at build time. NFR-6: all Picolet-authored code is MIT."
