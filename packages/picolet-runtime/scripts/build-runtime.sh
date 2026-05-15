@@ -325,6 +325,24 @@ build_linux_x64() {
             chmod +x "$libffi_src/configure"
         fi
         find "$variant_build/lib/libffi" -type f -exec touch {} \;
+    elif [[ ! -f "$libffi_src/configure" ]]; then
+        # Cold cache and no pre-generated configure.  The ubuntu:22.04 build
+        # container ships libtool 2.4.6 which lacks the LT_SYS_SYMBOL_USCORE
+        # macro required by libffi's autogen.sh, so autogen *inside* the
+        # container fails.  Workaround: run autogen on the *host* if it has
+        # a newer libtool (Ubuntu 24.04 ships 2.4.7+, Homebrew 2.5.4).
+        # The generated `configure` is portable; the actual compile then
+        # proceeds inside the container as normal.
+        echo "  libffi: cold cache and no configure — running autogen on host"
+        if command -v libtoolize >/dev/null 2>&1; then
+            (cd "$libffi_src" && ./autogen.sh) >/dev/null 2>&1 || {
+                echo "  libffi: host autogen.sh failed; need libtool 2.4.7+ on host or pre-shipped configure" >&2
+                exit 1
+            }
+        else
+            echo "  libffi: no host libtoolize; cannot bootstrap libffi configure" >&2
+            exit 1
+        fi
     fi
 
     build_romfs_image "$BUILD_DIR" "$UNIX_PORT"
