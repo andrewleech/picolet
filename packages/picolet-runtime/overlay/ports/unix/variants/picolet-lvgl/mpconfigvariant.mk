@@ -81,3 +81,13 @@ LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/overlay/lib/lv_binding_micropython/
 # no longer picks it up, so we add it explicitly here.
 SRC_C += shared/romfs_trailer.c
 INC += -I$(TOP)/shared
+
+# PH17 — PNG encoder for picolet._test.snapshot() (FR-TEST-2).
+# picolet_lvgl_png.c uses dlopen to load libz.so.1 at runtime; no static
+# link of zlib is needed (satisfies NFR-5).
+SRC_C += $(PICOLET_RUNTIME_ROOT)/overlay/modules/picolet_lvgl_test/picolet_lvgl_png.c
+INC += -I$(PICOLET_RUNTIME_ROOT)/overlay/modules/picolet_lvgl_test
+# Export the picolet_lvgl_png_* symbols so libffi.ffi.open(None) can resolve them.
+LDFLAGS_USERMOD += -Wl,--export-dynamic
+# -ldl for dlopen/dlsym used by the PNG encoder.
+LDFLAGS_USERMOD += -ldl

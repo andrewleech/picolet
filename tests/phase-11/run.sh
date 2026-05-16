@@ -180,7 +180,7 @@ if ! command -v xvfb-run >/dev/null 2>&1; then
     skip "$NAME" "xvfb-run not on PATH"
 else
     xvfb-run -a -s '-screen 0 1024x768x24' timeout 15 \
-        "$LVGL_RUNTIME" -c 'import picolet_ui._test as t; t.run_lvgl_sanity_test()' \
+        "$LVGL_RUNTIME" -c 'import picolet_ui._sanity as t; t.run_lvgl_sanity_test()' \
         > "$WORKDIR/b1.out" 2>&1 || true
     if grep -q "PICOLET_LV_SANITY_OK" "$WORKDIR/b1.out"; then
         pass "$NAME"
@@ -197,7 +197,7 @@ if ! command -v xvfb-run >/dev/null 2>&1; then
 else
     # run_ipc_probe does not need a display.
     env -u DISPLAY timeout 15 \
-        "$LVGL_RUNTIME" -c 'import picolet_ui._test as t; t.run_ipc_probe()' \
+        "$LVGL_RUNTIME" -c 'import picolet_ui._sanity as t; t.run_ipc_probe()' \
         > "$WORKDIR/b2.out" 2>&1 || true
     if grep -q "PICOLET_LV_IPC_OK" "$WORKDIR/b2.out"; then
         pass "$NAME"

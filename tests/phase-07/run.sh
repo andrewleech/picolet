@@ -169,7 +169,7 @@ else
     # diagnostics; the wrapped process's stderr stays separate, but xvfb
     # only forwards stdout cleanly).  Capture both into b1.out.
     xvfb-run -a -s '-screen 0 800x600x24' timeout 15 \
-        "$WEBVIEW_RUNTIME" -c 'import picolet_ui._test as t; t.run_sanity_test()' \
+        "$WEBVIEW_RUNTIME" -c 'import picolet_ui._sanity as t; t.run_sanity_test()' \
         > "$WORKDIR/b1.out" 2>&1
     if grep -q "PICOLET_WV_SANITY_OK title=LOADED" "$WORKDIR/b1.out"; then
         pass "$NAME"
@@ -186,7 +186,7 @@ elif ! command -v xvfb-run >/dev/null 2>&1; then
     skip "$NAME" "xvfb-run not on PATH"
 else
     xvfb-run -a -s '-screen 0 800x600x24' timeout 15 \
-        "$WEBVIEW_RUNTIME" -c 'import picolet_ui._test as t; t.run_callback_probe()' \
+        "$WEBVIEW_RUNTIME" -c 'import picolet_ui._sanity as t; t.run_callback_probe()' \
         > "$WORKDIR/b2.out" 2>&1
     if grep -q "PICOLET_WV_CALLBACK_OK" "$WORKDIR/b2.out"; then
         pass "$NAME"

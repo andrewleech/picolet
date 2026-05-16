@@ -242,7 +242,7 @@ echo "--- Group C: IPC probe (gate 7) ---"
 
 NAME="C1 ipc-probe (gate 7, FR-LV-4)"
 timeout 20 "$LVGL_WIN_RUNTIME" \
-    -c 'import picolet_ui._test as t; t.run_ipc_probe()' \
+    -c 'import picolet_ui._sanity as t; t.run_ipc_probe()' \
     > "$WORKDIR/c1.out" 2>&1 || true
 if grep -q "PICOLET_LV_IPC_OK" "$WORKDIR/c1.out"; then
     pass "$NAME"
@@ -267,7 +267,7 @@ else
     NAME="D1 lvgl-sanity-test (gate 5, FR-LV-1/2)"
     echo "  [MANUAL] Requires Windows display via WSL interop."
     timeout 20 "$LVGL_WIN_RUNTIME" \
-        -c 'import picolet_ui._test as t; t.run_lvgl_sanity_test()' \
+        -c 'import picolet_ui._sanity as t; t.run_lvgl_sanity_test()' \
         > "$WORKDIR/d1.out" 2>&1 || true
     if grep -q "PICOLET_LV_SANITY_OK" "$WORKDIR/d1.out"; then
         pass "$NAME"
