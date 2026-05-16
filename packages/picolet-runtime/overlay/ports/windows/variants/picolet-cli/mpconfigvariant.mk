@@ -11,11 +11,10 @@ MICROPY_PY_FFI = 1
 # libffi unconditionally via its own deplibs rule and CROSS_COMPILE.
 # Do not set MICROPY_STANDALONE here.
 
-# romfs_trailer.c is placed physically in this variant directory (see
-# romfs_trailer.c alongside this file).  The Windows Makefile includes
-# $(wildcard $(VARIANT_DIR)/*.c) in SRC_C, picking it up automatically.
-# The .c file is a copy of overlay/ports/unix/variants/picolet-cli/romfs_trailer.c
-# with #ifdef _WIN32 guards — same source, both platforms compile cleanly.
+# romfs_trailer.c is now in overlay/shared/ (shared/romfs_trailer.c after
+# the overlay copy step).  The Windows Makefile appends it to SRC_C
+# explicitly after the SRC_C = block, so no variant-level SRC_C += is
+# needed or possible (the port Makefile's SRC_C = would discard it).
 
 # Frozen manifest: resolved via PICOLET_RUNTIME_ROOT (exported by build-runtime.sh).
 # The ?= allows the build script to override for test-romfs variants.

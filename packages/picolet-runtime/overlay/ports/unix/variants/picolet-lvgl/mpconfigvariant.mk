@@ -75,3 +75,9 @@ LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/overlay/lib/lv_binding_micropython/
 # Makefile.
 # (The binding's micropython.mk already includes equivalent logic;
 # this comment documents the path for readers.)
+
+# romfs_trailer.c lives in the shared overlay directory (shared/romfs_trailer.c
+# after the overlay copy step).  The unix port's $(wildcard $(VARIANT_DIR)/*.c)
+# no longer picks it up, so we add it explicitly here.
+SRC_C += shared/romfs_trailer.c
+INC += -I$(TOP)/shared

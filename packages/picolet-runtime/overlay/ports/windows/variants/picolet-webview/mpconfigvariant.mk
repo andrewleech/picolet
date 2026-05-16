@@ -11,11 +11,10 @@
 
 MICROPY_PY_FFI = 1
 
-# romfs_trailer.c and picolet_webview2.c both live alongside this .mk and
-# are picked up automatically via $(wildcard $(VARIANT_DIR)/*.c) in the
-# windows port's main Makefile.  We don't need an explicit SRC_C += line
-# (and could not use one anyway — the port's Makefile sets SRC_C with `=`
-# AFTER including this .mk, which would discard any append done here).
+# picolet_webview2.c lives alongside this .mk and is picked up automatically
+# via $(wildcard $(VARIANT_DIR)/*.c) in the windows port's main Makefile.
+# romfs_trailer.c has been consolidated to shared/romfs_trailer.c; the
+# port Makefile appends it to SRC_C explicitly after the SRC_C = block.
 #
 # The C overlay includes its companion header via "picolet_webview2.h" and
 # the vendored WebView2 header subset via "include/WebView2_min.h"; both

@@ -18,3 +18,10 @@ MICROPY_SSL_AXTLS = 0
 # which build-runtime.sh exports before invoking make.
 # The ?= allows the build script to override for test-romfs variants.
 FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_cli.py
+
+# romfs_trailer.c lives in the shared overlay directory (shared/romfs_trailer.c
+# after the overlay copy step).  The unix port's $(wildcard $(VARIANT_DIR)/*.c)
+# no longer picks it up, so we add it explicitly here.  The unix port uses
+# SRC_C += throughout, so this append survives the port Makefile's SRC_C block.
+SRC_C += shared/romfs_trailer.c
+INC += -I$(TOP)/shared

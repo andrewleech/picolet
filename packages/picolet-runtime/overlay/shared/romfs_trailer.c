@@ -24,7 +24,7 @@
  * THE SOFTWARE.
  */
 
-// Picolet romfs trailer detection.
+// Picolet romfs trailer detection — shared implementation (unix + windows).
 //
 // Implements picolet_load_romfs_trailer() which inspects the running binary's
 // tail for a 24-byte "PYLT" trailer and, if found, reads and CRC-validates
@@ -32,7 +32,7 @@
 //
 // Five fallback modes (in priority order):
 //   1. Cannot open the running binary            — silent fallback.
-//      Linux: /proc/self/exe    Windows: GetModuleFileNameA(NULL, ...)
+//      Linux: /proc/self/exe    Windows: GetModuleFileNameW(NULL, ...)
 //   2. File < 24 bytes                          — silent fallback.
 //   3. Magic mismatch                           — silent fallback.
 //      (This is the normal path for a stock runtime run directly.)
@@ -40,6 +40,12 @@
 //   5. CRC mismatch                             — loud fallback (stderr).
 //
 // See romfs_trailer.h for the trailer format and FR-BP-5 reference.
+//
+// Build plumbing: this file lives at overlay/shared/romfs_trailer.c and
+// is copied to shared/romfs_trailer.c in the micropython tree by the
+// overlay copy step in rebuild-integration.sh.  Each variant .mk adds
+// shared/romfs_trailer.c to SRC_C and -I$(TOP)/shared to INC so the
+// header resolves without a full path prefix.
 
 #include "romfs_trailer.h"
 
@@ -145,20 +151,23 @@ bool picolet_load_romfs_trailer(const uint8_t **buf_out, size_t *size_out) {
     // 1. Open the running binary.
     //    Linux: /proc/self/exe resolves to the running binary regardless of
     //    how it was invoked.
-    //    Windows: GetModuleFileNameA(NULL,...) returns the full exe path.
+    //    Windows: GetModuleFileNameW(NULL,...) returns the full exe path as
+    //    UTF-16, which is then opened via _wfopen().  Using the wide-char API
+    //    ensures the trailer load works for exe paths containing non-ANSI
+    //    characters (e.g. C:\Users\Über\..., localized Program Files paths).
     //    argv[0] is unreliable on Windows (it is the command string as typed
     //    and cannot be relied on when the binary is on PATH or invoked with
     //    a relative path).
 #ifdef _WIN32
-    char exe_path[MAX_PATH];
-    DWORD len = GetModuleFileNameA(NULL, exe_path, (DWORD)MAX_PATH);
+    wchar_t exe_path[MAX_PATH];
+    DWORD len = GetModuleFileNameW(NULL, exe_path, (DWORD)MAX_PATH);
     if (len == 0 || len >= (DWORD)MAX_PATH) {
         // Fallback 1 (Windows): cannot determine exe path — silent.
         // len == MAX_PATH may indicate truncation on systems with LongPath
         // enabled; treat as failure and fall back to linked romfs.
         return false;
     }
-    FILE *f = fopen(exe_path, "rb");
+    FILE *f = _wfopen(exe_path, L"rb");
 #else
     FILE *f = fopen("/proc/self/exe", "rb");
 #endif

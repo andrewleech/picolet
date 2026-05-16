@@ -95,8 +95,6 @@ LDFLAGS += -Wl,--gc-sections
 #CFLAGS_EXTRA += -flto
 #LDFLAGS += -flto
 
-# romfs_trailer.c lives alongside this .mk in the variant dir.  The
-# Windows port Makefile's $(wildcard $(VARIANT_DIR)/*.c) picks it up
-# automatically.  (SRC_C += in a variant .mk is overwritten by the
-# port Makefile's subsequent SRC_C = assignment — see picolet-webview
-# mpconfigvariant.mk comment for the full explanation.)
+# romfs_trailer.c has been consolidated to shared/romfs_trailer.c (A4/S6/Q15).
+# The Windows port Makefile appends it to SRC_C explicitly after the SRC_C =
+# block; no variant-level SRC_C += is needed or possible here.
