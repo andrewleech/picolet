@@ -107,6 +107,10 @@ The `<slug>` matches the phase title in `v1-plan.md`. Subsequent roles
 (developer, sqe, tester) append their progress sections to the same
 file rather than creating new files.
 
+Some earlier phases (PH03, PH08, PH12) created separate
+`PHASE_NN_DEV_REPORT.md` files; those are kept as historical artefacts.
+Going forward, all role output appends to the single phase file.
+
 ## Escalation
 
 If a phase cannot be implemented as planned without violating the spec
