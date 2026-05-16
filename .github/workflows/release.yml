@@ -118,7 +118,20 @@ jobs:
         run: |
           docker pull dockcross/windows-static-x64-posix:latest
 
-      # 6. Invoke build-runtime.sh.
+      # 6. Assert PICOLET_TEST_MODE is not set in the release job environment
+      #    (NFR-TEST-2: the debug port must not be enabled in release builds).
+      #    A release job that accidentally has PICOLET_TEST_MODE=1 in its env
+      #    would expose the CDP/Inspector port in shipped binaries.
+      - name: Assert PICOLET_TEST_MODE is not set (NFR-TEST-2)
+        run: |
+          if env -0 | tr '\0' '\n' | grep -q '^PICOLET_TEST_MODE='; then
+            echo "ERROR: PICOLET_TEST_MODE is set in the release build environment." >&2
+            echo "Release builds must NOT have PICOLET_TEST_MODE in the environment." >&2
+            exit 1
+          fi
+          echo "OK: PICOLET_TEST_MODE is not set in the release environment."
+
+      # 7. Invoke build-runtime.sh.
       #    The script handles everything: mpy-cross, libffi, romfs,
       #    make, strip, size gate, SBOM emission.
       - name: Build runtime artifact
