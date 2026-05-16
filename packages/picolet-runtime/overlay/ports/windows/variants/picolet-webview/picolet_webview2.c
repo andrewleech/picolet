@@ -72,24 +72,47 @@ int32_t picolet_wv2_last_error(void) { return (int32_t)g_last_error; }
 static HMODULE g_loader_dll = NULL;
 static PFN_CreateCoreWebView2EnvironmentWithOptions g_pfn_create_env = NULL;
 
-static int build_loader_path(wchar_t *out, size_t outcap) {
-    /* Use %LOCALAPPDATA%\picolet\<pid>\WebView2Loader.dll if available,
-     * else fall back to %TEMP%\picolet-<pid>\WebView2Loader.dll. */
+static int build_loader_dir(wchar_t *out, size_t outcap) {
+    /* %LOCALAPPDATA%\picolet\loader\ (shared across all picolet processes)
+     * with a %TEMP%\picolet\loader\ fallback if SHGetFolderPathW fails.
+     *
+     * Shared path rather than per-pid: the unpacked DLL bytes are
+     * identical across runs and across concurrent picolet processes, so a
+     * single cached copy is sufficient and avoids the per-pid directory
+     * cleanup problem (S8). */
     wchar_t base[MAX_PATH];
     HRESULT hr = SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, base);
     if (FAILED(hr) || !*base) {
         DWORD n = GetTempPathW(MAX_PATH, base);
         if (n == 0 || n >= MAX_PATH) { return -1; }
     }
-    DWORD pid = GetCurrentProcessId();
-    int n = _snwprintf(out, outcap, L"%ls\\picolet\\%lu", base, (unsigned long)pid);
+    int n = _snwprintf(out, outcap, L"%ls\\picolet\\loader", base);
     if (n < 0 || (size_t)n >= outcap) { return -1; }
-    /* Ensure the directory chain exists. */
-    SHCreateDirectoryExW(NULL, out, NULL);
-    int m = _snwprintf(out, outcap, L"%ls\\picolet\\%lu\\WebView2Loader.dll",
-                       base, (unsigned long)pid);
-    if (m < 0 || (size_t)m >= outcap) { return -1; }
     return 0;
+}
+
+/* Open a handle to `path` without following reparse points.  Returns
+ * INVALID_HANDLE_VALUE on failure (caller inspects GetLastError).  Used
+ * to harden against symlink/junction-point swap attacks on the loader
+ * file path (S7). */
+static HANDLE open_no_reparse(LPCWSTR path, DWORD access, DWORD share,
+                              DWORD disposition) {
+    HANDLE h = CreateFileW(path, access, share, NULL, disposition,
+                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                           NULL);
+    if (h == INVALID_HANDLE_VALUE) { return h; }
+    /* Reject any reparse-point handle.  A legitimate file we just
+     * extracted will never have the REPARSE_POINT attribute set; if it
+     * does, a hostile actor planted a symlink/junction here and we must
+     * not LoadLibraryW it. */
+    BY_HANDLE_FILE_INFORMATION info;
+    if (!GetFileInformationByHandle(h, &info) ||
+        (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        CloseHandle(h);
+        SetLastError(ERROR_ACCESS_DENIED);
+        return INVALID_HANDLE_VALUE;
+    }
+    return h;
 }
 
 void *picolet_wv2_load_loader_dll(const uint8_t *bytes, size_t size) {
@@ -99,45 +122,73 @@ void *picolet_wv2_load_loader_dll(const uint8_t *bytes, size_t size) {
         return NULL;
     }
 
+    wchar_t dir[MAX_PATH * 2];
+    if (build_loader_dir(dir, sizeof(dir) / sizeof(dir[0])) != 0) {
+        set_last(HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME));
+        return NULL;
+    }
+    /* Ensure the directory chain exists. */
+    SHCreateDirectoryExW(NULL, dir, NULL);
+
     wchar_t path[MAX_PATH * 2];
-    if (build_loader_path(path, sizeof(path) / sizeof(path[0])) != 0) {
+    int m = _snwprintf(path, sizeof(path) / sizeof(path[0]),
+                       L"%ls\\WebView2Loader.dll", dir);
+    if (m < 0 || (size_t)m >= sizeof(path) / sizeof(path[0])) {
         set_last(HRESULT_FROM_WIN32(ERROR_BAD_PATHNAME));
         return NULL;
     }
 
-    /* Write the DLL bytes to disk.  We tolerate a pre-existing file
-     * (idempotent unpack across process restarts is rare; the pid
-     * subdir makes collisions effectively impossible). */
-    HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, NULL,
-                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    /* CREATE_NEW: refuse to overwrite an existing file.  If another
+     * picolet process (or a prior run) already extracted the loader, the
+     * existing file is the same bytes — we use it instead of clobbering.
+     * If the path resolves to a symlink/junction (S7), open_no_reparse
+     * rejects with ERROR_ACCESS_DENIED. */
+    HANDLE h = open_no_reparse(path, GENERIC_WRITE, 0, CREATE_NEW);
     if (h == INVALID_HANDLE_VALUE) {
-        set_last(HRESULT_FROM_WIN32(GetLastError()));
-        return NULL;
-    }
-    DWORD wrote = 0;
-    BOOL ok = WriteFile(h, bytes, (DWORD)size, &wrote, NULL);
-    CloseHandle(h);
-    if (!ok || wrote != size) {
-        set_last(HRESULT_FROM_WIN32(GetLastError()));
-        return NULL;
+        DWORD err = GetLastError();
+        if (err == ERROR_FILE_EXISTS) {
+            /* Pre-existing file from a prior run.  Skip the write and
+             * fall through to LoadLibraryW after verifying the path
+             * itself is not a reparse point. */
+            HANDLE vh = open_no_reparse(path, GENERIC_READ,
+                                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                        OPEN_EXISTING);
+            if (vh == INVALID_HANDLE_VALUE) {
+                set_last(HRESULT_FROM_WIN32(GetLastError()));
+                return NULL;
+            }
+            CloseHandle(vh);
+        } else {
+            set_last(HRESULT_FROM_WIN32(err));
+            return NULL;
+        }
+    } else {
+        DWORD wrote = 0;
+        BOOL ok = WriteFile(h, bytes, (DWORD)size, &wrote, NULL);
+        DWORD werr = ok ? 0 : GetLastError();
+        CloseHandle(h);
+        if (!ok || wrote != size) {
+            set_last(HRESULT_FROM_WIN32(werr ? werr : ERROR_WRITE_FAULT));
+            return NULL;
+        }
     }
 
-    HMODULE m = LoadLibraryW(path);
-    if (m == NULL) {
+    HMODULE mod = LoadLibraryW(path);
+    if (mod == NULL) {
         set_last(HRESULT_FROM_WIN32(GetLastError()));
         return NULL;
     }
-    g_loader_dll = m;
+    g_loader_dll = mod;
     g_pfn_create_env = (PFN_CreateCoreWebView2EnvironmentWithOptions)
-        GetProcAddress(m, "CreateCoreWebView2EnvironmentWithOptions");
+        GetProcAddress(mod, "CreateCoreWebView2EnvironmentWithOptions");
     if (g_pfn_create_env == NULL) {
         set_last(HRESULT_FROM_WIN32(GetLastError()));
-        FreeLibrary(m);
+        FreeLibrary(mod);
         g_loader_dll = NULL;
         return NULL;
     }
     set_last(S_OK);
-    return (void *)m;
+    return (void *)mod;
 }
 
 /* ----------------------------------------------------------------------
@@ -206,12 +257,23 @@ static int wait_with_pump(HANDLE event, DWORD timeout_ms) {
  * Generic IUnknown methods for our caller-supplied handlers
  * ----------------------------------------------------------------------
  *
- * We use static singletons rather than ref-counted heap objects: each
- * handler is alive for the entire process lifetime (one-shot
- * completions block synchronously before returning; persistent
- * handlers stay registered until shutdown).  AddRef/Release return
- * 1 / 1 always (the runtime expects them to not crash; the actual
- * refcount is uninteresting for stack-allocated handlers).
+ * One-shot blocking completion handlers (Env/Ctrl/AddScript) are heap-
+ * allocated and ref-counted.  The blocking helper holds the caller's
+ * ref until after the wait returns (even on timeout); WebView2's
+ * eventual Invoke holds a second ref via add_*/Create* and drops it
+ * after writing its result.  This eliminates the UAF risk where a
+ * timed-out helper returned and freed its stack frame while WebView2
+ * still held the handler pointer (S1).
+ *
+ * Each Ctx struct has its IFace base first (so &ctx->base aliases &ctx
+ * for the thunk casts) and a per-Ctx AddRef/Release pair that operates
+ * on a `refcount` field via InterlockedIncrement / InterlockedDecrement.
+ * The HANDLE `event` is owned by the refcount: whichever side (helper
+ * or Invoke) calls the final Release closes it as part of cleanup.
+ *
+ * Persistent handlers (the WebMessageReceived sink and the do-nothing
+ * ExecuteScript completion) keep their static-singleton lifetime — they
+ * outlive every async call by construction.
  */
 
 static HRESULT STDMETHODCALLTYPE handler_QI(void *self, REFIID riid, void **ppv) {
@@ -220,23 +282,58 @@ static HRESULT STDMETHODCALLTYPE handler_QI(void *self, REFIID riid, void **ppv)
     *ppv = self;
     return S_OK;
 }
+
+/* No-op refcount for static-singleton handlers whose lifetime is the
+ * whole process (the WebMessageReceived sink and the ExecuteScript
+ * completion). */
 static ULONG STDMETHODCALLTYPE handler_AddRef(void *self) { (void)self; return 1; }
 static ULONG STDMETHODCALLTYPE handler_Release(void *self) { (void)self; return 1; }
+
+/* Per-Ctx AddRef/Release for the heap-allocated one-shot handlers are
+ * defined alongside each Ctx struct below.  The shared QI thunk above
+ * is used by all of them. */
 
 /* ----------------------------------------------------------------------
  * Environment-created handler
  * ---------------------------------------------------------------------- */
 
-/* Layout: PicoletWv2EnvCreatedHandler base first so casting (Ctx*)self works.
- * `base.lpVtbl` is set to point at this struct's own `vtbl`.  The Invoke
- * thunk then casts self -> Ctx* directly. */
+/* Layout: PicoletWv2EnvCreatedHandler base first so &ctx->base aliases &ctx
+ * — that lets us recover the Ctx* in the AddRef/Release/Invoke thunks
+ * via a simple cast.  refcount uses Interlocked* ops because WebView2's
+ * Invoke may fire on a worker thread before delivering to our STA pump
+ * (defensive — measured behaviour is STA-only, but the COM contract
+ * doesn't promise that).
+ *
+ * `event` may be NULL after the blocking helper closes its handle on
+ * timeout; the Invoke thunk guards against that. */
 typedef struct {
     PicoletWv2EnvCreatedHandler base;
     PicoletWv2EnvCreatedHandlerVtbl vtbl;
+    LONG refcount;
     HANDLE event;
     HRESULT result;
     ICoreWebView2Environment *env;
 } EnvHandlerCtx;
+
+static ULONG STDMETHODCALLTYPE env_handler_AddRef(PicoletWv2EnvCreatedHandler *self) {
+    EnvHandlerCtx *ctx = (EnvHandlerCtx *)self;
+    return (ULONG)InterlockedIncrement(&ctx->refcount);
+}
+static ULONG STDMETHODCALLTYPE env_handler_Release(PicoletWv2EnvCreatedHandler *self) {
+    EnvHandlerCtx *ctx = (EnvHandlerCtx *)self;
+    LONG n = InterlockedDecrement(&ctx->refcount);
+    if (n == 0) {
+        /* Last ref drops the event handle too.  Whichever side (helper
+         * or Invoke) releases last closes it — neither side races on
+         * the close itself. */
+        if (ctx->event != NULL) {
+            CloseHandle(ctx->event);
+            ctx->event = NULL;
+        }
+        free(ctx);
+    }
+    return (ULONG)n;
+}
 
 static HRESULT STDMETHODCALLTYPE env_handler_Invoke(
     PicoletWv2EnvCreatedHandler *self, HRESULT errorCode,
@@ -247,7 +344,13 @@ static HRESULT STDMETHODCALLTYPE env_handler_Invoke(
     if (createdEnvironment != NULL) {
         createdEnvironment->lpVtbl->AddRef(createdEnvironment);
     }
-    SetEvent(ctx->event);
+    /* Signal the helper.  ctx->event is guaranteed live because the
+     * helper still holds its ref (no Release until after its wait).
+     * If the helper's wait timed out before this Invoke fired, the
+     * helper has already dropped its ref but the heap object lives
+     * until our Release call below — including the event handle, which
+     * is released by the last Release. */
+    if (ctx->event != NULL) { SetEvent(ctx->event); }
     return S_OK;
 }
 
@@ -256,38 +359,52 @@ void *picolet_wv2_create_environment_blocking(int32_t timeout_ms) {
         set_last(HRESULT_FROM_WIN32(ERROR_INVALID_STATE));
         return NULL;
     }
-    EnvHandlerCtx ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.vtbl.QueryInterface = (HRESULT (STDMETHODCALLTYPE *)(PicoletWv2EnvCreatedHandler *, REFIID, void **))handler_QI;
-    ctx.vtbl.AddRef = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2EnvCreatedHandler *))handler_AddRef;
-    ctx.vtbl.Release = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2EnvCreatedHandler *))handler_Release;
-    ctx.vtbl.Invoke = env_handler_Invoke;
-    ctx.base.lpVtbl = &ctx.vtbl;
-    ctx.event = CreateEventW(NULL, TRUE, FALSE, NULL);
-    if (ctx.event == NULL) {
+    EnvHandlerCtx *ctx = (EnvHandlerCtx *)calloc(1, sizeof(*ctx));
+    if (ctx == NULL) {
+        set_last(E_OUTOFMEMORY);
+        return NULL;
+    }
+    ctx->vtbl.QueryInterface = (HRESULT (STDMETHODCALLTYPE *)(PicoletWv2EnvCreatedHandler *, REFIID, void **))handler_QI;
+    ctx->vtbl.AddRef = env_handler_AddRef;
+    ctx->vtbl.Release = env_handler_Release;
+    ctx->vtbl.Invoke = env_handler_Invoke;
+    ctx->base.lpVtbl = &ctx->vtbl;
+    ctx->refcount = 1;  /* caller's ref */
+    ctx->event = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (ctx->event == NULL) {
         set_last(HRESULT_FROM_WIN32(GetLastError()));
+        env_handler_Release(&ctx->base);
         return NULL;
     }
 
-    HRESULT hr = g_pfn_create_env(NULL, NULL, NULL, &ctx.base);
+    HRESULT hr = g_pfn_create_env(NULL, NULL, NULL, &ctx->base);
     if (FAILED(hr)) {
         set_last(hr);
-        CloseHandle(ctx.event);
+        env_handler_Release(&ctx->base);  /* closes event via refcount=0 cleanup */
         return NULL;
     }
 
-    int wrc = wait_with_pump(ctx.event, (DWORD)timeout_ms);
-    CloseHandle(ctx.event);
+    int wrc = wait_with_pump(ctx->event, (DWORD)timeout_ms);
+    /* Snapshot result fields before dropping our ref.  If wait timed
+     * out, WebView2 still holds a ref; its eventual Invoke writes into
+     * ctx (still-live heap memory) and then Releases, decrementing the
+     * refcount to 0 and freeing the context + closing the event.  No
+     * UAF.  If wait succeeded, both refs may already be down to ours;
+     * our Release drops the last ref and frees. */
+    ICoreWebView2Environment *env = ctx->env;
+    HRESULT result = ctx->result;
+    env_handler_Release(&ctx->base);  /* drop caller's ref */
+
     if (wrc != 0) {
         set_last(HRESULT_FROM_WIN32(ERROR_TIMEOUT));
         return NULL;
     }
-    if (FAILED(ctx.result)) {
-        set_last(ctx.result);
+    if (FAILED(result)) {
+        set_last(result);
         return NULL;
     }
     set_last(S_OK);
-    return (void *)ctx.env;
+    return (void *)env;
 }
 
 /* ----------------------------------------------------------------------
@@ -297,10 +414,28 @@ void *picolet_wv2_create_environment_blocking(int32_t timeout_ms) {
 typedef struct {
     PicoletWv2CtrlCreatedHandler base;
     PicoletWv2CtrlCreatedHandlerVtbl vtbl;
+    LONG refcount;
     HANDLE event;
     HRESULT result;
     ICoreWebView2Controller *controller;
 } CtrlHandlerCtx;
+
+static ULONG STDMETHODCALLTYPE ctrl_handler_AddRef(PicoletWv2CtrlCreatedHandler *self) {
+    CtrlHandlerCtx *ctx = (CtrlHandlerCtx *)self;
+    return (ULONG)InterlockedIncrement(&ctx->refcount);
+}
+static ULONG STDMETHODCALLTYPE ctrl_handler_Release(PicoletWv2CtrlCreatedHandler *self) {
+    CtrlHandlerCtx *ctx = (CtrlHandlerCtx *)self;
+    LONG n = InterlockedDecrement(&ctx->refcount);
+    if (n == 0) {
+        if (ctx->event != NULL) {
+            CloseHandle(ctx->event);
+            ctx->event = NULL;
+        }
+        free(ctx);
+    }
+    return (ULONG)n;
+}
 
 static HRESULT STDMETHODCALLTYPE ctrl_handler_Invoke(
     PicoletWv2CtrlCreatedHandler *self, HRESULT errorCode,
@@ -311,7 +446,7 @@ static HRESULT STDMETHODCALLTYPE ctrl_handler_Invoke(
     if (createdController != NULL) {
         createdController->lpVtbl->AddRef(createdController);
     }
-    SetEvent(ctx->event);
+    if (ctx->event != NULL) { SetEvent(ctx->event); }
     return S_OK;
 }
 
@@ -344,45 +479,53 @@ void *picolet_wv2_create_controller_blocking(void *env, void *hwnd, int32_t time
         set_last(E_INVALIDARG);
         return NULL;
     }
-    CtrlHandlerCtx ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.vtbl.QueryInterface = (HRESULT (STDMETHODCALLTYPE *)(PicoletWv2CtrlCreatedHandler *, REFIID, void **))handler_QI;
-    ctx.vtbl.AddRef = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2CtrlCreatedHandler *))handler_AddRef;
-    ctx.vtbl.Release = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2CtrlCreatedHandler *))handler_Release;
-    ctx.vtbl.Invoke = ctrl_handler_Invoke;
-    ctx.base.lpVtbl = &ctx.vtbl;
-    ctx.event = CreateEventW(NULL, TRUE, FALSE, NULL);
-    if (ctx.event == NULL) {
+    CtrlHandlerCtx *ctx = (CtrlHandlerCtx *)calloc(1, sizeof(*ctx));
+    if (ctx == NULL) {
+        set_last(E_OUTOFMEMORY);
+        return NULL;
+    }
+    ctx->vtbl.QueryInterface = (HRESULT (STDMETHODCALLTYPE *)(PicoletWv2CtrlCreatedHandler *, REFIID, void **))handler_QI;
+    ctx->vtbl.AddRef = ctrl_handler_AddRef;
+    ctx->vtbl.Release = ctrl_handler_Release;
+    ctx->vtbl.Invoke = ctrl_handler_Invoke;
+    ctx->base.lpVtbl = &ctx->vtbl;
+    ctx->refcount = 1;
+    ctx->event = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (ctx->event == NULL) {
         set_last(HRESULT_FROM_WIN32(GetLastError()));
+        ctrl_handler_Release(&ctx->base);
         return NULL;
     }
 
     ICoreWebView2Environment *e = (ICoreWebView2Environment *)env;
     HRESULT hr = e->lpVtbl->CreateCoreWebView2Controller(
-        e, (HWND)hwnd, &ctx.base);
+        e, (HWND)hwnd, &ctx->base);
     if (FAILED(hr)) {
         set_last(hr);
-        CloseHandle(ctx.event);
+        ctrl_handler_Release(&ctx->base);
         return NULL;
     }
 
-    int wrc = wait_with_pump(ctx.event, (DWORD)timeout_ms);
-    CloseHandle(ctx.event);
+    int wrc = wait_with_pump(ctx->event, (DWORD)timeout_ms);
+    ICoreWebView2Controller *controller = ctx->controller;
+    HRESULT result = ctx->result;
+    ctrl_handler_Release(&ctx->base);  /* drop caller's ref */
+
     if (wrc != 0) {
         set_last(HRESULT_FROM_WIN32(ERROR_TIMEOUT));
         return NULL;
     }
-    if (FAILED(ctx.result)) {
-        set_last(ctx.result);
+    if (FAILED(result)) {
+        set_last(result);
         return NULL;
     }
 
     /* Pre-populate the get_CoreWebView2 cache so subsequent calls land
      * on the fast path. */
-    (void)get_view(ctx.controller);
+    (void)get_view(controller);
 
     set_last(S_OK);
-    return (void *)ctx.controller;
+    return (void *)controller;
 }
 
 int32_t picolet_wv2_set_visible(void *controller, int32_t visible) {
@@ -452,16 +595,34 @@ static char *wide_to_utf8(LPCWSTR w) {
 typedef struct {
     PicoletWv2AddScriptHandler base;
     PicoletWv2AddScriptHandlerVtbl vtbl;
+    LONG refcount;
     HANDLE event;
     HRESULT result;
 } AddScriptHandlerCtx;
+
+static ULONG STDMETHODCALLTYPE add_script_AddRef(PicoletWv2AddScriptHandler *self) {
+    AddScriptHandlerCtx *ctx = (AddScriptHandlerCtx *)self;
+    return (ULONG)InterlockedIncrement(&ctx->refcount);
+}
+static ULONG STDMETHODCALLTYPE add_script_Release(PicoletWv2AddScriptHandler *self) {
+    AddScriptHandlerCtx *ctx = (AddScriptHandlerCtx *)self;
+    LONG n = InterlockedDecrement(&ctx->refcount);
+    if (n == 0) {
+        if (ctx->event != NULL) {
+            CloseHandle(ctx->event);
+            ctx->event = NULL;
+        }
+        free(ctx);
+    }
+    return (ULONG)n;
+}
 
 static HRESULT STDMETHODCALLTYPE add_script_Invoke(
     PicoletWv2AddScriptHandler *self, HRESULT errorCode, LPCWSTR id) {
     (void)id;
     AddScriptHandlerCtx *ctx = (AddScriptHandlerCtx *)self;
     ctx->result = errorCode;
-    SetEvent(ctx->event);
+    if (ctx->event != NULL) { SetEvent(ctx->event); }
     return S_OK;
 }
 
@@ -481,38 +642,46 @@ int32_t picolet_wv2_add_script_to_execute_on_document_created(
         return (int32_t)E_OUTOFMEMORY;
     }
 
-    AddScriptHandlerCtx ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.vtbl.QueryInterface = (HRESULT (STDMETHODCALLTYPE *)(PicoletWv2AddScriptHandler *, REFIID, void **))handler_QI;
-    ctx.vtbl.AddRef = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2AddScriptHandler *))handler_AddRef;
-    ctx.vtbl.Release = (ULONG (STDMETHODCALLTYPE *)(PicoletWv2AddScriptHandler *))handler_Release;
-    ctx.vtbl.Invoke = add_script_Invoke;
-    ctx.base.lpVtbl = &ctx.vtbl;
-    ctx.event = CreateEventW(NULL, TRUE, FALSE, NULL);
-    if (ctx.event == NULL) {
+    AddScriptHandlerCtx *ctx = (AddScriptHandlerCtx *)calloc(1, sizeof(*ctx));
+    if (ctx == NULL) {
+        free(jsW);
+        set_last(E_OUTOFMEMORY);
+        return (int32_t)E_OUTOFMEMORY;
+    }
+    ctx->vtbl.QueryInterface = (HRESULT (STDMETHODCALLTYPE *)(PicoletWv2AddScriptHandler *, REFIID, void **))handler_QI;
+    ctx->vtbl.AddRef = add_script_AddRef;
+    ctx->vtbl.Release = add_script_Release;
+    ctx->vtbl.Invoke = add_script_Invoke;
+    ctx->base.lpVtbl = &ctx->vtbl;
+    ctx->refcount = 1;
+    ctx->event = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (ctx->event == NULL) {
         free(jsW);
         set_last(HRESULT_FROM_WIN32(GetLastError()));
-        return (int32_t)g_last_error;
+        HRESULT err = g_last_error;
+        add_script_Release(&ctx->base);
+        return (int32_t)err;
     }
 
     HRESULT hr = view->lpVtbl->AddScriptToExecuteOnDocumentCreated(
-        view, jsW, &ctx.base);
+        view, jsW, &ctx->base);
     if (FAILED(hr)) {
         free(jsW);
-        CloseHandle(ctx.event);
         set_last(hr);
+        add_script_Release(&ctx->base);
         return (int32_t)hr;
     }
 
-    int wrc = wait_with_pump(ctx.event, (DWORD)timeout_ms);
-    CloseHandle(ctx.event);
+    int wrc = wait_with_pump(ctx->event, (DWORD)timeout_ms);
+    HRESULT result = ctx->result;
+    add_script_Release(&ctx->base);  /* drop caller's ref */
     free(jsW);
     if (wrc != 0) {
         set_last(HRESULT_FROM_WIN32(ERROR_TIMEOUT));
         return (int32_t)g_last_error;
     }
-    set_last(ctx.result);
-    return (int32_t)ctx.result;
+    set_last(result);
+    return (int32_t)result;
 }
 
 /* ----------------------------------------------------------------------
@@ -584,18 +753,27 @@ int32_t picolet_wv2_execute_script(void *controller, const char *js_utf8) {
  * Inbound WebMessageReceived handler + ring buffer
  * ----------------------------------------------------------------------
  *
- * The handler runs synchronously on the STA pump thread.  It calls
- * TryGetWebMessageAsString to extract the JSON string the JS posted
- * via window.chrome.webview.postMessage, converts UTF-16 to UTF-8 in a
- * malloc'd buffer, and enqueues into a 256-slot SPSC ring.  Python
- * polls per pump tick.  On ring overflow we drop and log.
+ * Threading model (single-threaded by construction):
+ *   - The asyncio event loop runs on the STA thread that called
+ *     CoInitializeEx(APARTMENTTHREADED).
+ *   - WebView2's WebMessageReceived event is dispatched synchronously
+ *     from inside our message pump (PeekMessageW + DispatchMessageW)
+ *     in picolet_wv2_pump_messages, which is itself driven by the same
+ *     asyncio loop.
+ *   - Therefore ring_push (Invoke side) and ring_pop (asyncio-poll
+ *     side) never execute concurrently.  No locks, atomics, or memory
+ *     barriers are required.
+ *
+ * If a future variant moves the pump to a worker thread, switch to a
+ * proper SPSC pattern (atomic-load the peer index with acquire
+ * semantics; atomic-store the owned index with release semantics).
  */
 
 #define PICOLET_WV2_RING_SIZE 256
 
 static char *g_ring[PICOLET_WV2_RING_SIZE];
-static volatile LONG g_ring_head = 0;  /* next slot the producer writes */
-static volatile LONG g_ring_tail = 0;  /* next slot the consumer reads */
+static LONG g_ring_head = 0;  /* next slot the producer writes */
+static LONG g_ring_tail = 0;  /* next slot the consumer reads */
 
 static int ring_push(char *s) {
     LONG h = g_ring_head;
@@ -605,10 +783,6 @@ static int ring_push(char *s) {
         return -1;
     }
     g_ring[h] = s;
-    /* Memory ordering: the slot store must publish before the head
-     * advances so the consumer sees the value.  MemoryBarrier()
-     * suffices on x64. */
-    MemoryBarrier();
     g_ring_head = (h + 1) % PICOLET_WV2_RING_SIZE;
     return 0;
 }
@@ -618,7 +792,6 @@ static char *ring_pop(void) {
     LONG t = g_ring_tail;
     if (h == t) { return NULL; }
     char *s = g_ring[t];
-    MemoryBarrier();
     g_ring_tail = (t + 1) % PICOLET_WV2_RING_SIZE;
     return s;
 }
