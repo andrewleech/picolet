@@ -162,6 +162,7 @@ class AppHarness:
         """Read stderr lines until 'picolet:test-port=<N>' appears or timeout."""
         port_found: list[int] = []
         done = asyncio.Event()
+        loop = asyncio.get_running_loop()
 
         def _reader():
             try:
@@ -170,7 +171,7 @@ class AppHarness:
                     m = _PORT_RE.match(line)
                     if m:
                         port_found.append(int(m.group(1)))
-                        asyncio.get_event_loop().call_soon_threadsafe(done.set)
+                        loop.call_soon_threadsafe(done.set)
                     # Drain remaining stderr to prevent pipe blocking.
                     if done.is_set():
                         for _ in self._proc.stderr:
@@ -179,7 +180,11 @@ class AppHarness:
             except Exception:
                 pass
             finally:
-                asyncio.get_event_loop().call_soon_threadsafe(done.set)
+                try:
+                    loop.call_soon_threadsafe(done.set)
+                except RuntimeError:
+                    # Loop closed (timeout path) — done.wait() already returned.
+                    pass
 
         t = threading.Thread(target=_reader, daemon=True)
         t.start()
