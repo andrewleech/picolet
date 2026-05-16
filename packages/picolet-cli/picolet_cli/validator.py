@@ -41,8 +41,25 @@ _APP_REQUIRED: frozenset[str] = frozenset({"name", "version", "entry"})
 _UI_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "renderer": str,
     "root": str,
+    "index": str,
+    # [ui.frontend] is a sub-table; its Python type is dict.
+    # Registering it here prevents the _check_section "unknown key" warn.
+    "frontend": dict,
 }
 _UI_RENDERER_VALUES: frozenset[str] = frozenset({"webview", "lvgl"})
+
+# [ui.frontend] sub-table schema (FR-VUE-5).
+_UI_FRONTEND_SCHEMA: dict[str, type | tuple[type, ...]] = {
+    "framework": str,
+    "build_cmd": str,
+    "dist_dir":  str,
+    "dev_url":   str,
+}
+# Valid framework values (spec §FR-VUE-5; "react" accepted forward-compat,
+# not yet implemented in the build pipeline — see architecture.md §O4).
+_UI_FRONTEND_FRAMEWORK_VALUES: frozenset[str] = frozenset(
+    {"vanilla", "vue", "react"}
+)
 
 _WINDOW_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "title": str,
@@ -222,6 +239,40 @@ def validate_toml(path: Path) -> list[PicoletTomlError]:
                             ),
                         )
                     )
+            # [ui.frontend] — optional sub-table (FR-VUE-5).
+            if "frontend" in ui:
+                fe = ui["frontend"]
+                if not isinstance(fe, dict):
+                    errors.append(
+                        PicoletTomlError(
+                            file=file_str,
+                            section="ui.frontend",
+                            key="(section)",
+                            reason='"[ui.frontend]" must be a table',
+                        )
+                    )
+                else:
+                    errors.extend(
+                        _check_section(file_str, "ui.frontend", fe, _UI_FRONTEND_SCHEMA)
+                    )
+                    fw = fe.get("framework")
+                    if fw is not None and isinstance(fw, str):
+                        if fw not in _UI_FRONTEND_FRAMEWORK_VALUES:
+                            errors.append(
+                                PicoletTomlError(
+                                    file=file_str,
+                                    section="ui.frontend",
+                                    key="framework",
+                                    reason=(
+                                        f'unknown framework "{fw}"; '
+                                        f'expected one of: '
+                                        + ", ".join(
+                                            f'"{v}"'
+                                            for v in sorted(_UI_FRONTEND_FRAMEWORK_VALUES)
+                                        )
+                                    ),
+                                )
+                            )
 
     # [window] — optional; if present, validate.
     if "window" in data:
