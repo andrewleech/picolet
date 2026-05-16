@@ -376,7 +376,7 @@ root = "ui"
 [romfs]
 include = ["ui"]
 TOML
-echo 'import picolet_ui_win' > "$D5_DIR/src/main.py"
+echo 'import picolet_ui' > "$D5_DIR/src/main.py"
 echo '<html><body>x</body></html>' > "$D5_DIR/src/ui/index.html"
 D5_OUT="$(cd "$D5_DIR" && $PICOLET build --target windows-x64 -v 2>&1 | grep "runtime variant:" || true)"
 if echo "$D5_OUT" | grep -q "runtime variant: webview"; then

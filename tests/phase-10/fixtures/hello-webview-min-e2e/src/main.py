@@ -13,7 +13,7 @@
 import sys
 import asyncio
 import picolet
-import picolet_ui_win
+import picolet_ui
 
 
 @picolet.command
@@ -106,7 +106,7 @@ async def watcher():
 
 
 def main():
-    app = picolet_ui_win.Application()
+    app = picolet_ui.Application()
     return app.run(main=watcher)
 
 

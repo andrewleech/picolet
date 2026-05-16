@@ -118,12 +118,15 @@ else
     fi
 fi
 
-NAME="A3 import-picolet-ui-win (gate 3)"
+NAME="A3 import-picolet-ui (gate 3)"
 if [[ ! -f "$WV_RUNTIME" ]]; then
     skip "$NAME" "runtime missing"
 else
-    OUT=$("$WV_RUNTIME" -c 'import picolet_ui_win; print("picolet_ui_win-ok")' 2>&1 || true)
-    if echo "$OUT" | grep -q "picolet_ui_win-ok"; then
+    # The unified picolet_ui picks the WebView2 backend on Windows via
+    # sys.platform; importing the package must succeed without
+    # triggering loader-DLL extract or COM init.
+    OUT=$("$WV_RUNTIME" -c 'import picolet_ui; print("picolet_ui-ok platform=" + __import__("sys").platform)' 2>&1 || true)
+    if echo "$OUT" | grep -q "picolet_ui-ok platform=win32"; then
         pass "$NAME"
     else
         fail "$NAME" "import failed: $OUT"
@@ -279,27 +282,35 @@ echo
 
 echo "--- Group D: cross-platform isolation ---"
 
-NAME="D1 picolet_ui_win-unavailable-on-linux (gate 15)"
+NAME="D1 _win_ffi-unavailable-on-linux (gate 15)"
 if [[ ! -f "$LINUX_WV_RUNTIME" ]]; then
     skip "$NAME" "linux webview runtime missing"
 else
-    OUT=$("$LINUX_WV_RUNTIME" -c 'import picolet_ui_win' 2>&1 || true)
-    if echo "$OUT" | grep -qE "ImportError|ModuleNotFoundError|cannot import"; then
+    # picolet_ui itself imports cleanly on both platforms (the win32
+    # backend code paths are dead on Linux).  The FFI module that
+    # binds the in-process picolet_webview2 C overlay must NOT load
+    # on Linux — the .exe has no such symbols and ffi.open(None)
+    # would resolve to a Linux binary with no picolet_wv2_* exports.
+    OUT=$("$LINUX_WV_RUNTIME" -c 'from picolet_ui import _win_ffi' 2>&1 || true)
+    if echo "$OUT" | grep -qE "ImportError|ModuleNotFoundError|cannot import|Error|error"; then
         pass "$NAME"
     else
-        fail "$NAME" "expected ImportError; got: $OUT"
+        fail "$NAME" "expected import failure; got: $OUT"
     fi
 fi
 
-NAME="D2 picolet_ui-unavailable-on-windows (gate 15)"
+NAME="D2 _gtk_ffi-unavailable-on-windows (gate 15)"
 if [[ ! -f "$WV_RUNTIME" ]]; then
     skip "$NAME" "runtime missing"
 else
-    OUT=$("$WV_RUNTIME" -c 'import picolet_ui' 2>&1 || true)
-    if echo "$OUT" | grep -qE "ImportError|ModuleNotFoundError|cannot import"; then
+    # The GTK FFI module dlopens libwebkit2gtk-4.1.so.0 at import
+    # time; on Windows this resolves nothing and raises OSError
+    # (which _safe_open wraps as ImportError).
+    OUT=$("$WV_RUNTIME" -c 'from picolet_ui import _gtk_ffi' 2>&1 || true)
+    if echo "$OUT" | grep -qE "ImportError|ModuleNotFoundError|cannot import|Error|error"; then
         pass "$NAME"
     else
-        fail "$NAME" "expected ImportError; got: $OUT"
+        fail "$NAME" "expected import failure; got: $OUT"
     fi
 fi
 

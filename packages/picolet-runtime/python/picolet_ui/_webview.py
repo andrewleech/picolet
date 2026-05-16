@@ -1,20 +1,35 @@
-# picolet_ui._webview — WebKitGTK 4.1 webview + WebviewTransport.
+# picolet_ui._webview — webview wrapper + WebviewTransport.
 #
-# PH07: embeds a WebKitWebView inside a `picolet_ui.Window`, loads a
-# file:// URI, registers the `"picolet"` script-message handler, and
-# exposes a `WebviewTransport` that satisfies the PH06 transport
-# duck-type contract.  The dispatcher consumes it unchanged.
+# Cross-platform: the WebKitGTK 4.1 backend (PH07) and the WebView2
+# backend (PH10) share one public surface.  Selection is by sys.platform
+# at import time — the runtime variant only ships the relevant FFI
+# module.
 #
-# PH08: injects the picolet-bridge-js IIFE bundle at DOCUMENT_START
-# (replacing the PH07 no-op stub).  The bundle installs
-# window.picolet.{invoke, on, emit} and the internal window.__picolet_recv
-# handler.  The bundle text is read from /rom/picolet/picolet-bridge.js
-# inside the frozen runtime (copied there by picolet-cli build_cmd.py).
+# Linux (sys.platform == 'linux'):
+#   Embeds a WebKitWebView inside a picolet_ui.Window, loads a file://
+#   URI, registers the "picolet" script-message handler.  Inbound
+#   JS->Python flows through gtk_main_iteration_do (drained by
+#   _loop._gtk_pump); outbound Python->JS through eval_js (webkit
+#   evaluate_javascript).
 #
-# JS-side wire:
-#   Inbound (JS -> Python):  window.webkit.messageHandlers.picolet
-#                              .postMessage(JSON.stringify(msg))
-#   Outbound (Python -> JS): window.__picolet_recv(jsonString)
+# Windows (sys.platform == 'win32'):
+#   Hosts a WebView2 controller inside a picolet_ui.Window.  Inbound
+#   JS->Python flows through the picolet_webview2 C overlay's ring buffer
+#   (drained per pump tick by _loop._win_pump); outbound Python->JS
+#   through eval_js (ExecuteScript via the C overlay).
+#
+# Shared:
+#   - Bridge JS (PH08) is injected at document-start.  The bundle is
+#     read from /rom/picolet/picolet-bridge.js.
+#   - WebviewTransport (PH06 Transport duck-type) is platform-agnostic;
+#     it talks to whichever Webview backend via the uniform .eval_js
+#     method.
+#
+# JS-side wire (both platforms):
+#   Inbound:  postMessage(JSON.stringify(msg))
+#             (window.webkit.messageHandlers.picolet on WebKit;
+#              chrome.webview on WebView2)
+#   Outbound: window.__picolet_recv(jsonString)
 
 import json
 import sys
@@ -27,216 +42,391 @@ except ImportError:
     _HAVE_ASYNCIO = False
 
 
-# ---------------------------------------------------------------------------
-# Inbound callback bookkeeping
-# ---------------------------------------------------------------------------
-#
-# The libffi closure (ffi.callback) needs a stable reference for the
-# lifetime of the signal connection — if the Python wrapper is GC'd, the
-# closure trampoline crashes when GTK fires the signal next.  We keep
-# closures alive at module scope keyed by the transport's id.
+if sys.platform == "win32":
 
-_active_callbacks = {}
+    # -----------------------------------------------------------------
+    # Windows backend (WebView2 via picolet_webview2 C overlay)
+    # -----------------------------------------------------------------
+
+    _BRIDGE_PATH = "/rom/picolet/picolet-bridge.js"
+    _LOADER_DLL_PATH = "/rom/picolet/WebView2Loader.dll"
+
+    # Module-state: only one Webview per process (v1 is single-window) so
+    # the loader-DLL bytes / controller are cached at module scope.
+    _loader_loaded = False
+    _com_initialised = False
+    _env = None
 
 
-def _build_on_script_message(transport):
-    """Build the (manager, js_result, user_data) signal handler.
+    def _ensure_loader_loaded():
+        """One-time: extract WebView2Loader.dll from romfs and LoadLibraryW it.
 
-    The libffi callback fires synchronously from inside
-    gtk_main_iteration_do (Option C — same-thread pump).  Because we
-    are single-threaded and the callback runs inside our own asyncio
-    task, lock=False on the ffi.callback is correct: there is no
-    foreign-thread re-entry and the GC/scheduler locks would only
-    cause allocation failures inside the callback.
-
-    Args arrive as Python ints (mp_int_t) per modffi.c:280.  In
-    WebKitGTK 4.1 the signal delivers a WebKitJavascriptResult *
-    (NOT a JSCValue * directly); we unwrap via
-    webkit_javascript_result_get_js_value before
-    jsc_value_to_string — empirically confirmed against 2.52 on
-    Ubuntu 24.04, where jsc_value_to_string asserts JSC_IS_VALUE
-    without the unwrap.
-    """
-    from . import _gtk_ffi
-
-    def on_script_message(manager_p, js_result_p, user_data_p):
+        The DLL bytes live at /rom/picolet/WebView2Loader.dll in the romfs;
+        `picolet build` copies them in from the picolet-runtime package data.
+        A missing DLL produces a clear RuntimeError naming the bundling
+        step — the runtime cannot proceed without the loader.
+        """
+        global _loader_loaded
+        if _loader_loaded:
+            return
+        from . import _win_ffi
         try:
-            if _gtk_ffi.webkit_javascript_result_get_js_value is not None:
-                value_p = _gtk_ffi.webkit_javascript_result_get_js_value(
-                    js_result_p
+            with open(_LOADER_DLL_PATH, "rb") as fh:
+                dll_bytes = fh.read()
+        except OSError as e:
+            raise RuntimeError(
+                "picolet_ui: WebView2Loader.dll not found in romfs at {}. "
+                "Run `picolet build --target windows-x64` to populate the loader "
+                "DLL (it must be present in the app romfs at build time). "
+                "Underlying error: {}".format(_LOADER_DLL_PATH, e)
+            )
+        handle = _win_ffi.picolet_wv2_load_loader_dll(dll_bytes, len(dll_bytes))
+        if not handle:
+            err = _win_ffi.picolet_wv2_last_error()
+            raise RuntimeError(
+                "picolet_ui: failed to load WebView2Loader.dll "
+                "(HRESULT 0x{:08x}). The bundled loader may be corrupt; "
+                "rebuild via `picolet build`.".format(err & 0xFFFFFFFF)
+            )
+        _loader_loaded = True
+
+
+    def _ensure_com_initialised():
+        global _com_initialised
+        if _com_initialised:
+            return
+        from . import _win_ffi
+        rc = _win_ffi.picolet_wv2_init_com()
+        if rc != 0:
+            raise RuntimeError(
+                "picolet_ui: CoInitializeEx failed (HRESULT 0x{:08x}). "
+                "Some host process initialised COM as MTA before picolet ran; "
+                "WebView2 requires STA.".format(rc & 0xFFFFFFFF)
+            )
+        _com_initialised = True
+
+
+    def _ensure_environment():
+        global _env
+        if _env is not None:
+            return _env
+        from . import _win_ffi
+        _ensure_loader_loaded()
+        _ensure_com_initialised()
+        # 30 s timeout — environment creation should be sub-second in
+        # practice; the high ceiling tolerates first-run host warmups.
+        env = _win_ffi.picolet_wv2_create_environment_blocking(30000)
+        if not env:
+            err = _win_ffi.picolet_wv2_last_error()
+            if (err & 0xFFFFFFFF) == 0x80070002:  # HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)
+                raise RuntimeError(
+                    "Edge WebView2 Runtime not installed; install from "
+                    "https://developer.microsoft.com/microsoft-edge/webview2/"
                 )
-            else:
-                value_p = js_result_p
-            cstr = _gtk_ffi.jsc_value_to_string(value_p)
-            if not cstr:
-                sys.stderr.write(
-                    "picolet_ui: jsc_value_to_string returned NULL\n"
+            raise RuntimeError(
+                "picolet_ui: CreateCoreWebView2Environment failed "
+                "(HRESULT 0x{:08x})".format(err & 0xFFFFFFFF)
+            )
+        _env = env
+        return env
+
+
+    class Webview:
+        """A WebView2 controller hosted inside a picolet_ui.Window."""
+
+        def __init__(self, window, root_uri=None, transport=None):
+            from . import _win_ffi
+            env = _ensure_environment()
+            ctrl = _win_ffi.picolet_wv2_create_controller_blocking(
+                env, window.handle, 30000,
+            )
+            if not ctrl:
+                err = _win_ffi.picolet_wv2_last_error()
+                raise RuntimeError(
+                    "picolet_ui: CreateCoreWebView2Controller failed "
+                    "(HRESULT 0x{:08x})".format(err & 0xFFFFFFFF)
                 )
-                return 0
+            self._controller = ctrl
+            self._window = window
+            window.attach_controller(ctrl)
+
+            # Inject the picolet-bridge-js IIFE at DocumentCreated so
+            # window.picolet is alive before any user <script> tag runs
+            # (FR-WV-4).  The bundle was placed at /rom/picolet/picolet-bridge.js
+            # by `picolet build`'s _copy_bridge_js step.
             try:
-                payload = _gtk_ffi.ffi_string(cstr)
-            finally:
-                _gtk_ffi.g_free(cstr)
-            transport._deliver_raw(payload)
-        except BaseException as e:
-            sys.stderr.write(
-                "picolet_ui: on_script_message raised: {}\n".format(e)
+                with open(_BRIDGE_PATH, "r") as fh:
+                    bridge_src = fh.read()
+            except OSError:
+                bridge_src = ""
+            if bridge_src:
+                rc = _win_ffi.picolet_wv2_add_script_to_execute_on_document_created(
+                    ctrl, bridge_src.encode("utf-8"), 10000,
+                )
+                if rc != 0:
+                    sys.stderr.write(
+                        "picolet_ui: AddScriptToExecuteOnDocumentCreated "
+                        "failed (HRESULT 0x{:08x})\n".format(rc & 0xFFFFFFFF)
+                    )
+
+            # Bind transport so the inbound handler has somewhere to deliver.
+            self.transport = (
+                transport if transport is not None else WebviewTransport(self)
             )
-        return 0  # rettype is "v" — modffi ignores the return for void
+            if self.transport._webview is None:
+                self.transport._webview = self
 
-    return on_script_message
+            # Register the persistent WebMessageReceived handler.
+            rc = _win_ffi.picolet_wv2_register_inbound_handler(ctrl)
+            if rc != 0:
+                sys.stderr.write(
+                    "picolet_ui: register_inbound_handler failed "
+                    "(HRESULT 0x{:08x})\n".format(rc & 0xFFFFFFFF)
+                )
+
+        def navigate_to_string(self, html):
+            from . import _win_ffi
+            rc = _win_ffi.picolet_wv2_navigate_to_string(
+                self._controller, html.encode("utf-8"),
+            )
+            if rc != 0:
+                sys.stderr.write(
+                    "picolet_ui: NavigateToString failed "
+                    "(HRESULT 0x{:08x})\n".format(rc & 0xFFFFFFFF)
+                )
+
+        def eval_js(self, js):
+            """Run JS in the page.  Async-completion is ignored."""
+            from . import _win_ffi
+            rc = _win_ffi.picolet_wv2_execute_script(
+                self._controller, js.encode("utf-8"),
+            )
+            if rc != 0:
+                sys.stderr.write(
+                    "picolet_ui: ExecuteScript failed "
+                    "(HRESULT 0x{:08x})\n".format(rc & 0xFFFFFFFF)
+                )
+
+        # Legacy name kept for callers that imported picolet_ui_win directly.
+        execute_script = eval_js
+
+        @property
+        def controller(self):
+            return self._controller
+
+        def close(self):
+            if self._controller is None:
+                return
+            from . import _win_ffi
+            _win_ffi.picolet_wv2_close_controller(self._controller)
+            self._controller = None
+
+else:
+
+    # -----------------------------------------------------------------
+    # GTK 3 / WebKitGTK 4.1 backend (linux)
+    # -----------------------------------------------------------------
+
+    # The libffi closure (ffi.callback) needs a stable reference for the
+    # lifetime of the signal connection — if the Python wrapper is GC'd, the
+    # closure trampoline crashes when GTK fires the signal next.  We keep
+    # closures alive at module scope keyed by the transport's id.
+    _active_callbacks = {}
 
 
-# ---------------------------------------------------------------------------
-# Webview
-# ---------------------------------------------------------------------------
+    def _build_on_script_message(transport):
+        """Build the (manager, js_result, user_data) signal handler.
 
+        The libffi callback fires synchronously from inside
+        gtk_main_iteration_do (Option C — same-thread pump).  Because we
+        are single-threaded and the callback runs inside our own asyncio
+        task, lock=False on the ffi.callback is correct: there is no
+        foreign-thread re-entry and the GC/scheduler locks would only
+        cause allocation failures inside the callback.
 
-class Webview:
-    """A WebKitWebView embedded in a picolet_ui.Window.
-
-    Construction:
-        win = picolet_ui.Window()
-        wv  = picolet_ui.Webview(win, root_uri="file:///rom/ui/index.html")
-        win.show()
-
-    The Webview registers a `"picolet"` script-message handler whose
-    inbound JSON messages are buffered for the paired WebviewTransport.
-    The picolet-bridge-js bundle is injected at DOCUMENT_START so
-    window.picolet.{invoke, on, emit} are available to all user JS.
-    """
-
-    def __init__(self, window, root_uri=None, transport=None,
-                 disable_sandbox=True):
+        Args arrive as Python ints (mp_int_t) per modffi.c:280.  In
+        WebKitGTK 4.1 the signal delivers a WebKitJavascriptResult *
+        (NOT a JSCValue * directly); we unwrap via
+        webkit_javascript_result_get_js_value before
+        jsc_value_to_string — empirically confirmed against 2.52 on
+        Ubuntu 24.04, where jsc_value_to_string asserts JSC_IS_VALUE
+        without the unwrap.
+        """
         from . import _gtk_ffi
-        self._window = window
-        self._gtk_ffi = _gtk_ffi
-        self._closures = []  # keep callback closures alive
 
-        if disable_sandbox and _gtk_ffi.webkit_web_context_set_sandbox_enabled:
-            # Risk-3 mitigation: trusted file:// content the runtime
-            # bundled itself; sandbox costs us correctness on some
-            # distros without buying security.
-            ctx = _gtk_ffi.webkit_web_context_get_default()
-            _gtk_ffi.webkit_web_context_set_sandbox_enabled(ctx, 0)
+        def on_script_message(manager_p, js_result_p, user_data_p):
+            try:
+                if _gtk_ffi.webkit_javascript_result_get_js_value is not None:
+                    value_p = _gtk_ffi.webkit_javascript_result_get_js_value(
+                        js_result_p
+                    )
+                else:
+                    value_p = js_result_p
+                cstr = _gtk_ffi.jsc_value_to_string(value_p)
+                if not cstr:
+                    sys.stderr.write(
+                        "picolet_ui: jsc_value_to_string returned NULL\n"
+                    )
+                    return 0
+                try:
+                    payload = _gtk_ffi.ffi_string(cstr)
+                finally:
+                    _gtk_ffi.g_free(cstr)
+                transport._deliver_raw(payload)
+            except BaseException as e:
+                sys.stderr.write(
+                    "picolet_ui: on_script_message raised: {}\n".format(e)
+                )
+            return 0  # rettype is "v" — modffi ignores the return for void
 
-        self._view = _gtk_ffi.webkit_web_view_new()
-        if not self._view:
-            raise RuntimeError("picolet_ui: webkit_web_view_new returned NULL")
-        window.add(self._view)
+        return on_script_message
 
-        self._manager = _gtk_ffi.webkit_web_view_get_user_content_manager(
-            self._view
-        )
 
-        # Inject the picolet-bridge-js bundle at document-start so
-        # window.picolet (invoke, on, emit) is available to user JS
-        # before any <script> tags execute (FR-WV-4, PH08).
-        # The bundle is copied into the romfs at build time by
-        # picolet-cli's build_cmd.py _copy_bridge_js() step.
-        _bridge_path = "/rom/picolet/picolet-bridge.js"
-        try:
-            with open(_bridge_path) as _f:
-                bridge_src = _f.read()
-        except OSError:
-            # Graceful degradation: window.picolet will be undefined.
-            # This happens when running outside a built romfs (e.g.
-            # during unit tests that import _webview directly).
-            bridge_src = ""
-        # WEBKIT_USER_CONTENT_INJECT_TOP_FRAME=1, WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START=0
-        script = _gtk_ffi.webkit_user_script_new(bridge_src, 1, 0, 0, 0)
-        _gtk_ffi.webkit_user_content_manager_add_script(
-            self._manager, script
-        )
+    class Webview:
+        """A WebKitWebView embedded in a picolet_ui.Window.
 
-        # Bind transport now so the script-message handler can deposit
-        # into it.  A standalone Webview (no transport) is allowed for
-        # the gate-8 callback probe; we use an inline list in that case.
-        self.transport = transport if transport is not None else WebviewTransport(self)
-        # Late-bind: if the caller passed a transport that wasn't yet
-        # aware of us, attach now.
-        if self.transport._webview is None:
-            self.transport._webview = self
+        Construction:
+            win = picolet_ui.Window()
+            wv  = picolet_ui.Webview(win, root_uri="file:///rom/ui/index.html")
+            win.show()
 
-        # Build the libffi callback for "script-message-received::picolet".
-        # The callback signature is:
-        #   void (*)(WebKitUserContentManager *, WebKitJavascriptResult *, gpointer)
-        # FFI param types: "ppp" → manager, js_result, user_data.
-        #
-        # lock=False is correct for Option C: the callback fires from
-        # inside gtk_main_iteration_do which runs ON our asyncio thread
-        # inside our pump task.  No threading involved; the scheduler
-        # and GC locks would only be needed if a foreign thread were
-        # re-entering Python.  lock=True triggers MemoryError on the
-        # first allocation inside the callback when the heap is near
-        # full — a real production hazard.
-        import ffi
-        cb = ffi.callback(
-            "v",
-            _build_on_script_message(self.transport),
-            "ppp",
-            lock=False,
-        )
-        # Keep the callback alive for the life of the Webview.
-        self._closures.append(cb)
-        _active_callbacks[id(self)] = self._closures
+        The Webview registers a `"picolet"` script-message handler whose
+        inbound JSON messages are buffered for the paired WebviewTransport.
+        The picolet-bridge-js bundle is injected at DOCUMENT_START so
+        window.picolet.{invoke, on, emit} are available to all user JS.
+        """
 
-        # Register the handler name.  The (manager, name, world_name)
-        # signature is the WebKitGTK 4.1+ shape; world_name=NULL targets
-        # the default world.
-        rc = _gtk_ffi.webkit_user_content_manager_register_script_message_handler(
-            self._manager, "picolet", 0
-        )
-        if not rc:
-            sys.stderr.write(
-                "picolet_ui: register_script_message_handler returned 0\n"
+        def __init__(self, window, root_uri=None, transport=None,
+                     disable_sandbox=True):
+            from . import _gtk_ffi
+            self._window = window
+            self._gtk_ffi = _gtk_ffi
+            self._closures = []  # keep callback closures alive
+
+            if disable_sandbox and _gtk_ffi.webkit_web_context_set_sandbox_enabled:
+                # Risk-3 mitigation: trusted file:// content the runtime
+                # bundled itself; sandbox costs us correctness on some
+                # distros without buying security.
+                ctx = _gtk_ffi.webkit_web_context_get_default()
+                _gtk_ffi.webkit_web_context_set_sandbox_enabled(ctx, 0)
+
+            self._view = _gtk_ffi.webkit_web_view_new()
+            if not self._view:
+                raise RuntimeError("picolet_ui: webkit_web_view_new returned NULL")
+            window.add(self._view)
+
+            self._manager = _gtk_ffi.webkit_web_view_get_user_content_manager(
+                self._view
             )
 
-        # Connect the signal.  The "::picolet" detail selects the handler
-        # registered under that name.  Flags=0 (no swapped, no after).
-        # modffi.c::ffifunc_call (line 520-522) recognises fficallback as
-        # an FFI argument and passes p->func (the libffi closure address)
-        # directly — no manual extraction needed.  Belt-and-suspenders:
-        # also support older builds via cb.cfun() if direct passing fails.
-        sig = "script-message-received::picolet"
-        _gtk_ffi.g_signal_connect_data(
-            self._manager, sig, cb, 0, 0, 0
-        )
+            # Inject the picolet-bridge-js bundle at document-start so
+            # window.picolet (invoke, on, emit) is available to user JS
+            # before any <script> tags execute (FR-WV-4, PH08).
+            # The bundle is copied into the romfs at build time by
+            # picolet-cli's build_cmd.py _copy_bridge_js() step.
+            _bridge_path = "/rom/picolet/picolet-bridge.js"
+            try:
+                with open(_bridge_path) as _f:
+                    bridge_src = _f.read()
+            except OSError:
+                # Graceful degradation: window.picolet will be undefined.
+                # This happens when running outside a built romfs (e.g.
+                # during unit tests that import _webview directly).
+                bridge_src = ""
+            # WEBKIT_USER_CONTENT_INJECT_TOP_FRAME=1, WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START=0
+            script = _gtk_ffi.webkit_user_script_new(bridge_src, 1, 0, 0, 0)
+            _gtk_ffi.webkit_user_content_manager_add_script(
+                self._manager, script
+            )
 
-        if root_uri is not None:
-            _gtk_ffi.webkit_web_view_load_uri(self._view, root_uri)
+            # Bind transport now so the script-message handler can deposit
+            # into it.  A standalone Webview (no transport) is allowed for
+            # the gate-8 callback probe; we use an inline list in that case.
+            self.transport = transport if transport is not None else WebviewTransport(self)
+            # Late-bind: if the caller passed a transport that wasn't yet
+            # aware of us, attach now.
+            if self.transport._webview is None:
+                self.transport._webview = self
 
-    def load_uri(self, uri):
-        self._gtk_ffi.webkit_web_view_load_uri(self._view, uri)
+            # Build the libffi callback for "script-message-received::picolet".
+            # The callback signature is:
+            #   void (*)(WebKitUserContentManager *, WebKitJavascriptResult *, gpointer)
+            # FFI param types: "ppp" → manager, js_result, user_data.
+            #
+            # lock=False is correct for Option C: the callback fires from
+            # inside gtk_main_iteration_do which runs ON our asyncio thread
+            # inside our pump task.  No threading involved; the scheduler
+            # and GC locks would only be needed if a foreign thread were
+            # re-entering Python.  lock=True triggers MemoryError on the
+            # first allocation inside the callback when the heap is near
+            # full — a real production hazard.
+            import ffi
+            cb = ffi.callback(
+                "v",
+                _build_on_script_message(self.transport),
+                "ppp",
+                lock=False,
+            )
+            # Keep the callback alive for the life of the Webview.
+            self._closures.append(cb)
+            _active_callbacks[id(self)] = self._closures
 
-    def eval_js(self, script):
-        """Run JS in the page.  Async-completion is ignored (callback=NULL)."""
-        self._gtk_ffi.webkit_web_view_evaluate_javascript(
-            self._view, script, -1, 0, 0, 0, 0, 0
-        )
+            # Register the handler name.  The (manager, name, world_name)
+            # signature is the WebKitGTK 4.1+ shape; world_name=NULL targets
+            # the default world.
+            rc = _gtk_ffi.webkit_user_content_manager_register_script_message_handler(
+                self._manager, "picolet", 0
+            )
+            if not rc:
+                sys.stderr.write(
+                    "picolet_ui: register_script_message_handler returned 0\n"
+                )
 
-    @property
-    def view(self):
-        return self._view
+            # Connect the signal.  The "::picolet" detail selects the handler
+            # registered under that name.  Flags=0 (no swapped, no after).
+            # modffi.c::ffifunc_call (line 520-522) recognises fficallback as
+            # an FFI argument and passes p->func (the libffi closure address)
+            # directly — no manual extraction needed.  Belt-and-suspenders:
+            # also support older builds via cb.cfun() if direct passing fails.
+            sig = "script-message-received::picolet"
+            _gtk_ffi.g_signal_connect_data(
+                self._manager, sig, cb, 0, 0, 0
+            )
 
-    @property
-    def manager(self):
-        return self._manager
+            if root_uri is not None:
+                _gtk_ffi.webkit_web_view_load_uri(self._view, root_uri)
 
-    def close(self):
-        _active_callbacks.pop(id(self), None)
-        self._closures = []
-        self._view = None
-        self._manager = None
+        def load_uri(self, uri):
+            self._gtk_ffi.webkit_web_view_load_uri(self._view, uri)
+
+        def eval_js(self, script):
+            """Run JS in the page.  Async-completion is ignored (callback=NULL)."""
+            self._gtk_ffi.webkit_web_view_evaluate_javascript(
+                self._view, script, -1, 0, 0, 0, 0, 0
+            )
+
+        @property
+        def view(self):
+            return self._view
+
+        @property
+        def manager(self):
+            return self._manager
+
+        def close(self):
+            _active_callbacks.pop(id(self), None)
+            self._closures = []
+            self._view = None
+            self._manager = None
 
 
 # ---------------------------------------------------------------------------
-# WebviewTransport (PH06 Transport contract)
+# WebviewTransport (PH06 Transport contract) — platform-agnostic.
 # ---------------------------------------------------------------------------
 
 
 class WebviewTransport:
-    """A picolet.Transport-compatible transport over WebKit's postMessage.
+    """A picolet.Transport-compatible transport over the webview postMessage channel.
 
     Duck-type contract (from packages/picolet-runtime/python/picolet/_transport.py):
 
@@ -244,24 +434,28 @@ class WebviewTransport:
         async send(msg) -> None
         async close() -> None
 
-    Inbound:
+    Inbound (linux):
         JS calls window.webkit.messageHandlers.picolet.postMessage(json).
         The script-message-received signal fires our libffi closure,
         which decodes the JSC string and calls _deliver_raw(json_str).
-        We parse it with json.loads and append to _inbox; the next
-        recv() pops the head.
+
+    Inbound (windows):
+        Drained from the picolet_webview2 C overlay's ring buffer by
+        _loop._win_pump on every pump tick.  Each raw JSON string is
+        passed to _deliver_raw().
+
+    Both paths parse with json.loads and append to _inbox; the next
+    recv() pops the head.
 
     Outbound:
         send(msg) JSON-encodes msg, wraps it in a JS expression that
-        calls window.__picolet_recv(json), and queues the JS expression
-        for execution by the next pump tick.  The actual
-        evaluate_javascript call is performed synchronously inside
-        send() — it returns immediately; WebKit dispatches the script
-        to the renderer process.
+        calls window.__picolet_recv(json), and hands the expression to
+        the Webview backend via .eval_js (which dispatches via
+        evaluate_javascript / ExecuteScript as appropriate).
 
     Concurrency:
-        Same-thread per design D2; no locks needed.  send() does not
-        await; recv() awaits on an asyncio.Event.
+        Same-thread per design D2 / AD4; no locks needed.  send() does
+        not await; recv() awaits on an asyncio.Event.
     """
 
     def __init__(self, webview=None):
@@ -277,7 +471,7 @@ class WebviewTransport:
         self.recv_count = 0
         self.send_count = 0
 
-    # -------- inbound side (called from the FFI callback) --------
+    # -------- inbound side (called from the FFI callback / pump) --------
 
     def _deliver_raw(self, json_str):
         """Append a raw JSON string for the next recv().  Drops on parse error."""

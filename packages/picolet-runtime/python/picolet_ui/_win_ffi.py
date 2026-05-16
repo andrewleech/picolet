@@ -1,4 +1,4 @@
-# picolet_ui_win._win_ffi — libffi bindings into Win32 + the in-process
+# picolet_ui._win_ffi — libffi bindings into Win32 + the in-process
 # picolet_webview2 C overlay.
 #
 # PH10.  Pure libffi for user32.dll (Win32 windowing) + ffi.open(None)
@@ -34,7 +34,7 @@ def _safe_open(soname_or_none):
         return ffi.open(soname_or_none)
     except OSError as e:
         raise ImportError(
-            "picolet_ui_win: failed to open {!r}: {}".format(soname_or_none, e)
+            "picolet_ui: failed to open {!r}: {}".format(soname_or_none, e)
         )
 
 

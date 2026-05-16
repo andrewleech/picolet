@@ -359,8 +359,9 @@ fi
 
 # F2: manifest isolation — manifest_cli.py must NOT mention picolet_ui.
 # PH10 renamed manifest_webview.py -> manifest_webview_unix.py to make
-# room for manifest_webview_windows.py (which freezes picolet_ui_win
-# instead).  Updated to reference the new filename.
+# room for manifest_webview_windows.py (both webview manifests freeze
+# picolet_ui — Windows selects its WebView2 backend via sys.platform at
+# import time).  Updated to reference the new filename.
 NAME="F2 manifest-isolation"
 CLI_MANIFEST="$PKG_ROOT/manifests/manifest_cli.py"
 WV_MANIFEST="$PKG_ROOT/manifests/manifest_webview_unix.py"

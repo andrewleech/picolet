@@ -1,6 +1,6 @@
 # picolet_ui._app — convenience factory wiring Window + Webview + Transport.
 #
-# PH07.  A user's main.py typically does:
+# PH07 / PH10.  A user's main.py typically does:
 #
 #     import picolet_ui
 #     picolet_ui.run()        # auto-load config, open window, hand off
@@ -10,6 +10,12 @@
 # URI as file:///rom/<root>/<index>, opens a Window, embeds a Webview,
 # constructs a WebviewTransport, and hands off to picolet.run with the
 # pump task alongside.
+#
+# Both platforms read /rom/<root>/<index> through the MicroPython VFS
+# and pass the HTML body to the webview backend (load_html on WebKit,
+# NavigateToString on WebView2).  Neither WebKit nor WebView2 can
+# resolve file:///rom/... directly because /rom is a VFS overlay
+# inside the runtime process, not visible to the kernel.
 
 import sys
 
@@ -42,15 +48,7 @@ def build_root_uri():
 
 
 def _read_rom_html(rom_path):
-    """Read /rom/<root>/<index> through the MicroPython VFS and return bytes.
-
-    WebKit cannot load file:///rom/... directly because /rom is a VFS
-    overlay inside the runtime process, not visible to the kernel.
-    We read the document via Python and pass it to
-    webkit_web_view_load_html with a synthetic base URI so relative
-    asset references (CSS, JS, images) resolve through Python-side
-    interception layers PH08+ may add.
-    """
+    """Read /rom/<root>/<index> through the MicroPython VFS and return bytes."""
     with open(rom_path, "r") as fh:
         return fh.read()
 
@@ -66,37 +64,54 @@ class Application:
                  root_uri=None):
         from ._window import Window
         from ._webview import Webview, WebviewTransport
-        from . import _gtk_ffi
 
         self.window = Window(title=title, size=size, resizable=resizable)
         self.transport = WebviewTransport()
-        if root_uri is None:
-            # Default: read the romfs-embedded index.html and inject via
-            # webkit_web_view_load_html.  The base_uri tells WebKit how
-            # to resolve relative URLs in the page; we synthesise one
-            # under file:// so document.location / window.location have
-            # plausible values for the JS shim.
+
+        if sys.platform == "win32":
+            # WebView2 cannot resolve file:///rom/ paths — read the HTML
+            # via the VFS and hand it to NavigateToString.
+            self.webview = Webview(self.window, transport=self.transport)
             cfg = _load_ui_config()
             rom_doc = "/rom/" + cfg["root"] + "/" + cfg["index"]
             try:
                 html = _read_rom_html(rom_doc)
             except OSError as e:
-                import sys
                 sys.stderr.write(
                     "picolet_ui: failed to read {}: {}\n".format(rom_doc, e)
                 )
                 raise
-            base_uri = "file:///picolet/" + cfg["root"] + "/"
-            self.webview = Webview(
-                self.window, root_uri=None, transport=self.transport
-            )
-            _gtk_ffi.webkit_web_view_load_html(
-                self.webview.view, html, base_uri
-            )
+            self.webview.navigate_to_string(html)
         else:
-            self.webview = Webview(
-                self.window, root_uri=root_uri, transport=self.transport
-            )
+            # WebKit on Linux: same constraint applies — /rom is an
+            # in-process VFS overlay, not visible to the kernel.  Read
+            # the index.html through Python and inject via
+            # webkit_web_view_load_html with a synthetic base URI so
+            # relative asset references (CSS, JS, images) resolve
+            # through Python-side interception layers PH08+ may add.
+            from . import _gtk_ffi
+            if root_uri is None:
+                cfg = _load_ui_config()
+                rom_doc = "/rom/" + cfg["root"] + "/" + cfg["index"]
+                try:
+                    html = _read_rom_html(rom_doc)
+                except OSError as e:
+                    sys.stderr.write(
+                        "picolet_ui: failed to read {}: {}\n".format(rom_doc, e)
+                    )
+                    raise
+                base_uri = "file:///picolet/" + cfg["root"] + "/"
+                self.webview = Webview(
+                    self.window, root_uri=None, transport=self.transport
+                )
+                _gtk_ffi.webkit_web_view_load_html(
+                    self.webview.view, html, base_uri
+                )
+            else:
+                self.webview = Webview(
+                    self.window, root_uri=root_uri, transport=self.transport
+                )
+
         self.window.show()
 
     def run(self, main=None):

@@ -97,8 +97,10 @@ case "${TARGET}/${VARIANT}" in
     windows-x64/webview)
         # PH10: WebView2 (Edge Chromium) webview variant.  Built as
         # windows-x64/cli plus the picolet_webview2 C overlay + the
-        # picolet_ui_win frozen manifest; WebView2Loader.dll is dlopen'd
-        # at runtime from the app romfs.  NFR-2 ceiling is 2 MiB.
+        # picolet_ui frozen manifest (which selects the win32 backend
+        # via sys.platform at import time); WebView2Loader.dll is
+        # dlopen'd at runtime from the app romfs.  NFR-2 ceiling is
+        # 2 MiB.
         ;;
     windows-x64/lvgl)
         # PH12: SDL2 static backend via MXE inside dockcross.

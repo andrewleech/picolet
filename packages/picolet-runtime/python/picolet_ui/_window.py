@@ -1,11 +1,22 @@
-# picolet_ui._window — GTK 3 top-level window wrapper.
+# picolet_ui._window — top-level window wrapper.
 #
-# PH07.  Reads [window] from /rom/picolet.toml (or uses defaults) and
-# opens a single GtkWindow with title + size + resizable applied.
+# Cross-platform: the GTK 3 backend (PH07) and the Win32 backend (PH10)
+# share one public surface.  Selection is by sys.platform at import
+# time — the runtime variant only ships the relevant FFI module.
 #
-# Renderer-agnostic intent: PH11's LVGL renderer can reuse this same
-# Window abstraction (SDL2 / LVGL substitute) by replacing the GTK
-# specifics.
+# Linux (sys.platform == 'linux'):
+#   GTK 3 top-level window.  PH07 introduced this; PH11's LVGL renderer
+#   can reuse it (SDL2 / LVGL substitute) by replacing the GTK
+#   specifics.
+#
+# Windows (sys.platform == 'win32'):
+#   Win32 top-level window backed by the picolet_webview2 C overlay.
+#   The C overlay encapsulates the WNDCLASSEXW registration and the
+#   WindowProc callback (which handles WM_SIZE / WM_DESTROY) so Python
+#   sees one HWND-shaped pointer.
+#
+# Reading [window] from /rom/picolet.toml is identical on both platforms
+# (same TOML subset, same defaults).
 
 import sys
 
@@ -46,77 +57,150 @@ def load_window_config(rom_path="/rom/picolet.toml"):
     return cfg
 
 
-# Module-level singleton: gtk_init must be called exactly once per
-# process.  Subsequent calls are no-ops but the flag here keeps us from
-# accidentally racing on the libffi-side state.
-_gtk_initialised = False
+if sys.platform == "win32":
 
+    # -----------------------------------------------------------------
+    # Windows backend
+    # -----------------------------------------------------------------
 
-def _ensure_gtk_initialised():
-    global _gtk_initialised
-    if _gtk_initialised:
-        return
-    from . import _gtk_ffi
-    _gtk_ffi.gtk_init(0, 0)
-    _gtk_initialised = True
+    class Window:
+        """Win32 top-level window backed by the picolet_webview2 C overlay.
 
+        Construction does NOT initialise COM or load WebView2Loader.dll;
+        those side effects happen at first Webview() construction.  Window
+        creation itself is plain user32 — no WebView2 contact yet.
+        """
 
-class Window:
-    """A single GTK 3 top-level window.
-
-    Construction does not call gtk_init; the first instance triggers
-    gtk_init lazily.  This lets `import picolet_ui` succeed on a host
-    without DISPLAY (gate 3) — only `Window()` instantiation requires X.
-
-    The window is not shown until .show() is called.  PH07 expects
-    .show() to happen after the WebKitWebView has been embedded and
-    the URI has been set.
-    """
-
-    def __init__(self, title=None, size=None, resizable=None, config=None):
-        cfg = config if config is not None else load_window_config()
-        self.title = title if title is not None else cfg["title"]
-        self.size = list(size) if size is not None else list(cfg["size"])
-        self.resizable = (
-            resizable if resizable is not None else cfg["resizable"]
-        )
-        _ensure_gtk_initialised()
-        from . import _gtk_ffi
-        # GTK_WINDOW_TOPLEVEL = 0 (GtkWindowType enum)
-        self._win = _gtk_ffi.gtk_window_new(0)
-        if not self._win:
-            raise RuntimeError("picolet_ui: gtk_window_new returned NULL")
-        _gtk_ffi.gtk_window_set_title(self._win, self.title)
-        _gtk_ffi.gtk_window_set_default_size(
-            self._win, int(self.size[0]), int(self.size[1])
-        )
-        _gtk_ffi.gtk_window_set_resizable(
-            self._win, 1 if self.resizable else 0
-        )
-        # FR-WV-3 verification — write a single line to stderr that the
-        # gate-6 driver greps for.
-        sys.stderr.write(
-            "window: title={} size={}x{} resizable={}\n".format(
-                self.title, self.size[0], self.size[1], self.resizable
+        def __init__(self, title=None, size=None, resizable=None, config=None):
+            from . import _win_ffi
+            cfg = config if config is not None else load_window_config()
+            self.title = title if title is not None else cfg["title"]
+            self.size = list(size) if size is not None else list(cfg["size"])
+            self.resizable = (
+                resizable if resizable is not None else cfg["resizable"]
             )
-        )
+            title_b = self.title.encode("utf-8")
+            hwnd = _win_ffi.picolet_wv2_create_window(
+                title_b, int(self.size[0]), int(self.size[1]),
+                1 if self.resizable else 0,
+            )
+            if not hwnd:
+                err = _win_ffi.picolet_wv2_last_error()
+                raise RuntimeError(
+                    "picolet_ui: picolet_wv2_create_window failed (HRESULT 0x{:08x})"
+                    .format(err & 0xFFFFFFFF)
+                )
+            self._hwnd = hwnd
+            # FR-WV-3 verification: the gate-6 driver greps for this line.
+            sys.stderr.write(
+                "window: title={} size={}x{} resizable={}\n".format(
+                    self.title, self.size[0], self.size[1], self.resizable
+                )
+            )
 
-    def add(self, widget):
-        """Embed a GtkWidget * (e.g. a WebKitWebView) inside this window."""
-        from . import _gtk_ffi
-        _gtk_ffi.gtk_container_add(self._win, widget)
+        def attach_controller(self, controller_handle):
+            """Bind a WebView2 controller pointer so WM_SIZE forwards to it."""
+            from . import _win_ffi
+            _win_ffi.picolet_wv2_window_attach_controller(
+                self._hwnd, controller_handle
+            )
 
-    def show(self):
-        from . import _gtk_ffi
-        _gtk_ffi.gtk_widget_show_all(self._win)
+        def show(self):
+            from . import _win_ffi
+            _win_ffi.picolet_wv2_show_window(self._hwnd, 1)
 
-    def close(self):
-        if self._win is None:
+        def hide(self):
+            from . import _win_ffi
+            _win_ffi.picolet_wv2_show_window(self._hwnd, 0)
+
+        def close(self):
+            if self._hwnd is None:
+                return
+            from . import _win_ffi
+            _win_ffi.picolet_wv2_destroy_window(self._hwnd)
+            self._hwnd = None
+
+        @property
+        def handle(self):
+            return self._hwnd
+
+else:
+
+    # -----------------------------------------------------------------
+    # GTK 3 backend (linux / fallback)
+    # -----------------------------------------------------------------
+
+    # Module-level singleton: gtk_init must be called exactly once per
+    # process.  Subsequent calls are no-ops but the flag here keeps us
+    # from accidentally racing on the libffi-side state.
+    _gtk_initialised = False
+
+
+    def _ensure_gtk_initialised():
+        global _gtk_initialised
+        if _gtk_initialised:
             return
         from . import _gtk_ffi
-        _gtk_ffi.gtk_widget_destroy(self._win)
-        self._win = None
+        _gtk_ffi.gtk_init(0, 0)
+        _gtk_initialised = True
 
-    @property
-    def handle(self):
-        return self._win
+
+    class Window:
+        """A single GTK 3 top-level window.
+
+        Construction does not call gtk_init; the first instance triggers
+        gtk_init lazily.  This lets `import picolet_ui` succeed on a host
+        without DISPLAY (gate 3) — only `Window()` instantiation requires X.
+
+        The window is not shown until .show() is called.  PH07 expects
+        .show() to happen after the WebKitWebView has been embedded and
+        the URI has been set.
+        """
+
+        def __init__(self, title=None, size=None, resizable=None, config=None):
+            cfg = config if config is not None else load_window_config()
+            self.title = title if title is not None else cfg["title"]
+            self.size = list(size) if size is not None else list(cfg["size"])
+            self.resizable = (
+                resizable if resizable is not None else cfg["resizable"]
+            )
+            _ensure_gtk_initialised()
+            from . import _gtk_ffi
+            # GTK_WINDOW_TOPLEVEL = 0 (GtkWindowType enum)
+            self._win = _gtk_ffi.gtk_window_new(0)
+            if not self._win:
+                raise RuntimeError("picolet_ui: gtk_window_new returned NULL")
+            _gtk_ffi.gtk_window_set_title(self._win, self.title)
+            _gtk_ffi.gtk_window_set_default_size(
+                self._win, int(self.size[0]), int(self.size[1])
+            )
+            _gtk_ffi.gtk_window_set_resizable(
+                self._win, 1 if self.resizable else 0
+            )
+            # FR-WV-3 verification — write a single line to stderr that
+            # the gate-6 driver greps for.
+            sys.stderr.write(
+                "window: title={} size={}x{} resizable={}\n".format(
+                    self.title, self.size[0], self.size[1], self.resizable
+                )
+            )
+
+        def add(self, widget):
+            """Embed a GtkWidget * (e.g. a WebKitWebView) inside this window."""
+            from . import _gtk_ffi
+            _gtk_ffi.gtk_container_add(self._win, widget)
+
+        def show(self):
+            from . import _gtk_ffi
+            _gtk_ffi.gtk_widget_show_all(self._win)
+
+        def close(self):
+            if self._win is None:
+                return
+            from . import _gtk_ffi
+            _gtk_ffi.gtk_widget_destroy(self._win)
+            self._win = None
+
+        @property
+        def handle(self):
+            return self._win

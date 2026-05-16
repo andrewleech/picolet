@@ -1,17 +1,24 @@
 # picolet_ui._loop — asyncio + UI-pump integration.
 #
-# PH07.  Option C from the planner's D2: GTK pumped from an asyncio
-# task on the asyncio thread.  No threading.  See the [PH07] Decision
-# commit for the alternatives examined and rejected.
+# Cross-platform: PH07's GTK pump (Linux) and PH10's Win32 pump
+# (Windows) live side-by-side here.  `run()` picks the default pump
+# based on sys.platform; explicit callers (e.g. PH11's lvgl renderer)
+# pass `pump=` directly.
+#
+# Linux: Option C from PH07 D2 — GTK pumped from an asyncio task on the
+# asyncio thread.  No threading.  See the [PH07] Decision commit for
+# the alternatives examined and rejected.
+#
+# Windows: AD4 from PH10 — Win32 message pump driven from an asyncio
+# task on the STA thread (where WebView2's completion handlers fire).
 #
 # The pump tick is tunable via `PUMP_INTERVAL_S` (module attribute);
 # default 5 ms.  Apps that need lower latency or lower idle CPU can
 # override before calling `run()`.
 #
-# PH11 adds `_lvgl_pump` alongside `_gtk_pump`.  The two pumps are
-# mutually exclusive at runtime (one renderer per variant).  Selection
-# happens in `picolet_ui.run()` via the `[ui] renderer` table in
-# /rom/picolet.toml.
+# PH11 adds `_lvgl_pump` alongside.  The pumps are mutually exclusive
+# at runtime (one renderer per variant).  Selection happens in
+# `picolet_ui.run()` via the `[ui] renderer` table in /rom/picolet.toml.
 
 import os
 import sys
@@ -25,7 +32,8 @@ except ImportError:
 
 
 # Default pump interval (seconds).  See [PH07] Decision: GTK pumped
-# from asyncio task at 5ms tick.
+# from asyncio task at 5ms tick.  AD4 (PH10) sets the same 5 ms /
+# 200 Hz tick for the Win32 pump.
 PUMP_INTERVAL_S = 0.005
 
 # LVGL tick advance per pump iteration, in milliseconds.  lv.tick_inc()
@@ -56,6 +64,50 @@ async def _gtk_pump():
             while _gtk_ffi.gtk_events_pending() and n < 32:
                 _gtk_ffi.gtk_main_iteration_do(0)
                 n += 1
+            await asyncio.sleep(PUMP_INTERVAL_S)
+    except asyncio.CancelledError:
+        raise
+
+
+async def _win_pump(transport=None):
+    """Drain inbound ring + pump Win32 messages forever.
+
+    Cancelled when the dispatcher task exits.  We tolerate transport
+    being None so the standalone-window probe (run_sanity_test) can
+    re-use this code without a transport.
+    """
+    from . import _win_ffi
+    try:
+        while True:
+            # 1. Drain the inbound ring.  Each pop yields a malloc'd C
+            # string; we copy into Python str and immediately
+            # picolet_wv2_free_inbound the original.
+            for _ in range(64):  # per-tick cap to keep asyncio responsive
+                ptr = _win_ffi.picolet_wv2_poll_inbound()
+                if not ptr:
+                    break
+                try:
+                    s = _win_ffi.ffi_string(ptr)
+                finally:
+                    _win_ffi.picolet_wv2_free_inbound(ptr)
+                if transport is not None:
+                    try:
+                        transport._deliver_raw(s)
+                    except BaseException as e:
+                        sys.stderr.write(
+                            "picolet_ui: _deliver_raw raised: {}\n".format(e)
+                        )
+
+            # 2. Pump Win32 messages.  WebMessageReceived handlers fire
+            # from inside DispatchMessageW; pushing inbound straight into
+            # the ring on the next iteration.
+            try:
+                _win_ffi.picolet_wv2_pump_messages()
+            except BaseException as e:
+                sys.stderr.write(
+                    "picolet_ui: pump_messages raised: {}\n".format(e)
+                )
+
             await asyncio.sleep(PUMP_INTERVAL_S)
     except asyncio.CancelledError:
         raise
@@ -96,6 +148,16 @@ async def _lvgl_pump():
         raise
 
 
+def _default_webview_pump():
+    """Pick the right webview pump for the running platform.
+
+    Used by run() when the caller does not pass `pump=` explicitly.
+    """
+    if sys.platform == "win32":
+        return _win_pump
+    return _gtk_pump
+
+
 def _worker_thread_pump_stub():
     """Worker-thread fallback (Option B) — gated behind PICOLET_WV_THREADED=1.
 
@@ -130,12 +192,22 @@ async def _run_with_pump(transport, main, dispatcher_run, pump=None):
     not be imported yet when picolet_ui is bare-imported).
 
     `pump` is the coroutine *function* (not a coroutine object) to use
-    as the renderer pump.  Defaults to `_gtk_pump` for backwards
-    compatibility with PH07 callers; PH11 callers pass `_lvgl_pump`
-    explicitly via `picolet_ui.run()`.
+    as the renderer pump.  Defaults to the platform-appropriate
+    webview pump (`_gtk_pump` on Linux, `_win_pump` on Windows); PH11
+    callers pass `_lvgl_pump` explicitly via `picolet_ui.run()`.
+
+    The Win32 pump takes the transport as an argument so it can
+    drain the inbound ring on every tick; the GTK pump receives
+    messages via the script-message callback and ignores `transport`.
     """
-    pump_fn = pump if pump is not None else _gtk_pump
-    pump_task = asyncio.create_task(pump_fn())
+    if pump is None:
+        pump = _default_webview_pump()
+    # The Win32 pump expects the transport so it can drain the
+    # inbound ring; the GTK pump does not need an argument.
+    if pump is _win_pump:
+        pump_task = asyncio.create_task(pump(transport))
+    else:
+        pump_task = asyncio.create_task(pump())
     try:
         return await dispatcher_run(transport, main)
     finally:
@@ -153,7 +225,8 @@ def run(transport, main=None, pump=None):
     code as `picolet_ui.run(transport=WebviewTransport(...))` (webview)
     or `picolet_ui.run(transport=transport, pump=_lvgl_pump)` (lvgl).
 
-    Default pump is `_gtk_pump` for PH07 backwards compatibility.
+    Default pump is platform-appropriate: `_gtk_pump` on Linux,
+    `_win_pump` on Windows.
     """
     if not _HAVE_ASYNCIO:
         raise RuntimeError("picolet_ui.run requires asyncio")
