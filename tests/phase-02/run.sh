@@ -28,7 +28,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MAIN_PY="$REPO_ROOT/packages/picolet-cli/picolet/__main__.py"
+MAIN_PY="$REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py"
 FIXTURES="$SCRIPT_DIR/fixtures"
 
 # ---------------------------------------------------------------------------
@@ -531,7 +531,7 @@ python3 - <<PYEOF || E1_RC=$?
 import sys
 sys.path.insert(0, "$REPO_ROOT/packages/picolet-cli")
 from pathlib import Path
-from picolet.init_cmd import _copy_template
+from picolet_cli.init_cmd import _copy_template
 _copy_template(
     Path("$FAKE_TMPL_DIR"),
     Path("$BINARY_OUTDIR"),

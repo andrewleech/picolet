@@ -7,9 +7,9 @@
 # external stdio harness) can drive.
 #
 # The host-side build tool `picolet build` lives in
-# packages/picolet-cli/picolet/ and is a *different* `picolet` package — they
-# never coexist in one Python process (one runs on the build host
-# under CPython, the other inside the frozen MicroPython runtime).
+# packages/picolet-cli/picolet_cli/ as the `picolet_cli` package; the two
+# never share a name now (the post-review A2 rename eliminated the
+# collision and the PYTHONPATH discipline that previously masked it).
 
 from ._dispatcher import command, invoke, emit, on, run
 from ._transport import Transport, StdioTransport, InProcessTransport, MockTransport

@@ -12,10 +12,10 @@ dependencies = [
 ]
 
 [project.scripts]
-picolet = "picolet.__main__:main"
+picolet = "picolet_cli.__main__:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["picolet"]
+packages = ["picolet_cli"]
 
 [tool.uv.sources]
 picolet-templates = { workspace = true }

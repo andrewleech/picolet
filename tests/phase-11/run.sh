@@ -222,7 +222,7 @@ else
     NAME="C1 picolet-build-lvgl"
     (
         cd "$FIXTURE" && \
-        uv run python -m picolet build \
+        uv run python -m picolet_cli build \
             --target linux-x64 \
             --runtime "$LVGL_RUNTIME" \
             > "$WORKDIR/c1.log" 2>&1

@@ -4,7 +4,7 @@ Validator for app-level picolet.toml files.
 Schema source: docs/architecture.md §App-level picolet.toml schema.
 
 Usage:
-    from picolet.validator import validate_toml, PicoletTomlError
+    from picolet_cli.validator import validate_toml, PicoletTomlError
     errors = validate_toml(Path("picolet.toml"))
     if errors:
         for e in errors:

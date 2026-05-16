@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from picolet.validator import validate_toml
+from picolet_cli.validator import validate_toml
 
 
 def add_parser(subparsers) -> None:

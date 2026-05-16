@@ -9,7 +9,7 @@ Template resolution order:
      is installed (uv pip install -e or wheel install).
   2. __file__-relative fallback — traverses up from this file to find
      packages/picolet-templates/picolet_templates/ in the source tree.
-     Covers the `uv run packages/picolet-cli/picolet/__main__.py` path where
+     Covers the `uv run packages/picolet-cli/picolet_cli/__main__.py` path where
      picolet-templates is not installed into the script's isolated environment.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from picolet.validator import validate_toml
+from picolet_cli.validator import validate_toml
 
 # Templates known to exist in this phase. `picolet init --template <name>` will
 # be rejected with a clear error for any name not in this set.
@@ -134,8 +134,8 @@ def _resolve_template(template_name: str) -> Path | None:
         pass
 
     # Attempt 2: __file__-relative path — works in the source tree via uv run.
-    # packages/picolet-cli/picolet/init_cmd.py -> packages/picolet-templates/picolet_templates/
-    here = Path(__file__).parent  # packages/picolet-cli/picolet/
+    # packages/picolet-cli/picolet_cli/init_cmd.py -> packages/picolet-templates/picolet_templates/
+    here = Path(__file__).parent  # packages/picolet-cli/picolet_cli/
     candidate = (
         here.parent.parent.parent  # repo root
         / "packages"

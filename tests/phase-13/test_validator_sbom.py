@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "packages" / "picolet-cli"))
 
-from picolet.validator import validate_toml
+from picolet_cli.validator import validate_toml
 
 
 # ---------------------------------------------------------------------------

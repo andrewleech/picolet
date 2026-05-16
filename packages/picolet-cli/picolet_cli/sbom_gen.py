@@ -16,7 +16,7 @@ SbomViolation
 
 CLI shim (FR-SBOM-1, build-runtime.sh post-build)
 ----------
-    python -m picolet.sbom_gen emit-runtime \\
+    python -m picolet_cli.sbom_gen emit-runtime \\
         --output <path> --target <t> --variant <v> --repo-root <r>
 
 Design notes
@@ -597,9 +597,9 @@ def _cli_emit_runtime(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Entry point for 'python -m picolet.sbom_gen'."""
+    """Entry point for 'python -m picolet_cli.sbom_gen'."""
     parser = argparse.ArgumentParser(
-        prog="python -m picolet.sbom_gen",
+        prog="python -m picolet_cli.sbom_gen",
         description="Picolet CycloneDX 1.5 SBOM generator",
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)

@@ -6,8 +6,8 @@
 picolet — the Picolet framework CLI.
 
 Invocation paths:
-  uv run packages/picolet-cli/picolet/__main__.py <args>   # zero-install
-  picolet <args>                                          # after pip install
+  uv run packages/picolet-cli/picolet_cli/__main__.py <args>   # zero-install
+  picolet <args>                                              # after pip install
 """
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ import argparse
 import sys
 from pathlib import Path
 
-# When invoked via `uv run picolet/__main__.py`, the parent of the picolet package
-# directory (packages/picolet-cli/) is not automatically on sys.path.  Insert it
-# so `from picolet import ...` resolves correctly in both the uv-run and installed
-# invocation paths.
+# When invoked via `uv run picolet_cli/__main__.py`, the parent of the picolet_cli
+# package directory (packages/picolet-cli/) is not automatically on sys.path.
+# Insert it so `from picolet_cli import ...` resolves correctly in both the
+# uv-run and installed invocation paths.
 _PKG_PARENT = Path(__file__).parent.parent  # packages/picolet-cli/
 if str(_PKG_PARENT) not in sys.path:
     sys.path.insert(0, str(_PKG_PARENT))
@@ -49,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # Register subcommands.
-    from picolet import build_cmd, dev_cmd, init_cmd, run_cmd, validate_cmd
+    from picolet_cli import build_cmd, dev_cmd, init_cmd, run_cmd, validate_cmd
 
     init_cmd.add_parser(subparsers)
     validate_cmd.add_parser(subparsers)

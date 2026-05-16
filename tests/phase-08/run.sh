@@ -185,7 +185,7 @@ else
     mkdir -p "$STAGING"
     (
         cd "$FIXTURE_MIN" && \
-        uv run python -m picolet build \
+        uv run python -m picolet_cli build \
             --target linux-x64 \
             --runtime "$WEBVIEW_RUNTIME" \
             --keep-staging \
@@ -270,7 +270,7 @@ _run_fixture() {
     # Build the fixture.
     (
         cd "$fixture_dir" && \
-        uv run python -m picolet build \
+        uv run python -m picolet_cli build \
             --target linux-x64 \
             --runtime "$WEBVIEW_RUNTIME" \
             > "$build_log" 2>&1

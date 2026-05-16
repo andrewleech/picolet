@@ -107,7 +107,7 @@ class _Config:
 def _repo_root() -> Path:
     """Walk up from this file to find the repo root.
 
-    This file lives at packages/picolet-cli/picolet/runtime_resolver.py.
+    This file lives at packages/picolet-cli/picolet_cli/runtime_resolver.py.
     The repo root is three levels up.  See the TODO(A6) note above for the
     packaging story.
     """
@@ -234,7 +234,7 @@ def _artifact_name(target: str, variant: str) -> str:
     e.g. linux-x64 / cli → picolet-runtime-linux-x64-cli
          windows-x64 / cli → picolet-runtime-windows-x64-cli.exe
     """
-    from picolet._targets import target_exe_suffix
+    from picolet_cli._targets import target_exe_suffix
     return f"picolet-runtime-{target}-{variant}{target_exe_suffix(target)}"
 
 

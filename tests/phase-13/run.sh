@@ -35,8 +35,8 @@ PKG_ROOT="$REPO_ROOT/packages/picolet-runtime"
 BUILD_DIR="$PKG_ROOT/build"
 RUNTIME_CLI="$BUILD_DIR/picolet-runtime-linux-x64-cli"
 RUNTIME_SBOM="$BUILD_DIR/picolet-runtime-linux-x64-cli.cdx.json"
-PICOLET="PYTHONPATH=$REPO_ROOT/packages/picolet-cli python3 $REPO_ROOT/packages/picolet-cli/picolet/__main__.py"
-SBOM_GEN="PYTHONPATH=$REPO_ROOT/packages/picolet-cli python3 -m picolet.sbom_gen"
+PICOLET="PYTHONPATH=$REPO_ROOT/packages/picolet-cli python3 $REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py"
+SBOM_GEN="PYTHONPATH=$REPO_ROOT/packages/picolet-cli python3 -m picolet_cli.sbom_gen"
 
 SKIP_BUILD=0
 SKIP_NON_REGRESSION=0

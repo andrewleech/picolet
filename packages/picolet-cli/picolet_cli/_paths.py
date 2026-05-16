@@ -12,8 +12,8 @@ import sys
 import tomllib
 from pathlib import Path
 
-from picolet._targets import host_target, target_exe_suffix
-from picolet.validator import validate_toml
+from picolet_cli._targets import host_target, target_exe_suffix
+from picolet_cli.validator import validate_toml
 
 
 # Directory components that should never be watched or scanned for source

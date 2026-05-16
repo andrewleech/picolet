@@ -88,7 +88,7 @@ if ! command -v uv >/dev/null 2>&1; then
 else
     (
         cd "$REPO_ROOT" && \
-        uv run python -m picolet init test-app \
+        uv run python -m picolet_cli init test-app \
             --template hello-webview \
             --output-dir "$SCAFFOLD_DIR" \
             > "$WORKDIR/a1.log" 2>&1
@@ -165,7 +165,7 @@ if ! command -v uv >/dev/null 2>&1; then
 else
     NEG_OUT="$(
         cd "$REPO_ROOT" && \
-        uv run python -m picolet init negtest --template nosuchtemplate \
+        uv run python -m picolet_cli init negtest --template nosuchtemplate \
             --output-dir "$WORKDIR/neg-test-a5" 2>&1
     )" || true
     if echo "$NEG_OUT" | grep -q "unknown template"; then
@@ -184,7 +184,7 @@ else
     touch "$WORKDIR/existing-dir/sentinel"
     NEG_OUT="$(
         cd "$REPO_ROOT" && \
-        uv run python -m picolet init existingdir \
+        uv run python -m picolet_cli init existingdir \
             --template hello-webview \
             --output-dir "$WORKDIR/existing-dir" 2>&1
     )" || true
@@ -217,7 +217,7 @@ elif [[ "${SCAFFOLD_OK:-0}" -eq 0 ]]; then
 else
     (
         cd "$SCAFFOLD_DIR" && \
-        uv run --project "$REPO_ROOT" python -m picolet build \
+        uv run --project "$REPO_ROOT" python -m picolet_cli build \
             --target linux-x64 \
             --runtime "$WEBVIEW_RUNTIME" \
             > "$WORKDIR/b1.log" 2>&1
@@ -302,7 +302,7 @@ _run_e2e_fixture() {
     if [[ "$SKIP_REBUILD" -eq 0 || ! -f "$built" ]]; then
         (
             cd "$E2E_FIXTURE" && \
-            uv run python -m picolet build \
+            uv run python -m picolet_cli build \
                 --target linux-x64 \
                 --runtime "$WEBVIEW_RUNTIME" \
                 > "$build_log" 2>&1
@@ -388,7 +388,7 @@ _run_asset_fixture() {
     if [[ "$SKIP_REBUILD" -eq 0 || ! -f "$built" ]]; then
         (
             cd "$ASSET_FIXTURE" && \
-            uv run python -m picolet build \
+            uv run python -m picolet_cli build \
                 --target linux-x64 \
                 --runtime "$WEBVIEW_RUNTIME" \
                 > "$build_log" 2>&1

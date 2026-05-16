@@ -18,8 +18,8 @@ import argparse
 import subprocess
 import sys
 
-from picolet import build_cmd
-from picolet._paths import resolve_app, sources_newer_than
+from picolet_cli import build_cmd
+from picolet_cli._paths import resolve_app, sources_newer_than
 
 
 def add_parser(subparsers) -> None:

@@ -30,8 +30,8 @@ _PKG_PARENT = _REPO_ROOT / "packages" / "picolet-cli"
 if str(_PKG_PARENT) not in sys.path:
     sys.path.insert(0, str(_PKG_PARENT))
 
-from picolet import build_cmd
-from picolet.runtime_resolver import ResolvedRuntime
+from picolet_cli import build_cmd
+from picolet_cli.runtime_resolver import ResolvedRuntime
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "hello-cli"
 LINUX_RUNTIME = _REPO_ROOT / "packages" / "picolet-runtime" / "build" / "picolet-runtime-linux-x64-cli"
@@ -132,7 +132,7 @@ class TestBuildCmdResolverIntegration(unittest.TestCase):
         build_cmd.run() to call sys.exit(1). We catch SystemExit.
         Returns the captured keyword arguments dict.
         """
-        from picolet import runtime_resolver as rr
+        from picolet_cli import runtime_resolver as rr
 
         captured = {}
 
