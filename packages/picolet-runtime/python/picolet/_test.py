@@ -259,3 +259,47 @@ def snapshot():
     _png_free(out_ptr)
 
     return png_bytes
+
+
+# ---------------------------------------------------------------------------
+# IPC dispatcher registration (FR-TEST-6, BUG-B fix).
+#
+# Register @picolet.command handlers so the AppHarness can drive this module
+# via the stdio transport (StdioTransport + Dispatcher).  The harness sends
+# JSON requests {"id": N, "cmd": "__test__.tap", "args": {"x": X, "y": Y}}
+# and expects {"id": N, "ok": true, "result": null}.
+#
+# Registration is gated on PICOLET_TEST_MODE=1 (already enforced at module
+# import — the ImportError guard at the top of this file ensures we only
+# reach here when the env var is set).
+# ---------------------------------------------------------------------------
+
+import picolet as _picolet
+
+
+@_picolet.command("__test__.tap")
+async def _cmd_tap(args):
+    """IPC handler: synthesise a pointer tap at (x, y)."""
+    tap(int(args["x"]), int(args["y"]))
+    return None
+
+
+@_picolet.command("__test__.press")
+async def _cmd_press(args):
+    """IPC handler: synthesise a key press for the given key code."""
+    press(int(args["key"]))
+    return None
+
+
+@_picolet.command("__test__.snapshot")
+async def _cmd_snapshot(args):
+    """IPC handler: capture the LVGL screen to PNG, return base64-encoded bytes."""
+    import ubinascii as _b64
+    png = snapshot()
+    return _b64.b2a_base64(png).decode("ascii").strip()
+
+
+@_picolet.command("__test__.ping")
+async def _cmd_ping(args):
+    """IPC handler: handshake probe.  Returns 'pong' so the harness can detect readiness."""
+    return "pong"

@@ -219,14 +219,28 @@ class TestHarnessStart(unittest.TestCase):
         self.assertIn("timed out", str(ctx.exception).lower())
 
     def test_start_with_pre_known_port_and_lvgl_sets_page_none(self):
-        """With browser=lvgl and a pre-known port, start() sets page=None."""
+        """With browser=lvgl and a pre-known port, start() sets page=None.
+
+        The LVGL path calls _lvgl_wait_ready() which pings the stdio transport.
+        With a mock process that has stdin/stdout mocked, the ping times out
+        quickly (non-fatal) and page remains None.
+        """
+        import io
         mock_proc = MagicMock(spec=subprocess.Popen)
+        # Provide stub stdin/stdout so _lvgl_wait_ready doesn't hit AttributeError.
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = lambda _: None
+        mock_proc.stdin.flush = lambda: None
+        # stdout.readline() returns b'' (EOF) so the ping read drains immediately.
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = lambda: b''
         h = AppHarness(
             "/fake/picolet-runtime-linux-x64-lvgl",
             _running_proc=mock_proc,
             _port=12345,
             browser="lvgl",
         )
+        h._timeout = 0.1  # keep test fast — ping will time out but that's non-fatal
         _run(h.start())
         self.assertIsNone(h.page)
 

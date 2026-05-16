@@ -106,7 +106,11 @@ class AppHarness:
         if self._proc is None:
             self._proc = self._spawn()
 
-        if self._port is None:
+        # BUG-D fix: LVGL path uses stdio transport, not an inspector port.
+        # Skip port waiting entirely for LVGL — the transport readiness is
+        # signalled by a successful ping reply from the dispatcher, not by a
+        # 'picolet:test-port=<N>' stderr line.
+        if self._browser != "lvgl" and self._port is None:
             self._port = await self._wait_for_port()
             if self._port is None:
                 self._proc.terminate()
@@ -123,8 +127,12 @@ class AppHarness:
             self.page = await attach_webkit(self._port, timeout=self._timeout)
         elif self._browser == "lvgl":
             # LVGL path: no inspector port — page is None; use tap/press/screenshot
-            # directly on self.
+            # directly on self.  The stdio transport (stdin/stdout pipes) must
+            # already be open (enforced by _spawn() for lvgl or by test_cmd which
+            # opens them before passing _running_proc).
             self.page = None
+            # Wait for the LVGL dispatcher to be ready via a ping handshake.
+            await self._lvgl_wait_ready()
         else:
             raise ValueError("AppHarness: unknown browser: {}".format(self._browser))
 
@@ -152,6 +160,18 @@ class AppHarness:
                     "Install xvfb: apt install xvfb"
                 )
 
+        # For the LVGL path the transport is stdin/stdout JSON-lines (BUG-C fix).
+        # For webview paths stdin/stdout are inherited (not piped) so the app's
+        # own output reaches the terminal; only stderr is captured for the port
+        # announcement.
+        if self._browser == "lvgl":
+            return subprocess.Popen(
+                cmd,
+                env=self._env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
         return subprocess.Popen(
             cmd,
             env=self._env,
@@ -202,8 +222,9 @@ class AppHarness:
         PH17 adds `(window as any).picolet.__ready__ = true` to bridge-js
         after __picolet_recv is assigned.  We poll via page.evaluate.
         """
-        deadline = asyncio.get_event_loop().time() + _READY_POLL_TIMEOUT
-        while asyncio.get_event_loop().time() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _READY_POLL_TIMEOUT
+        while loop.time() < deadline:
             try:
                 ready = await self.page.evaluate("window.picolet && window.picolet.__ready__ === true")
                 if ready:
@@ -216,6 +237,66 @@ class AppHarness:
         sys.stderr.write(
             "AppHarness: window.picolet.__ready__ did not become true within {}s "
             "(non-fatal for non-picolet pages)\n".format(_READY_POLL_TIMEOUT)
+        )
+
+    async def _lvgl_wait_ready(self) -> None:
+        """Send a __test__.ping to the LVGL dispatcher and wait for 'pong'.
+
+        The LVGL binary imports picolet._test (which registers the @picolet.command
+        handlers) and then runs the dispatcher event loop.  The first valid ping
+        reply signals that the runtime is ready to receive drive commands.
+
+        Retries for up to self._timeout seconds with exponential back-off.
+        """
+        import json
+        deadline = asyncio.get_running_loop().time() + self._timeout
+        delay = 0.05  # start at 50 ms
+        req_id = 0
+        while asyncio.get_running_loop().time() < deadline:
+            req_id += 1
+            req = '{{"id":{},"cmd":"__test__.ping","args":{{}}}}\n'.format(req_id)
+            try:
+                self._proc.stdin.write(req.encode())
+                self._proc.stdin.flush()
+            except (OSError, BrokenPipeError):
+                break
+
+            # Read reply with a short timeout via a background thread.
+            reply_box: list = []
+            done_evt = threading.Event()
+
+            def _read_reply():
+                try:
+                    line = self._proc.stdout.readline()
+                    if line:
+                        reply_box.append(line.decode("utf-8", "replace").strip())
+                except Exception:
+                    pass
+                finally:
+                    done_evt.set()
+
+            t = threading.Thread(target=_read_reply, daemon=True)
+            t.start()
+
+            # Yield to the event loop while waiting.
+            wait_start = asyncio.get_running_loop().time()
+            while not done_evt.is_set() and (asyncio.get_running_loop().time() - wait_start) < delay * 2:
+                await asyncio.sleep(0.02)
+
+            if reply_box:
+                try:
+                    reply = json.loads(reply_box[0])
+                    if reply.get("ok") and reply.get("result") == "pong":
+                        return
+                except Exception:
+                    pass
+
+            delay = min(delay * 2, 0.5)
+            await asyncio.sleep(delay)
+
+        sys.stderr.write(
+            "AppHarness: LVGL dispatcher did not respond to ping within {}s "
+            "(non-fatal — proceeding)\n".format(self._timeout)
         )
 
     # -------------------------------------------------------------------------

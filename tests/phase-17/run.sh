@@ -105,16 +105,12 @@ echo "=== Gate B: FR-TEST-1 (Linux webview inspector port) ==="
 if [[ ! -x "$WV_RUNTIME" ]]; then
     skip "Gate B: webview runtime not built: $WV_RUNTIME"
 else
-    # Spawn the runtime with PICOLET_TEST_MODE=1, a minimal HTML page,
-    # capture stderr looking for picolet:test-port=<N>.
-    # We pass a data: URL so no romfs is needed.
+    # Spawn the runtime with PICOLET_TEST_MODE=1 and a -c argument so it
+    # initialises the webview without needing a romfs or a file:// URL.
+    # Positional arguments are interpreted by MicroPython as Python file
+    # paths — passing a file:// URL as a positional arg causes immediate
+    # exit with "Invalid command line arguments" (BUG-E fix).
     GATE_B_OUT="$WORKDIR/gate_b.stderr"
-
-    # Create minimal HTML for the webview to load.
-    cat > "$WORKDIR/test.html" <<'EOF'
-<!doctype html><html><head><meta charset="utf-8"><title>PH17 Test</title></head>
-<body><p>PH17</p></body></html>
-EOF
 
     # Wrap in xvfb-run if no display.
     XVFB_PREFIX=""
@@ -122,23 +118,10 @@ EOF
         XVFB_PREFIX="xvfb-run -a -s -screen 0 1280x800x24 -e /dev/stderr"
     fi
 
-    # Time-box the port wait to 5 s (generous; NFR-TEST-1 says ≤ 3 s but
-    # gate G measures precisely).
-    PORT_LINE=""
-    if PORT_LINE=$(
-        PICOLET_TEST_MODE=1 $XVFB_PREFIX "$WV_RUNTIME" \
-            "file://$WORKDIR/test.html" 2>&1 &
-        PID=$!
-        sleep 5
-        kill $PID 2>/dev/null || true
-        wait $PID 2>/dev/null || true
-    ) 2>&1; then
-        true
-    fi
-
-    # Better approach: use a background job and read stderr pipe.
+    # Use a background job and read the stderr file.
     PICOLET_TEST_MODE=1 $XVFB_PREFIX "$WV_RUNTIME" \
-        "file://$WORKDIR/test.html" >"$WORKDIR/gate_b.stdout" 2>"$GATE_B_OUT" &
+        -c "import picolet_ui._sanity as t; t.run_sanity_test()" \
+        >"$WORKDIR/gate_b.stdout" 2>"$GATE_B_OUT" &
     B_PID=$!
     # Wait up to 5 s for the port line.
     B_DEADLINE=$(( SECONDS + 5 ))
@@ -171,10 +154,11 @@ if [[ ! -x "$WV_RUNTIME" ]]; then
 else
     PNG_C="$WORKDIR/wv.png"
     # Use picolet test --no-build --screenshot against the webview runtime.
-    # Pass a stub URL; the screenshot will capture whatever the webview renders.
+    # Do not pass a file:// URL as a positional arg — the MicroPython runtime
+    # interprets positional args as Python file paths (BUG-E fix).
     if (cd "$REPO_ROOT" && timeout 30 uv run python -m picolet_cli test \
         --no-build --screenshot "$PNG_C" \
-        "$WV_RUNTIME" -- "file://$WORKDIR/test.html" \
+        "$WV_RUNTIME" \
         2>/dev/null); then
         if [[ -f "$PNG_C" ]]; then
             SIZE=$(wc -c < "$PNG_C")
@@ -266,7 +250,8 @@ else
     fi
 
     PICOLET_TEST_MODE=1 $XVFB_PREFIX "$WV_RUNTIME" \
-        "file://$WORKDIR/test.html" >"$WORKDIR/gate_f.stdout" 2>"$WORKDIR/gate_f.stderr" &
+        -c "import picolet_ui._sanity as t; t.run_sanity_test()" \
+        >"$WORKDIR/gate_f.stdout" 2>"$WORKDIR/gate_f.stderr" &
     F_PID=$!
 
     F_DEADLINE=$(( SECONDS + 8 ))
@@ -318,9 +303,10 @@ else
     T_START=$SECONDS
     T_START_NS=$(date +%s%N 2>/dev/null || echo 0)
 
+    # Do not pass a file:// URL as a positional arg (BUG-E fix).
     (cd "$REPO_ROOT" && timeout 15 uv run python -m picolet_cli test \
         --no-build --screenshot "$PNG_G" \
-        "$WV_RUNTIME" -- "file://$WORKDIR/test.html" \
+        "$WV_RUNTIME" \
         2>/dev/null) && T_RC=0 || T_RC=$?
 
     T_END_NS=$(date +%s%N 2>/dev/null || echo 0)
@@ -352,9 +338,10 @@ if [[ ! -x "$WV_RUNTIME" ]]; then
 elif [[ "$(uname -s)" != "Linux" ]]; then
     skip "Gate H: Linux-only test"
 else
+    # Do not pass a file:// URL as a positional arg (BUG-E fix).
     if (cd "$REPO_ROOT" && uv run python -m picolet_cli test \
         --no-build --browser chromium \
-        "$WV_RUNTIME" -- "file://$WORKDIR/test.html" \
+        "$WV_RUNTIME" \
         2>&1) | grep -qi "chromium is not supported"; then
         pass "Gate H: --browser chromium on Linux webview exits with clear error"
     else
@@ -362,7 +349,7 @@ else
         EXIT_CODE=0
         (cd "$REPO_ROOT" && uv run python -m picolet_cli test \
             --no-build --browser chromium \
-            "$WV_RUNTIME" -- "file://$WORKDIR/test.html" \
+            "$WV_RUNTIME" \
             2>/dev/null) || EXIT_CODE=$?
         if [[ $EXIT_CODE -ne 0 ]]; then
             pass "Gate H: --browser chromium on Linux webview exits non-zero (rc=$EXIT_CODE)"
@@ -399,9 +386,10 @@ rc = asyncio.run(main())
 sys.exit(rc)
 PYEOF
 
+    # Do not pass a file:// URL as a positional arg (BUG-E fix).
     if (cd "$REPO_ROOT" && timeout 20 uv run python -m picolet_cli test \
         --no-build --run "$ASSERT_READY" \
-        "$WV_RUNTIME" -- "file://$WORKDIR/test.html" \
+        "$WV_RUNTIME" \
         2>/dev/null); then
         pass "Gate I: window.picolet.__ready__ === true"
     else

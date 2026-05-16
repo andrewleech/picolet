@@ -275,24 +275,40 @@ def run(args) -> int:
     if args.verbose:
         sys.stderr.write("picolet test: spawn: {}\n".format(" ".join(cmd)))
 
-    proc = subprocess.Popen(
-        cmd,
-        env=child_env,
-        stderr=subprocess.PIPE,
-        # stdout inherited — let the app's own stdout reach the terminal.
-    )
-
-    port = _wait_for_port(proc, timeout=args.timeout, verbose=args.verbose)
-
-    if port is None:
-        print(
-            "error: timed out waiting for 'picolet:test-port=<N>' on stderr "
-            "({}s).  Is PICOLET_TEST_MODE=1 handled by this binary?".format(args.timeout),
-            file=sys.stderr,
+    # BUG-D fix: LVGL binaries use stdio as the transport, not an inspector port.
+    # Open stdin+stdout pipes for the LVGL path so the AppHarness can write JSON
+    # commands and read JSON replies.  For webview paths, stdout is inherited and
+    # only stderr is piped (for the port announcement).
+    if browser == "lvgl":
+        proc = subprocess.Popen(
+            cmd,
+            env=child_env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-        proc.terminate()
-        proc.wait()
-        return 1
+        # LVGL transport readiness: ping the dispatcher and wait for 'pong'.
+        # The runtime needs a moment to start the event loop and import picolet._test.
+        port = None  # LVGL has no inspector port — sentinel None is fine.
+        # AppHarness will handle the LVGL-specific initialization.
+    else:
+        proc = subprocess.Popen(
+            cmd,
+            env=child_env,
+            stderr=subprocess.PIPE,
+            # stdout inherited — let the app's own stdout reach the terminal.
+        )
+        port = _wait_for_port(proc, timeout=args.timeout, verbose=args.verbose)
+
+        if port is None:
+            print(
+                "error: timed out waiting for 'picolet:test-port=<N>' on stderr "
+                "({}s).  Is PICOLET_TEST_MODE=1 handled by this binary?".format(args.timeout),
+                file=sys.stderr,
+            )
+            proc.terminate()
+            proc.wait()
+            return 1
 
     if args.verbose:
         sys.stderr.write(
