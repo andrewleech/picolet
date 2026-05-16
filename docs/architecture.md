@@ -74,11 +74,11 @@ installer formats (`.msi`, `.dmg`, `.AppImage`) deferred to a
 ## Runtime artifact matrix
 
 ```
-picolet-runtime-{windows-x64,linux-x64,macos-arm64} × {webview,lvgl,cli}
-= 9 release artifacts per platform set
+picolet-runtime-{windows-x64,linux-x64} × {webview,lvgl,cli}
+= 6 release artifacts
 ```
 
-macOS-x64 added later if Intel Mac support is in scope.
+macOS is out of scope for v1 (see CLAUDE.md).
 
 ## App-level `picolet.toml` schema
 
@@ -99,7 +99,7 @@ size = [900, 600]
 resizable = true
 
 [build]
-targets = ["windows-x64", "linux-x64", "macos-arm64"]
+targets = ["windows-x64", "linux-x64"]
 
 [romfs]
 include = ["ui", "assets"]
@@ -121,8 +121,7 @@ Inherits the pydfu-win submodule + overlay pattern:
 ## IPC wire format
 
 JSON messages over a `postMessage` shim (webview) or an in-process queue
-(LVGL — unused in v1 but reserved for future LVGL-with-WebView-overlay
-hybrids).
+(LVGL — `InProcessTransport` as mandated by FR-LV-4).
 
 Request:
 ```json

@@ -1,0 +1,77 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:fec978af-284c-48fa-8307-d1708c11e2b0",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-05-16T09:55:53.011200Z",
+    "tools": [
+      {
+        "vendor": "picolet",
+        "name": "picolet-sbom-gen",
+        "version": "0.1.0"
+      }
+    ],
+    "component": {
+      "type": "library",
+      "name": "picolet-runtime-linux-x64-cli",
+      "version": "runtime-v0.1.0"
+    }
+  },
+  "components": [
+    {
+      "type": "framework",
+      "bom-ref": "runtime-micropython-0",
+      "name": "MicroPython",
+      "version": "1.24.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/micropython/micropython"
+        }
+      ],
+      "purl": "pkg:github/micropython/micropython@1.24.0",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "Integration PRs are MicroPython-derived patches sharing the MicroPython MIT licence; the generator injects the full PR list from mbm.toml automatically.\npr/lib-pyusb-windows: lib/micropython-lib: Update pyusb with Windows support.\npr/mkrules-exe-fix: py/mkrules.mk: Allow PROG to be set on the command line for .exe targets.\npr/mkrules-frozen-str: py/mkrules.mk: Make MICROPY_MODULE_FROZEN_STR conditional on compiler.\npr/gc-add-heap: py/modgc: Add gc.add_heap() function for runtime heap expansion.\npr/ports-windows-ffi: ports/windows: Add FFI module support with libffi.\npr/unix-windows-romfs: ports/unix,windows: Add embedded romfs support with auto-mount.\npr/ports-windows-variant-overrides: ports/windows: Allow variant override of common config defines."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-libffi-1",
+      "name": "libffi",
+      "version": "3.4.6",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/libffi/libffi"
+        }
+      ],
+      "purl": "pkg:github/libffi/libffi@3.4.6",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "Statically linked into all runtime variants to support ctypes / ffi module."
+    }
+  ]
+}

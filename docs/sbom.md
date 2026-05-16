@@ -13,11 +13,10 @@ A Picolet user receives a single executable. That executable can contain:
 |---|---|---|
 | MicroPython core | MIT | static |
 | libffi | MIT-style | static (built from source per platform) |
-| libusb-1.0 | LGPL-2.1+ | dynamic (Windows bundled DLL, Linux system) |
 | WebView2 loader | proprietary, redistributable | dynamic (Windows) |
-| WKWebView | proprietary (Apple) | dynamic (macOS, system framework) |
 | WebKitGTK | LGPL-2.1+ | dynamic (Linux, system) |
 | LVGL | MIT | static |
+| lv_binding_micropython | MIT | static |
 | Selected `micropython-lib` modules | per-module, mostly MIT | static (frozen `.mpy`) |
 | App Python sources | user's choice | static (frozen `.mpy`) |
 | Frontend assets | user's choice | static (romfs) |
@@ -95,17 +94,24 @@ true` against the runtime's own SBOM.
 
 ## LGPL relinking
 
-For LGPL components (libusb-1.0, WebKitGTK) reached dynamically, the
-LGPL-2.1 §6 relinking obligation is satisfied by:
+For LGPL components reached dynamically, the LGPL-2.1 §6 relinking
+obligation is satisfied by:
 
 - Distributing the dynamically-loaded library separately, in its
   upstream form, with its source URL recorded in the SBOM.
 - Supporting `picolet build --from-source` so any user can re-derive the
   runtime binary from the published source tree.
 
-For libusb on Windows, the bundled DLL ships as the upstream binary;
-the Picolet build does not modify it. For WebKitGTK / WKWebView on Linux
-/ macOS, the system-provided library is used and Picolet ships no copy.
+Affected components:
+
+- **WebKitGTK 4.1** (Linux): system-provided; Picolet ships no copy.
+  Source URL in `sbom/runtime.toml`.
+- **WebView2 runtime** (Windows): distributed separately by Microsoft as
+  an operating-system component. The `WebView2Loader.dll` redistributable
+  is not LGPL; it is covered by Microsoft's proprietary fixed-terms
+  licence. LGPL does not apply to it.
+- **lv_binding_micropython** (Linux + Windows, both variants): linked
+  statically (MIT); LGPL does not apply.
 
 ## Open questions
 
