@@ -129,6 +129,7 @@ JS_TESTS=(
     "B10:sqe-args-edge-cases:test_args_edge_cases.js"
     "B11:sqe-bundle-size:test_bundle_size.js"
     "B12:sqe-malformed-inbound:test_malformed_inbound.js"
+    "B13:invoke-timeout:test_invoke_timeout.js"
 )
 
 if ! command -v node >/dev/null 2>&1; then

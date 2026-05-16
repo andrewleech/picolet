@@ -2,13 +2,17 @@
  * picolet-bridge-js — window.picolet IPC bridge for picolet webview apps.
  *
  * Exposes:
- *   window.picolet.invoke(cmd, args) → Promise<unknown>
+ *   window.picolet.invoke(cmd, args, opts?) → Promise<unknown>
  *   window.picolet.on(event, handler) → () => void
  *   window.picolet.emit(topic, data) → void
  *
  * Internal:
  *   window.__picolet_recv(jsonString) — called by the Python runtime to
  *   deliver replies and push events. Replaces the PH07 no-op stub.
+ *
+ *   window.picolet._drainPending(reason) — called by the host on transport
+ *   close to reject all outstanding invoke() promises. Not part of the
+ *   public app API; intended for host integration code.
  *
  * Wire format: docs/architecture.md §"IPC wire format".
  */
@@ -70,7 +74,7 @@ function _send(msg: PicoletWireRequest | PicoletWireEvent): void {
     return;
   }
 
-  if (typeof msg.id === "number" && "ok" in msg) {
+  if (Number.isInteger(msg.id) && (msg.id as number) > 0 && "ok" in msg) {
     // Reply to a pending invoke.
     const pending = _pending.get(msg.id as number);
     if (!pending) {
@@ -90,7 +94,7 @@ function _send(msg: PicoletWireRequest | PicoletWireEvent): void {
     // Push event from Python.
     const subs = _handlers.get(msg.event);
     if (subs) {
-      for (const handler of subs) {
+      for (const handler of Array.from(subs)) {
         try {
           handler(msg.data);
         } catch (e) {
@@ -111,18 +115,36 @@ function _send(msg: PicoletWireRequest | PicoletWireEvent): void {
   /**
    * Invoke a Python @picolet.command handler and await its result.
    *
-   * @param cmd  Name of the registered Python command.
-   * @param args JSON-serialisable argument payload (null if omitted).
+   * @param cmd     Name of the registered Python command.
+   * @param args    JSON-serialisable argument payload (null if omitted).
+   * @param opts    Optional settings.
+   * @param opts.timeout  Milliseconds before the promise rejects with
+   *                      Error("invoke timeout"). Omit or pass 0 for no timeout.
    * @returns Promise that resolves with the Python return value or
    *          rejects with an Error whose .name is the Python exception
    *          type and .message is the human-readable text.
    */
-  invoke(cmd: string, args: unknown = null): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const id = _nextId++;
+  invoke(cmd: string, args: unknown = null, opts?: { timeout?: number }): Promise<unknown> {
+    const id = _nextId++;
+    const promise = new Promise((resolve, reject) => {
       _pending.set(id, { resolve, reject });
-      _send({ id, cmd, args });
+      if (opts?.timeout) {
+        const timeoutId = setTimeout(() => {
+          if (_pending.delete(id)) {
+            reject(new Error("invoke timeout"));
+          }
+        }, opts.timeout);
+        // Wrap the entry so the timeout is cancelled when the invoke
+        // resolves or rejects through the normal reply path.
+        const orig = _pending.get(id)!;
+        _pending.set(id, {
+          resolve: (v) => { clearTimeout(timeoutId); orig.resolve(v); },
+          reject:  (e) => { clearTimeout(timeoutId); orig.reject(e); },
+        });
+      }
     });
+    _send({ id, cmd, args });
+    return promise;
   },
 
   /**
@@ -150,5 +172,23 @@ function _send(msg: PicoletWireRequest | PicoletWireEvent): void {
    */
   emit(topic: string, data: unknown = null): void {
     _send({ event: topic, data } as PicoletWireEvent);
+  },
+
+  /**
+   * Drain all outstanding invoke() promises with a rejection.
+   *
+   * Intended for host integration code: call this when the transport
+   * connection to the Python runtime closes unexpectedly so that callers
+   * do not hang indefinitely.
+   *
+   * @param reason  Human-readable description of why the transport closed.
+   *                Becomes the .message of each rejection Error.
+   */
+  _drainPending(reason: string): void {
+    const err = new Error(reason);
+    for (const { reject } of _pending.values()) {
+      reject(err);
+    }
+    _pending.clear();
   },
 };
