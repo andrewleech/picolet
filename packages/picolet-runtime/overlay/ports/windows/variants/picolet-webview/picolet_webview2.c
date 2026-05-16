@@ -55,6 +55,7 @@ int32_t picolet_wv2_destroy_window(void *hw) { (void)hw; return -1; }
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 #include "picolet_webview2.h"
 #include "include/WebView2_min.h"
@@ -345,7 +346,7 @@ static int wait_with_pump(HANDLE event, DWORD timeout_ms) {
  * One-shot blocking completion handlers (Env/Ctrl/AddScript) are heap-
  * allocated and ref-counted.  The blocking helper holds the caller's
  * ref until after the wait returns (even on timeout); WebView2's
- * eventual Invoke holds a second ref via add_*/Create* and drops it
+ * eventual Invoke holds a second ref via add_X/CreateX callbacks and drops it
  * after writing its result.  This eliminates the UAF risk where a
  * timed-out helper returned and freed its stack frame while WebView2
  * still held the handler pointer (S1).
