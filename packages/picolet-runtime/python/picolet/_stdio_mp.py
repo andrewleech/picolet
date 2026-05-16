@@ -102,7 +102,7 @@ def recv_loop(stream, state):
             continue
         try:
             return json.loads(stripped)
-        except (ValueError, Exception) as e:
+        except Exception as e:
             _sys.stderr.write("picolet: malformed JSON on stdin: " + str(e) + "\n")
             continue
     return None

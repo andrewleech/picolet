@@ -275,7 +275,7 @@ class StdioTransport:
             return await self.recv()
         try:
             return json.loads(line)
-        except (ValueError, Exception) as e:
+        except Exception as e:
             sys.stderr.write(
                 "picolet: malformed JSON on stdin: " + str(e) + "\n"
             )
@@ -461,7 +461,7 @@ class InProcessTransport:
                     continue
                 try:
                     return json.loads(raw)
-                except (ValueError, Exception) as e:
+                except Exception as e:
                     sys.stderr.write(
                         "picolet: InProcessTransport malformed JSON: " + str(e) + "\n"
                     )

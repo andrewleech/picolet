@@ -484,7 +484,7 @@ class WebviewTransport:
                 )
         try:
             msg = json.loads(json_str)
-        except (ValueError, Exception) as e:
+        except Exception as e:
             sys.stderr.write(
                 "picolet_ui: malformed JSON from postMessage: {}\n".format(e)
             )

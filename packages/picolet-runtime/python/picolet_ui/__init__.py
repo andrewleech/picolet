@@ -120,7 +120,7 @@ def _detect_renderer(rom_path="/rom/picolet.toml"):
             r = ui.get("renderer")
             if r in ("webview", "lvgl"):
                 return r
-        except (ValueError, Exception):
+        except Exception:
             pass
     # Fallback by capability.
     if _HAVE_LVGL and not _HAVE_WEBVIEW:
