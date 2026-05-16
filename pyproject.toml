@@ -2,4 +2,5 @@
 members = [
     "packages/picolet-cli",
     "packages/picolet-templates",
+    "packages/picolet-testing",
 ]

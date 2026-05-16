@@ -9,6 +9,7 @@ description = "The picolet command-line tool"
 requires-python = ">=3.11"
 dependencies = [
     "picolet-templates",
+    "picolet-testing",
 ]
 
 [project.scripts]
@@ -19,3 +20,4 @@ packages = ["picolet_cli"]
 
 [tool.uv.sources]
 picolet-templates = { workspace = true }
+picolet-testing = { workspace = true }

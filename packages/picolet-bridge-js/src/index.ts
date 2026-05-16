@@ -192,3 +192,9 @@ function _send(msg: PicoletWireRequest | PicoletWireEvent): void {
     _pending.clear();
   },
 };
+
+// PH17 (FR-TEST-3 / F9): signal that the bridge is fully wired.  AppHarness
+// polls `window.picolet.__ready__ === true` before running test assertions.
+// Set here so it is true after this IIFE evaluates; the runtime injects this
+// bundle at document-start before any user JS.
+(window as any).picolet.__ready__ = true;
