@@ -203,3 +203,140 @@ t.tap(x, y)          # inject pointer press+release at (x, y)
 t.press(key)         # inject keypad press+release
 png = t.snapshot()   # capture PNG bytes of the current screen
 ```
+
+---
+
+## Frontend toolchains (PH18, FR-VUE-1..5)
+
+Picolet supports multi-framework frontends through the `[ui.frontend]` table
+in `picolet.toml`. The default (absent `[ui.frontend]` or `framework =
+"vanilla"`) uses the v1 static-file model unchanged. Vue 3 + Vite + TypeScript
+is the v1.1 framework of record.
+
+### `[ui.frontend]` table schema
+
+```toml
+[ui.frontend]
+framework = "vue"          # "vanilla" | "vue" | "react" (see O4)
+build_cmd = "npm run build"  # optional override; default is npm run build
+dist_dir  = "dist"           # optional; Vite default output directory
+dev_url   = "http://localhost:5173/"  # optional; default for picolet dev
+```
+
+**`framework`** controls whether the frontend build hook fires during
+`picolet build`. When `"vanilla"`, `picolet build` uses the static `[romfs]
+include` path unchanged. For any other value, the npm-based pipeline runs.
+
+**`react`** is accepted by the validator for forward compatibility (O4 —
+React is out of scope for v1.1 but the pipeline is framework-agnostic once
+npm is involved; a user who provides a correct `build_cmd` and `dist_dir`
+for a React project will get the same pipeline treatment as Vue).
+
+### Host requirements
+
+Node ≥ 18 LTS (currently Node 20 or 22 LTS) must be on PATH for any project
+with a non-vanilla `[ui.frontend]`. Node is a **host build-time dependency
+only** — it is not shipped in the app binary. Vue/TS toolchain output is
+compiled and packed into the romfs at build time; the runtime is pure C + MicroPython.
+
+`picolet build` checks `shutil.which("npm")` before any npm invocation and
+emits a clear error with a pointer to this section when npm is absent.
+
+### Build pipeline integration
+
+When `framework != "vanilla"`, `picolet build` inserts two steps:
+
+1. **Step 4b**: `npm install --prefer-offline --no-fund --no-audit` in `app_root`.
+   This is idempotent: fast on a warm `node_modules/` tree, respects
+   `package-lock.json` when present (D2).
+
+2. **Step 6a**: `_copy_dist_to_ui_root` copies `<dist_dir>/` (default: `dist/`)
+   into the romfs staging area at `<ui_root>/` (default: `ui/`). Vue apps
+   must **not** add `"ui"` to `[romfs] include` — the build pipeline copies
+   `dist/` there automatically (R2 footgun: double-copy if both are present).
+
+The `[ui.frontend]` table is **not emitted** into the romfs `picolet.toml`
+(F8). The frozen runtime does not parse it; only `[ui].root` and `[ui].index`
+are emitted, pointing the runtime at the packed assets.
+
+### `base: './'` requirement (F10, R4)
+
+Vite projects targeting picolet must set `base: './'` in `vite.config.ts`.
+The picolet:// custom URI scheme (WebKitGTK) and WebView2 resolve sub-assets
+differently from a standard HTTP origin. Absolute-path assets (`/assets/main.js`)
+work on Linux but break on Windows via WebView2 (scheme resolution differs).
+Relative paths (`./assets/main.js`) work on both.
+
+Asset filename hashing (e.g. `assets/main-Cn3VHXS6.js`) is intentional
+and correct — the full `dist/` is packed including hashed filenames.
+
+### `PICOLET_DEV_URL` environment variable (D1, FR-VUE-2)
+
+`picolet dev` uses environment variables (not romfs patching) to redirect the
+runtime's initial URL to the Vite dev server. When `[ui.frontend].framework
+!= "vanilla"`, `picolet dev`:
+
+1. Spawns `npm run dev` in a new process group (`start_new_session=True`)
+   before the first binary build.
+2. Sets `PICOLET_DEV_URL=<dev_url>` (default: `http://localhost:5173/`) in the
+   launched binary's environment.
+
+The runtime (`picolet_ui._app.Application.__init__`) reads `PICOLET_DEV_URL` at
+startup. If set, it skips the romfs `picolet://` load and calls
+`webkit_web_view_load_uri(view, dev_url)` directly (Linux). On Windows it
+falls back to a `NavigateToString` meta-refresh redirect (R3 limitation —
+no `picolet_wv2_navigate` C export yet; a proper `Navigate` call is deferred).
+
+`PICOLET_DEV_URL` is **never set in production builds**. The released binary
+launched directly or via `picolet run` has no such environment variable and
+loads from romfs normally.
+
+### Process group teardown (D3)
+
+Vite spawns child processes (ESBuild, Rollup workers). A SIGTERM to the
+`npm run dev` process does not propagate to grandchildren on Linux. `picolet dev`
+creates the Vite process in a new session via `start_new_session=True` and
+tears it down with `os.killpg(pgid, SIGTERM)`, ensuring the full process group
+is terminated on exit (CTRL-C, rebuild, or `picolet dev` normal exit).
+
+On Windows (`sys.platform == "win32"`), `vite_proc.terminate()` is used as
+a best-effort fallback. Full process-group teardown on Windows requires
+`CREATE_NEW_PROCESS_GROUP + GenerateConsoleCtrlEvent` and is deferred (R3).
+
+### `picolet.d.ts` type declaration (FR-VUE-3)
+
+`picolet-bridge-js` builds as an IIFE and exports nothing, so `tsc --declaration`
+produces nothing useful. The type declaration for `window.picolet` is
+**hand-authored** at `packages/picolet-bridge-js/src/picolet.d.ts`. It augments
+the global `Window` interface via ambient module augmentation.
+
+In a monorepo / workspace setup, Vue projects reference it via:
+
+```typescript
+// ui/src/env.d.ts
+/// <reference path="../../../../packages/picolet-bridge-js/src/picolet.d.ts" />
+```
+
+In a standalone project scaffolded from `hello-vue`, a local copy of
+`picolet.d.ts` is bundled in `ui/src/picolet.d.ts` and referenced the same way.
+
+### npm lockfile convention (O3)
+
+- `examples/with-vue/` commits `package-lock.json` for reproducible,
+  offline-capable builds (`npm install --prefer-offline` respects it).
+- `packages/picolet-templates/picolet_templates/hello-vue/` does NOT commit a
+  lockfile. Users get the latest compatible versions at `picolet init` time.
+  PH23's mirror script must not copy `package-lock.json` from examples into
+  templates.
+
+**Escape hatch for air-gapped CI**: if `npm install --prefer-offline` fails
+on a cold cache, override by setting `PICOLET_NPM_ARGS` (future knob, not yet
+implemented in PH18).
+
+### R2 footgun: double-copy of ui/
+
+If a Vue app's `picolet.toml` includes `"ui"` in `[romfs] include` AND has an
+active frontend build hook, the vanilla static files would be copied alongside
+(or overwriting) the Vite `dist/` output. The `with-vue` template omits
+`[romfs] include` entirely to avoid this. The validator does not yet detect
+this combination (deferred; documented here as a footgun).
