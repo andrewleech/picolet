@@ -6,6 +6,9 @@ build-*/
 *.pyc
 __pycache__/
 
+# Frontend build outputs (Vite dist/) inside examples/
+examples/*/dist/
+
 # Cached runtime artifacts downloaded by `picolet build`
 .picolet-cache/
 
