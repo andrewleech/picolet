@@ -184,9 +184,11 @@ def press(key):
 def snapshot():
     """Capture the active LVGL screen to PNG bytes.
 
-    Calls lv.snapshot_take() for RGB888, extracts the pixel data via uctypes,
-    encodes to PNG via the in-process picolet_lvgl_png_encode C symbol (linked
-    into the lvgl runtime binary, exposed via libffi.ffi.open(None)).
+    Calls lv.snapshot_take() for RGB888, then passes the pixel data pointer
+    directly to picolet_lvgl_png_encode (a C symbol linked into the binary and
+    exposed via ffi.open(None)).  The pixel buffer is NOT copied into Python
+    heap (1.44 MB for 800x600 would exhaust MicroPython's allocator); instead
+    the C encoder receives the raw pointer from the lv_draw_buf_t.
 
     Returns:
         bytes: PNG-encoded image of the current screen state.
@@ -194,33 +196,11 @@ def snapshot():
     Raises:
         RuntimeError: if the snapshot or PNG encoding fails.
     """
-    scr = lv.screen_active()
-
-    # lv.snapshot_take returns an lv_image_dsc_t (lv_img_dsc_t in LVGL 8).
-    dsc = lv.snapshot_take(scr, lv.COLOR_FORMAT.RGB888)
-    if dsc is None:
-        raise RuntimeError("picolet._test.snapshot: lv.snapshot_take returned None")
-
-    try:
-        # Copy pixel data out before freeing the descriptor.
-        # dsc.data is a pointer to the raw pixel bytes.
-        # dsc.data_size is the byte count (width * height * 3 for RGB888).
-        data_size = dsc.data_size
-        if data_size == 0:
-            raise RuntimeError("picolet._test.snapshot: snapshot data_size is 0")
-
-        pixel_bytes = bytes(uctypes.bytes_at(dsc.data, data_size))
-
-        # Retrieve width and height from the descriptor header.
-        # lv_image_dsc_t: header.w, header.h accessible via .header.w etc.
-        w = dsc.header.w
-        h = dsc.header.h
-    finally:
-        lv.snapshot_free(dsc)
-
-    # Encode to PNG via the C shim linked into the binary.
-    # ffi.open(None) gives us the running process's symbol table.
     import ffi as _ffi
+    import struct
+
+    # Resolve the C encoder once (fast path reuses module-level cache via
+    # closure; if import is cached this is just an attribute lookup).
     try:
         _self = _ffi.open(None)
         _png_encode = _self.func("i", "picolet_lvgl_png_encode", "piipp")
@@ -230,33 +210,69 @@ def snapshot():
             "picolet._test.snapshot: cannot resolve picolet_lvgl_png_encode: {}".format(e)
         )
 
-    # Prepare output pointer slots as 8-byte buffers (pointer + size_t).
-    # We pass pointers to these buffers so the C function can fill them in.
-    out_ptr_buf  = bytearray(8)   # void* (pointer to malloc'd output)
-    out_size_buf = bytearray(8)   # size_t
+    scr = lv.screen_active()
 
-    pixel_buf = bytearray(pixel_bytes)  # ensure a mutable buffer in heap
+    # Run task_handler to flush any pending draw operations before capture.
+    lv.task_handler()
 
-    rc = _png_encode(
-        uctypes.addressof(pixel_buf),
-        w, h,
-        uctypes.addressof(out_ptr_buf),
-        uctypes.addressof(out_size_buf),
-    )
-    if rc != 0:
-        raise RuntimeError("picolet._test.snapshot: picolet_lvgl_png_encode failed (rc={})".format(rc))
+    # lv.snapshot_take returns an lv_draw_buf_t.
+    dsc = lv.snapshot_take(scr, lv.COLOR_FORMAT.RGB888)
+    if dsc is None:
+        raise RuntimeError("picolet._test.snapshot: lv.snapshot_take returned None")
 
-    # Read back the pointer and size.
-    # On x86-64 Linux: pointer is 8 bytes LE, size_t is 8 bytes LE.
-    import struct
-    out_ptr  = struct.unpack_from("<Q", out_ptr_buf,  0)[0]
-    out_size = struct.unpack_from("<Q", out_size_buf, 0)[0]
+    try:
+        data_size = dsc.data_size
+        if data_size == 0:
+            raise RuntimeError("picolet._test.snapshot: snapshot data_size is 0")
 
-    if out_ptr == 0 or out_size == 0:
-        raise RuntimeError("picolet._test.snapshot: PNG encoder returned null/empty buffer")
+        w = dsc.header.w
+        h = dsc.header.h
 
-    png_bytes = bytes(uctypes.bytes_at(out_ptr, out_size))
-    _png_free(out_ptr)
+        # dsc.data is a C_Array (uint8_t*).  memoryview() yields the 8-byte
+        # pointer value (on x86-64); unpack it to get the actual pixel address.
+        # Avoid bytes(uctypes.bytes_at(addr, data_size)) — that would allocate
+        # width*height*3 bytes in the MicroPython heap (> 1 MiB for 800x600),
+        # which would trigger a MemoryError.  Pass the raw pointer to the C
+        # encoder instead and only copy the much-smaller PNG output.
+        data_ptr_bytes = bytes(memoryview(dsc.data))
+        data_ptr = struct.unpack_from("<Q", data_ptr_bytes, 0)[0]
+        if data_ptr == 0:
+            raise RuntimeError("picolet._test.snapshot: dsc.data pointer is NULL")
+
+        # Encode to PNG.  Output buffers: 8-byte void* + 8-byte size_t.
+        out_ptr_buf  = bytearray(8)
+        out_size_buf = bytearray(8)
+
+        rc = _png_encode(
+            data_ptr,       # raw pixel pointer (not copied to Python heap)
+            w, h,
+            uctypes.addressof(out_ptr_buf),
+            uctypes.addressof(out_size_buf),
+        )
+        if rc != 0:
+            raise RuntimeError(
+                "picolet._test.snapshot: picolet_lvgl_png_encode failed (rc={})".format(rc)
+            )
+
+        out_ptr  = struct.unpack_from("<Q", out_ptr_buf,  0)[0]
+        out_size = struct.unpack_from("<Q", out_size_buf, 0)[0]
+
+        if out_ptr == 0 or out_size == 0:
+            raise RuntimeError(
+                "picolet._test.snapshot: PNG encoder returned null/empty buffer"
+            )
+
+        png_bytes = bytes(uctypes.bytes_at(out_ptr, out_size))
+        _png_free(out_ptr)
+        return png_bytes
+    finally:
+        # lv.snapshot_free() only accepts lv_image_dsc_t*, but snapshot_take()
+        # in LVGL 9 returns lv_draw_buf_t*.  Use the draw buffer's own
+        # destroy() method to free the allocation.
+        try:
+            dsc.destroy()
+        except Exception:
+            pass
 
     return png_bytes
 
