@@ -399,3 +399,51 @@ class TestEmitAppSbom:
         )
         assert out.is_file(), "SBOM file must be written even on violation"
         assert violations, "Expected at least one violation"
+
+    # ------ name collision: both entries present, warning emitted (C4) ------
+
+    def test_app_dep_collision_with_runtime_produces_both_entries_and_warning(self):
+        """When an app [dependencies] name collides with a runtime component:
+        - Both entries appear in the emitted SBOM (different bom-refs).
+        - A warn-severity SbomViolation is returned.
+        """
+        # MicroPython is always in the cli runtime SBOM.
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "dependencies": {"MicroPython": "1.25.0"},
+            "dependency_meta": {
+                "MicroPython": {"licence": "MIT", "link_type": "dynamic"},
+            },
+        }
+        out = Path(tempfile.mktemp(suffix=".cdx.json"))
+        violations = emit_app_sbom(
+            output_path=out,
+            runtime_sbom_path=None,
+            app_data=app_data,
+            target="linux-x64",
+            variant="cli",
+            repo_root=_REPO_ROOT,
+        )
+        doc = json.loads(out.read_text())
+        components = doc["components"]
+
+        # Both the runtime and app MicroPython entries must be present.
+        mp_components = [c for c in components if c["name"] == "MicroPython"]
+        assert len(mp_components) == 2, \
+            f"Expected 2 MicroPython entries (runtime + app), got {len(mp_components)}: " \
+            f"{[c['bom-ref'] for c in mp_components]}"
+
+        # Their bom-refs must be distinct.
+        refs = [c["bom-ref"] for c in mp_components]
+        assert refs[0] != refs[1], f"bom-refs must differ: {refs}"
+
+        # One bom-ref must identify as the app entry.
+        assert any(r.startswith("app-") for r in refs), \
+            f"Expected at least one 'app-' prefixed bom-ref: {refs}"
+
+        # A warn-severity violation must be returned.
+        warn_v = [v for v in violations if v.severity == "warn" and v.component == "MicroPython"]
+        assert warn_v, \
+            f"Expected warn SbomViolation for MicroPython collision. Got: {violations}"
+        assert "runtime" in warn_v[0].reason.lower() or "collide" in warn_v[0].reason.lower(), \
+            f"Violation reason should mention collision context: {warn_v[0].reason}"

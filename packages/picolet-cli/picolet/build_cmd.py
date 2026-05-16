@@ -146,9 +146,13 @@ def _do_build(args) -> int:
         )
         return 1
 
-    errors = validate_toml(toml_path)
-    if errors:
-        for e in errors:
+    _all_validation = validate_toml(toml_path)
+    _hard_errors = [e for e in _all_validation if e.level != "warn"]
+    for e in _all_validation:
+        if e.level == "warn":
+            print(str(e), file=sys.stderr)
+    if _hard_errors:
+        for e in _hard_errors:
             print(str(e), file=sys.stderr)
         return 1
 

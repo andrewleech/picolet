@@ -37,9 +37,14 @@ def run(args) -> None:
         print(f"error: file not found: {path}", file=sys.stderr)
         sys.exit(1)
 
-    errors = validate_toml(path)
-    if errors:
-        for error in errors:
-            print(error, file=sys.stderr)
+    results = validate_toml(path)
+    hard_errors = [r for r in results if r.level != "warn"]
+    warnings = [r for r in results if r.level == "warn"]
+
+    for w in warnings:
+        print(str(w), file=sys.stderr)
+    if hard_errors:
+        for e in hard_errors:
+            print(str(e), file=sys.stderr)
         sys.exit(1)
     # No output on success — callers rely on exit 0.

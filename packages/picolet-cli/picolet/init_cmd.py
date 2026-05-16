@@ -107,11 +107,12 @@ def run(args) -> None:
 
     # 6. Self-check: validate the produced picolet.toml.
     produced_toml = output_dir / "picolet.toml"
-    errors = validate_toml(produced_toml)
-    if errors:
+    all_results = validate_toml(produced_toml)
+    hard_errors = [e for e in all_results if e.level != "warn"]
+    if hard_errors:
         shutil.rmtree(output_dir, ignore_errors=True)
         print("error: scaffolded picolet.toml failed validation:", file=sys.stderr)
-        for error in errors:
+        for error in hard_errors:
             print(f"  {error}", file=sys.stderr)
         sys.exit(1)
 

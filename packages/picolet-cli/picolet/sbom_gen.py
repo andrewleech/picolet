@@ -56,7 +56,11 @@ from typing import Any
 CDX_SPEC_VERSION = "1.5"
 CDX_BOM_FORMAT = "CycloneDX"
 
-_PICOLET_CLI_VERSION = "0.1.0"   # kept simple; PH15 will derive from a tag
+try:
+    from importlib.metadata import version as _v
+    _PICOLET_CLI_VERSION = _v("picolet-cli")
+except Exception:
+    _PICOLET_CLI_VERSION = "0.0.0-dev"
 
 # ---------------------------------------------------------------------------
 # Default allowlists (FR-SBOM-3, docs/sbom.md)
@@ -393,17 +397,43 @@ def emit_app_sbom(
     # Step 2 — Build the app dependency component list.
     app_cdx_components = _app_dep_components(app_data, offset=len(runtime_cdx_components))
 
-    # Step 3 — Merge (runtime takes precedence; dedup by name).
-    seen_names: set[str] = {c["name"] for c in runtime_cdx_components}
+    # Step 3 — Merge; detect name collisions and keep both with warning.
+    runtime_by_name: dict[str, dict] = {c["name"]: c for c in runtime_cdx_components}
+    collision_violations: list[SbomViolation] = []
     merged = list(runtime_cdx_components)
+    seen_names: set[str] = set(runtime_by_name.keys())
     for comp in app_cdx_components:
-        if comp["name"] not in seen_names:
+        name = comp["name"]
+        if name in runtime_by_name:
+            # Collision: preserve both entries.  Rewrite bom-ref to avoid
+            # duplicates — app entry gets "app-<name>-..." prefix.
+            rt_comp = runtime_by_name[name]
+            rt_version = rt_comp.get("version", "?")
+            rt_licence = _get_component_licence(rt_comp)
+            app_version = comp.get("version", "?")
+            app_licence = _get_component_licence(comp)
+            # Ensure the app component's bom-ref is distinguishable from the
+            # runtime one by prepending "app-" if not already present.
+            old_ref = comp.get("bom-ref", "")
+            if not old_ref.startswith("app-"):
+                comp = dict(comp)
+                comp["bom-ref"] = "app-" + old_ref
+            collision_violations.append(SbomViolation(
+                severity="warn",
+                component=name,
+                reason=(
+                    f"app [dependencies] declaration collides with runtime component "
+                    f"(runtime: {rt_version}/{rt_licence}; app: {app_version}/{app_licence})"
+                ),
+            ))
             merged.append(comp)
-            seen_names.add(comp["name"])
+        else:
+            merged.append(comp)
+            seen_names.add(name)
 
     # Step 4 — Policy enforcement (FR-SBOM-3).
     sbom_config = app_data.get("sbom") or {}
-    violations = _enforce_policy(merged, sbom_config)
+    violations = collision_violations + _enforce_policy(merged, sbom_config)
 
     # Step 5 — Write SBOM (always, even on violations).
     app_name = app_data.get("app", {}).get("name", "unknown-app")

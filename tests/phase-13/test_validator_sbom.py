@@ -130,3 +130,95 @@ class TestDependenciesAllowed:
         )
         errors = validate_toml(p)
         assert errors == [], errors
+
+
+# ---------------------------------------------------------------------------
+# New: [dependancies] typo rejected (A10)
+# ---------------------------------------------------------------------------
+
+class TestDependenciesTypoRejected:
+    def test_dependancies_typo_is_rejected(self):
+        """A misspelled [dependancies] section must be rejected as unknown."""
+        p = _write_toml(
+            _BASE
+            + '[dependancies]\n'
+            + 'requests = "2.31.0"\n'
+        )
+        errors = validate_toml(p)
+        hard = [e for e in errors if e.level != "warn"]
+        assert hard, "Expected a hard error for unknown [dependancies] section"
+        assert any("dependancies" in str(e) for e in hard), \
+            f"Expected 'dependancies' in error message: {hard}"
+
+    def test_dependencies_non_string_value_rejected(self):
+        """A version that is not a string must be rejected."""
+        p = _write_toml(
+            _BASE
+            + '[dependencies]\n'
+            + 'requests = 1234\n'
+        )
+        errors = validate_toml(p)
+        hard = [e for e in errors if e.level != "warn"]
+        assert hard, "Expected a hard error for non-string version"
+        assert any(e.key == "requests" for e in hard), \
+            f"Expected error on key 'requests': {hard}"
+
+    def test_dependency_meta_value_not_table_rejected(self):
+        """[dependency_meta.name] must be a table, not a scalar."""
+        p = _write_toml(
+            _BASE
+            + '[dependencies]\n'
+            + 'requests = "2.31.0"\n'
+            + 'dependency_meta.requests = "bad"\n'
+        )
+        errors = validate_toml(p)
+        hard = [e for e in errors if e.level != "warn"]
+        assert hard, "Expected a hard error for dependency_meta value that is not a table"
+
+
+# ---------------------------------------------------------------------------
+# New: unknown keys within known sections emit warnings (C8)
+# ---------------------------------------------------------------------------
+
+class TestUnknownKeyWarnings:
+    def test_unknown_key_in_window_section_warns(self):
+        """[window] tittle = ... (typo) must generate a level=warn entry."""
+        p = _write_toml(
+            _BASE
+            + '[window]\n'
+            + 'tittle = "My App"\n'
+        )
+        results = validate_toml(p)
+        warnings = [r for r in results if r.level == "warn"]
+        hard = [r for r in results if r.level != "warn"]
+        assert not hard, f"Unexpected hard errors: {hard}"
+        assert warnings, "Expected at least one warning for unknown key 'tittle'"
+        assert any(r.key == "tittle" for r in warnings), \
+            f"Expected warning on key 'tittle': {warnings}"
+
+    def test_unknown_key_in_window_does_not_hard_fail(self):
+        """Unknown key in [window] is a soft warn, not a hard error."""
+        p = _write_toml(
+            _BASE
+            + '[window]\n'
+            + 'title = "My App"\n'
+            + 'bogus_key = 123\n'
+        )
+        results = validate_toml(p)
+        hard = [r for r in results if r.level != "warn"]
+        assert not hard, f"Unknown key in [window] should not be a hard error: {hard}"
+
+    def test_unknown_key_in_sbom_warns(self):
+        """An unrecognised key in [sbom] must generate a level=warn entry."""
+        p = _write_toml(
+            _BASE
+            + '[sbom]\n'
+            + 'warn_unknown = true\n'
+            + 'extra_future_key = "whatever"\n'
+        )
+        results = validate_toml(p)
+        warnings = [r for r in results if r.level == "warn"]
+        hard = [r for r in results if r.level != "warn"]
+        assert not hard, f"Unexpected hard errors: {hard}"
+        assert any(r.key == "extra_future_key" for r in warnings), \
+            f"Expected warning on 'extra_future_key': {warnings}"

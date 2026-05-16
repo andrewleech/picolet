@@ -8,12 +8,16 @@ Usage:
     errors = validate_toml(Path("picolet.toml"))
     if errors:
         for e in errors:
-            print(e)
+            if e.level == "warn":
+                print(e, file=sys.stderr)
+            else:
+                print(e)
 """
 from __future__ import annotations
 
+import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +70,16 @@ _RUNTIME_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "tag": str,
 }
 
+# [dependency_meta.<name>] allowed string keys.
+_DEPENDENCY_META_ENTRY_SCHEMA: dict[str, type | tuple[type, ...]] = {
+    "licence":    str,
+    "license":    str,   # alias accepted by sbom_gen
+    "source_url": str,
+    "url":        str,   # alias accepted by sbom_gen
+    "link_type":  str,
+    "purl":       str,
+}
+
 _SECTION_SCHEMAS: dict[str, dict[str, type | tuple[type, ...]]] = {
     "app": _APP_SCHEMA,
     "ui": _UI_SCHEMA,
@@ -79,15 +93,21 @@ _SECTION_SCHEMAS: dict[str, dict[str, type | tuple[type, ...]]] = {
 
 @dataclass
 class PicoletTomlError:
-    """A structured validation error from a picolet.toml file."""
+    """A structured validation error or warning from a picolet.toml file.
+
+    level is "error" for hard validation failures; "warn" for soft issues
+    that are reported to stderr but do not prevent the build from proceeding.
+    """
 
     file: str
     section: str
     key: str
     reason: str
+    level: str = field(default="error")   # "error" | "warn"
 
     def __str__(self) -> str:
-        return f"{self.file}: [{self.section}] {self.key}: {self.reason}"
+        prefix = "warn" if self.level == "warn" else "error"
+        return f"{prefix}: {self.file}: [{self.section}] {self.key}: {self.reason}"
 
 
 def validate_toml(path: Path) -> list[PicoletTomlError]:
@@ -278,6 +298,69 @@ def validate_toml(path: Path) -> list[PicoletTomlError]:
         else:
             errors.extend(_check_section(file_str, "runtime", runtime, _RUNTIME_SCHEMA))
 
+    # [dependencies] — optional; flat {name: version_str} table.
+    if "dependencies" in data:
+        deps = data["dependencies"]
+        if not isinstance(deps, dict):
+            errors.append(
+                PicoletTomlError(
+                    file=file_str,
+                    section="dependencies",
+                    key="(section)",
+                    reason='"[dependencies]" must be a table',
+                )
+            )
+        else:
+            for dep_name, dep_value in deps.items():
+                if not isinstance(dep_value, str):
+                    errors.append(
+                        PicoletTomlError(
+                            file=file_str,
+                            section="dependencies",
+                            key=dep_name,
+                            reason=(
+                                f"version must be a string, "
+                                f"got {type(dep_value).__name__} ({dep_value!r})"
+                            ),
+                        )
+                    )
+
+    # [dependency_meta] — optional; nested {name: {key: str, ...}} tables.
+    if "dependency_meta" in data:
+        meta_root = data["dependency_meta"]
+        if not isinstance(meta_root, dict):
+            errors.append(
+                PicoletTomlError(
+                    file=file_str,
+                    section="dependency_meta",
+                    key="(section)",
+                    reason='"[dependency_meta]" must be a table',
+                )
+            )
+        else:
+            for dep_name, meta in meta_root.items():
+                if not isinstance(meta, dict):
+                    errors.append(
+                        PicoletTomlError(
+                            file=file_str,
+                            section="dependency_meta",
+                            key=dep_name,
+                            reason=(
+                                f'[dependency_meta.{dep_name}] must be a table, '
+                                f'got {type(meta).__name__}'
+                            ),
+                        )
+                    )
+                    continue
+                errors.extend(
+                    _check_section(
+                        file_str,
+                        f"dependency_meta.{dep_name}",
+                        meta,
+                        _DEPENDENCY_META_ENTRY_SCHEMA,
+                    )
+                )
+
     return errors
 
 
@@ -287,12 +370,15 @@ def _check_section(
     table: dict[str, Any],
     schema: dict[str, type | tuple[type, ...]],
 ) -> list[PicoletTomlError]:
-    """Type-check known keys in a section table.
+    """Type-check known keys and soft-warn on unknown keys in a section table.
 
-    Unknown keys within a section are not currently rejected (they may be
-    added by future schema versions). Only type mismatches are reported.
+    Unknown keys are reported as level="warn" entries for forward-compatibility
+    — a future schema version may add them; rejecting hard would break existing
+    configs.  Type mismatches on known keys are level="error".
     """
-    errors: list[PicoletTomlError] = []
+    results: list[PicoletTomlError] = []
+
+    # Check types of schema-known keys present in the table.
     for key, expected_type in schema.items():
         if key not in table:
             continue
@@ -303,7 +389,7 @@ def _check_section(
                 if isinstance(expected_type, type)
                 else " or ".join(t.__name__ for t in expected_type)
             )
-            errors.append(
+            results.append(
                 PicoletTomlError(
                     file=file_str,
                     section=section,
@@ -312,6 +398,21 @@ def _check_section(
                         f"expected {type_name}, "
                         f"got {type(value).__name__} ({value!r})"
                     ),
+                    level="error",
                 )
             )
-    return errors
+
+    # Warn on user-declared keys that are not in the schema.
+    for key in table:
+        if key not in schema:
+            results.append(
+                PicoletTomlError(
+                    file=file_str,
+                    section=section,
+                    key=key,
+                    reason=f'unknown key "{key}" in [{section}]; ignored',
+                    level="warn",
+                )
+            )
+
+    return results
