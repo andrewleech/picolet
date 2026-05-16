@@ -34,6 +34,7 @@
 #   and webkit_uri_scheme_request_get_path returns "/<root>/style.css",
 #   which the scheme handler maps to "/rom/<root>/style.css".
 
+import os
 import sys
 
 
@@ -216,20 +217,37 @@ class Application:
         self.window = Window(title=title, size=size, resizable=resizable)
         self.transport = WebviewTransport()
 
+        # FR-VUE-2 / D1: PICOLET_DEV_URL is set by `picolet dev` when a non-vanilla
+        # frontend (e.g. Vue) is active. Load from the Vite dev server URL
+        # instead of the romfs picolet:// path. Behaviour is unchanged when
+        # PICOLET_DEV_URL is unset (production and vanilla dev builds).
+        _dev_url = os.getenv("PICOLET_DEV_URL")
+
         if sys.platform == "win32":
             # WebView2 cannot resolve file:///rom/ paths — read the HTML
-            # via the VFS and hand it to NavigateToString.
+            # via the VFS and hand it to NavigateToString.  When a dev URL
+            # is set, inject a redirect page so the WebView2 navigates to
+            # the Vite dev server (R3: no picolet_wv2_navigate export yet;
+            # redirect HTML is the best-effort Windows dev path).
             self.webview = Webview(self.window, transport=self.transport)
-            cfg = _load_ui_config()
-            rom_doc = "/rom/" + cfg["root"] + "/" + cfg["index"]
-            try:
-                html = _read_rom_html(rom_doc)
-            except OSError as e:
-                sys.stderr.write(
-                    "picolet_ui: failed to read {}: {}\n".format(rom_doc, e)
+            if _dev_url:
+                redirect_html = (
+                    "<!doctype html><html><head>"
+                    "<meta http-equiv='refresh' content='0; url={}'>"
+                    "</head><body></body></html>".format(_dev_url)
                 )
-                raise
-            self.webview.navigate_to_string(html)
+                self.webview.navigate_to_string(redirect_html)
+            else:
+                cfg = _load_ui_config()
+                rom_doc = "/rom/" + cfg["root"] + "/" + cfg["index"]
+                try:
+                    html = _read_rom_html(rom_doc)
+                except OSError as e:
+                    sys.stderr.write(
+                        "picolet_ui: failed to read {}: {}\n".format(rom_doc, e)
+                    )
+                    raise
+                self.webview.navigate_to_string(html)
         else:
             # WebKit on Linux: /rom is an in-process VFS overlay, not
             # visible to the kernel.  Read the index.html through Python
@@ -238,8 +256,19 @@ class Application:
             # scheme registered below, which reads from /rom/<path>
             # through the same VFS.  The base URI is set to
             # "picolet://<root>/" so relative URLs resolve correctly.
+            #
+            # When PICOLET_DEV_URL is set, skip the romfs HTML load and
+            # navigate directly to the dev server URL via load_uri.
             from . import _gtk_ffi
-            if root_uri is None:
+            if _dev_url:
+                # Register picolet:// scheme anyway (scheme registration must
+                # precede view creation on WebKitGTK).
+                _register_picolet_scheme(_gtk_ffi)
+                self.webview = Webview(
+                    self.window, root_uri=None, transport=self.transport
+                )
+                _gtk_ffi.webkit_web_view_load_uri(self.webview.view, _dev_url)
+            elif root_uri is None:
                 cfg = _load_ui_config()
                 # Register the picolet:// scheme before the view is created
                 # (WebKitGTK requires scheme registration before any view).

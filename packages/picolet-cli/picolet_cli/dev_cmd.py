@@ -17,6 +17,7 @@ Closes: FR-CLI-7.
 from __future__ import annotations
 
 import atexit
+import os
 import signal
 import subprocess
 import sys
@@ -68,12 +69,23 @@ def run(args) -> None:
     app_root = toml_path.parent
     watch_dirs = collect_watch_paths(app_root, data)
 
+    # Detect Vue (or other non-vanilla) frontend (FR-VUE-2, FR-VUE-5).
+    frontend = data.get("ui", {}).get("frontend", {})
+    framework = frontend.get("framework", "vanilla")
+    dev_url: Optional[str] = None
+    vite_proc: Optional[subprocess.Popen] = None
+
+    if framework != "vanilla":
+        dev_url = frontend.get("dev_url", "http://localhost:5173/")
+
     print(f"picolet dev: watching {app_root}", file=sys.stderr)
     if args.verbose:
         for p in watch_dirs:
             print(f"  watch: {p}", file=sys.stderr)
         print(f"  target: {target}", file=sys.stderr)
         print(f"  binary: {binary_path}", file=sys.stderr)
+        if dev_url:
+            print(f"  frontend: {framework}, dev_url={dev_url}", file=sys.stderr)
 
     watcher = _Watcher(watch_dirs, args.verbose)
     child: Optional[subprocess.Popen] = None
@@ -92,6 +104,44 @@ def run(args) -> None:
                 child.wait()
         child = None
 
+    def _kill_vite() -> None:
+        """Terminate the Vite process group (D3: POSIX killpg for cascade)."""
+        nonlocal vite_proc
+        if vite_proc is None:
+            return
+        if vite_proc.poll() is not None:
+            vite_proc = None
+            return
+        if args.verbose:
+            print("dev: stopping Vite …", file=sys.stderr)
+        try:
+            if sys.platform == "win32":
+                # Windows: best-effort; process groups work differently.
+                vite_proc.terminate()
+            else:
+                # POSIX: kill the entire process group so ESBuild/rollup
+                # children also die (D3).
+                try:
+                    pgid = os.getpgid(vite_proc.pid)
+                    os.killpg(pgid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            try:
+                vite_proc.wait(timeout=_SIGTERM_GRACE)
+            except subprocess.TimeoutExpired:
+                try:
+                    if sys.platform != "win32":
+                        pgid = os.getpgid(vite_proc.pid)
+                        os.killpg(pgid, signal.SIGKILL)
+                    else:
+                        vite_proc.kill()
+                except ProcessLookupError:
+                    pass
+                vite_proc.wait()
+        except Exception:
+            pass
+        vite_proc = None
+
     def _build_and_launch() -> Optional[subprocess.Popen]:
         print("dev: building …", file=sys.stderr)
         # In-process call to build_cmd.run — no subprocess overhead per
@@ -109,9 +159,36 @@ def run(args) -> None:
             )
             return None
         print(f"dev: launching {binary_path.name}", file=sys.stderr)
-        return subprocess.Popen([str(binary_path)], cwd=str(app_root))
+        # For Vue apps, inject PICOLET_DEV_URL so the runtime loads from Vite
+        # instead of from romfs (F5, D1).
+        if dev_url is not None:
+            child_env = {**os.environ, "PICOLET_DEV_URL": dev_url}
+        else:
+            child_env = None
+        return subprocess.Popen(
+            [str(binary_path)],
+            cwd=str(app_root),
+            env=child_env,
+        )
 
     atexit.register(_kill_child)
+    atexit.register(_kill_vite)
+
+    # Spawn Vite before the first build so the dev server is ready when the
+    # binary launches (FR-VUE-2).
+    if dev_url is not None:
+        vite_env = {**os.environ, "FORCE_COLOR": "1"}
+        vite_proc = subprocess.Popen(
+            ["npm", "run", "dev"],
+            cwd=str(app_root),
+            env=vite_env,
+            start_new_session=True,   # D3: own process group for clean teardown
+        )
+        print(
+            f"dev: Vite dev server spawned (PID {vite_proc.pid}), "
+            f"loading from {dev_url}",
+            file=sys.stderr,
+        )
 
     child = _build_and_launch()
     # Build outputs land inside the watched tree; snapshot after the
@@ -128,6 +205,8 @@ def run(args) -> None:
             time.sleep(_POLL_INTERVAL)
             if child is not None:
                 child.poll()
+            if vite_proc is not None:
+                vite_proc.poll()
 
             changed = watcher.changed()
             now = time.monotonic()
@@ -150,6 +229,7 @@ def run(args) -> None:
         print("\ndev: shutting down …", file=sys.stderr)
     finally:
         _kill_child()
+        _kill_vite()
 
     sys.exit(0)
 

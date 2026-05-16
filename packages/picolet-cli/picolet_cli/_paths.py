@@ -18,7 +18,7 @@ from picolet_cli.validator import validate_toml
 
 # Directory components that should never be watched or scanned for source
 # freshness — build outputs, caches, compiled artifacts.
-_IGNORE_DIRS = frozenset({"target", ".picolet-cache", "__pycache__"})
+_IGNORE_DIRS = frozenset({"target", ".picolet-cache", "__pycache__", "node_modules", "dist"})
 _IGNORE_SUFFIXES = frozenset({".pyc", ".mpy"})
 
 
