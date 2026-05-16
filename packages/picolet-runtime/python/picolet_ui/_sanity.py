@@ -108,6 +108,57 @@ def run_sanity_test():
     sys.exit(0)
 
 
+def run_test_server():
+    """Test-harness server: open a webview and keep running until killed.
+
+    Unlike run_sanity_test() which exits after the sanity check,
+    run_test_server() keeps the GTK event loop running so the WebKit
+    Inspector connection can be established and used (e.g. to take
+    screenshots or evaluate JS).
+
+    Used by PH17 gates C, G, I where picolet test --screenshot / --run
+    need the binary to stay alive while the harness works.
+
+    Loads the same minimal HTML as run_sanity_test so window.picolet.__ready__
+    is set (via the bridge JS shim in the bundle) when the bridge-js bundle
+    is present in the romfs.  Without the bundle, the page renders a plain
+    background — still capturable via the inspector screenshot API.
+
+    Exits only on SIGTERM/SIGKILL (external kill from the harness).
+    """
+    from ._window import Window
+    from ._webview import Webview, WebviewTransport
+    from . import _loop
+
+    import asyncio
+
+    window = Window(title="PH17 Test Server", size=[640, 480], resizable=False)
+    transport = WebviewTransport()
+    webview = Webview(
+        window,
+        root_uri=_write_temp_index_html(),
+        transport=transport,
+    )
+    window.show()
+
+    async def _run_forever():
+        # Run the GTK pump until cancelled (process killed by harness).
+        pump = asyncio.create_task(_loop._gtk_pump())
+        try:
+            await asyncio.sleep(300)  # 5 min max; harness kills us earlier
+        except asyncio.CancelledError:
+            pass
+        finally:
+            pump.cancel()
+            try:
+                await pump
+            except BaseException:
+                pass
+
+    asyncio.run(_run_forever())
+    sys.exit(0)
+
+
 def run_callback_probe():
     """Gate 8 driver: confirm the script-message handler fires.
 
