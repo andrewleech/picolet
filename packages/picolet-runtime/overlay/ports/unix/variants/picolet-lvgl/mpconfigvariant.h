@@ -24,83 +24,11 @@
  * THE SOFTWARE.
  */
 
-// Lean variant for the picolet lvgl runtime (linux-x64, PH11).
-//
-// Forked from picolet-webview/mpconfigvariant.h.  The macro set is
-// identical; the lvgl variant differs only in the frozen manifest and
-// the USER_C_MODULES pointer in mpconfigvariant.mk.  libffi
-// (MICROPY_PY_FFI) is kept on for symmetry with the webview variant
-// and is used by picolet_ui's shared _loop / _toml plumbing; the lvgl
-// renderer itself enters via USER_C_MODULES rather than ffi.
-//
+// Per-variant config for the picolet lvgl runtime (linux-x64, PH11).
+// The lvgl renderer enters via USER_C_MODULES rather than ffi.
 // LVGL variant is Linux-only in PH11; Windows LVGL lands in PH12.
-
-// --- Pre-empt #ifndef-guarded macros in mpconfigvariant_common.h ----
-
-#define MICROPY_DEBUG_PRINTERS              (0)
-
-// --- ROM feature level ---------------------------------------------------
-
-#define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_EXTRA_FEATURES)
-
-// --- GC split heap (FR-RT-4) -------------------------------------------
-
-#define MICROPY_GC_SPLIT_HEAP               (1)
-#define MICROPY_GC_SPLIT_HEAP_ADD           (1)
-
-// --- Pull in the unix-port common variant config ------------------------
-
-#include "../mpconfigvariant_common.h"
-
-// --- Override macros set unconditionally by mpconfigvariant_common.h ----
-
-#undef MICROPY_ERROR_REPORTING
-#define MICROPY_ERROR_REPORTING             (MICROPY_ERROR_REPORTING_TERSE)
-#undef MICROPY_WARNINGS
-#define MICROPY_WARNINGS                    (0)
-#undef MICROPY_PY_STR_BYTES_CMP_WARN
-#define MICROPY_PY_STR_BYTES_CMP_WARN       (0)
-
-#undef MICROPY_REPL_EMACS_WORDS_MOVE
-#define MICROPY_REPL_EMACS_WORDS_MOVE       (0)
-#undef MICROPY_REPL_EMACS_EXTRA_WORDS_MOVE
-#define MICROPY_REPL_EMACS_EXTRA_WORDS_MOVE (0)
-#undef MICROPY_USE_READLINE_HISTORY
-#define MICROPY_USE_READLINE_HISTORY        (0)
-
-#undef MICROPY_MALLOC_USES_ALLOCATED_SIZE
-#define MICROPY_MALLOC_USES_ALLOCATED_SIZE  (0)
-#undef MICROPY_MEM_STATS
-#define MICROPY_MEM_STATS                   (0)
-
-#define MICROPY_PY_MICROPYTHON_MEM_INFO     (0)
-
-#undef MICROPY_PY_SYS_ATEXIT
-#define MICROPY_PY_SYS_ATEXIT               (0)
-
-#undef MICROPY_PY_MACHINE
-#define MICROPY_PY_MACHINE                  (0)
-#undef MICROPY_PY_MACHINE_PULSE
-#define MICROPY_PY_MACHINE_PULSE            (0)
-#undef MICROPY_PY_MACHINE_PIN_BASE
-#define MICROPY_PY_MACHINE_PIN_BASE         (0)
-
-#undef MICROPY_PY_WEBSOCKET
-#define MICROPY_PY_WEBSOCKET                (0)
-
-#define MICROPY_PY_BUILTINS_HELP            (0)
-#define MICROPY_PY_BUILTINS_HELP_MODULES    (0)
-#define MICROPY_PY_BUILTINS_INPUT           (0)
-#define MICROPY_PY_BUILTINS_NOTIMPLEMENTED  (0)
-
-#define MICROPY_PY_DEFLATE                  (0)
-#define MICROPY_PY_DEFLATE_COMPRESS         (0)
-#define MICROPY_PY_HASHLIB                  (0)
-
-#define MICROPY_ENABLE_COMPILER             (1)
-
-// Enable append-at-end romfs trailer detection (FR-BP-5, PH03/PH04).
-#define MICROPY_VFS_ROM_TRAILER (1)
+// The shared macro set is in ../mpconfigvariant_picolet_common.h.
+#include "../mpconfigvariant_picolet_common.h"
 
 // LVGL binding needs the scheduler to call mp_sched_schedule from C
 // without holding the GIL (it doesn't hold one in MicroPython).  This
