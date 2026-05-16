@@ -11,11 +11,14 @@
 #   - libgtk-3.so.0                   LGPL-2.1+  dlopen
 #   - libgobject-2.0.so.0             LGPL-2.1+  dlopen
 #   - libjavascriptcoregtk-4.1.so.0   LGPL-2.1+  dlopen
+#   - libgio-2.0.so.0                 LGPL-2.1+  dlopen (g_memory_input_stream_*
+#                                     for the picolet:// URI scheme handler; pulled
+#                                     in transitively by libglib-2.0 / glib2)
 #
-# All four are dynamically linked at runtime; the runtime binary has no
+# All five are dynamically linked at runtime; the runtime binary has no
 # build-time dependency on the corresponding -dev packages.  NFR-8 is
-# satisfied by `apt install libwebkit2gtk-4.1-0` (which pulls in the
-# other three transitively).
+# satisfied by `apt install libwebkit2gtk-4.1-0` (which pulls in all
+# five transitively).
 #
 # FFI signature notation (modffi.c::char2ffi_type):
 #
@@ -209,6 +212,59 @@ try:
     )
 except OSError:
     webkit_web_context_set_sandbox_enabled = None
+
+# void webkit_web_context_register_uri_scheme(
+#     WebKitWebContext *, const gchar *scheme,
+#     WebKitURISchemeRequestCallback callback,
+#     gpointer user_data, GDestroyNotify user_data_destroy_func)
+# Registers a custom URI scheme handler.  The callback signature is:
+#   void (*)(WebKitURISchemeRequest *, gpointer user_data)
+# FFI param string: "psppp"  (context, scheme-str, callback-closure, data, destroy)
+webkit_web_context_register_uri_scheme = webkit.func(
+    "v", "webkit_web_context_register_uri_scheme", "psppp"
+)
+
+# const gchar *webkit_uri_scheme_request_get_uri(WebKitURISchemeRequest *)
+# Returns the full URI of the request (e.g. "picolet://ui/style.css").
+webkit_uri_scheme_request_get_uri = webkit.func(
+    "p", "webkit_uri_scheme_request_get_uri", "p"
+)
+
+# const gchar *webkit_uri_scheme_request_get_path(WebKitURISchemeRequest *)
+# Returns the path component of the URI (e.g. "/ui/style.css").
+webkit_uri_scheme_request_get_path = webkit.func(
+    "p", "webkit_uri_scheme_request_get_path", "p"
+)
+
+# void webkit_uri_scheme_request_finish(
+#     WebKitURISchemeRequest *, GInputStream *stream,
+#     gint64 stream_length, const gchar *content_type)
+# Finishes a URI scheme request by providing the response body.
+# stream_length = -1 means the stream provides its own length signal.
+webkit_uri_scheme_request_finish = webkit.func(
+    "v", "webkit_uri_scheme_request_finish", "ppls"
+)
+
+# void webkit_uri_scheme_request_finish_error(
+#     WebKitURISchemeRequest *, GError *error)
+# Finishes a URI scheme request with an error (404, etc.).
+webkit_uri_scheme_request_finish_error = webkit.func(
+    "v", "webkit_uri_scheme_request_finish_error", "pp"
+)
+
+# GInputStream *g_memory_input_stream_new_from_data(
+#     const void *data, gssize len, GDestroyNotify destroy)
+# Creates an in-memory GInputStream backed by a data buffer.
+# destroy = NULL because the Python bytes object owns the buffer for the
+# duration of the call; the stream is consumed synchronously.
+# libgio-2.0.so.0 carries this symbol.
+try:
+    _gio = _safe_open("libgio-2.0.so.0")
+    g_memory_input_stream_new_from_data = _gio.func(
+        "p", "g_memory_input_stream_new_from_data", "plp"
+    )
+except OSError:
+    g_memory_input_stream_new_from_data = None
 
 
 # ---------------------------------------------------------------------------

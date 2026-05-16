@@ -1,0 +1,3 @@
+/* asset-load-e2e: marker colour used by the PH09 CSS gate.
+   body background #336699 = rgb(51, 102, 153). */
+body { background: #336699; color: #fff; }

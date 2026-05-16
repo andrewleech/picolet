@@ -1,15 +1,15 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:2fb1f82b-8784-4c9a-99cf-c4e280466935",
+  "serialNumber": "urn:uuid:16e3449a-36d9-4e47-b017-66f90ea6cc68",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-16T09:40:50.544417Z",
+    "timestamp": "2026-05-16T10:51:36.061713Z",
     "tools": [
       {
         "vendor": "picolet",
         "name": "picolet-sbom-gen",
-        "version": "0.1.0"
+        "version": "0.0.0-dev"
       }
     ],
     "component": {

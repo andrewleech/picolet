@@ -351,6 +351,83 @@ _run_e2e_fixture
 echo
 
 # ---------------------------------------------------------------------------
+# Group G: asset loading — external CSS and JS sub-resources load (C1 fixup)
+# ---------------------------------------------------------------------------
+#
+# Verifies that the picolet:// URI scheme handler serves external CSS and JS
+# files referenced by relative URLs in a template's index.html.
+# Uses the asset-load-e2e fixture which loads style.css (#336699) and
+# app.js (reports getComputedStyle back via postMessage).
+#
+# G1: PICOLET_PH09_CSS_OK  — style.css applied (background rgb(51,102,153))
+# G2: PICOLET_PH09_JS_OK   — app.js executed (from="app.js" in postMessage)
+
+echo "--- Group G: asset loading (picolet:// scheme) ---"
+
+ASSET_FIXTURE="$SCRIPT_DIR/fixtures/asset-load-e2e"
+
+_run_asset_fixture() {
+    local built="$ASSET_FIXTURE/target/linux-x64/asset-load-e2e"
+    local build_log="$WORKDIR/asset-build.log"
+    local run_log="$WORKDIR/asset-run.log"
+
+    if [[ "$SKIP_INTEGRATION" -eq 1 ]]; then
+        skip "G1/G2" "--skip-integration"
+        return
+    fi
+    if ! command -v xvfb-run >/dev/null 2>&1; then
+        skip "G1/G2" "xvfb-run not on PATH"
+        return
+    fi
+    if [[ ! -f "$WEBVIEW_RUNTIME" ]]; then
+        skip "G1/G2" "webview runtime not found"
+        return
+    fi
+
+    # Build the asset-load-e2e fixture if not already built or rebuild requested.
+    if [[ "$SKIP_REBUILD" -eq 0 || ! -f "$built" ]]; then
+        (
+            cd "$ASSET_FIXTURE" && \
+            uv run python -m picolet build \
+                --target linux-x64 \
+                --runtime "$WEBVIEW_RUNTIME" \
+                > "$build_log" 2>&1
+        ) || true
+    fi
+
+    if [[ ! -f "$built" ]]; then
+        fail "G1 css-asset-loads" "asset-load-e2e fixture build failed; see $build_log"
+        if [[ "$VERBOSE" -eq 1 ]]; then cat "$build_log"; fi
+        fail "G2 js-asset-loads" "asset-load-e2e fixture build failed"
+        return
+    fi
+
+    xvfb-run -a -s '-screen 0 800x600x24' \
+        timeout 20 "$built" \
+        > "$run_log" 2>&1 || true
+
+    NAME="G1 css-asset-loads (picolet:// scheme / FR-WV-2)"
+    if grep -q "PICOLET_PH09_CSS_OK" "$run_log"; then
+        pass "$NAME"
+    else
+        fail "$NAME" "PICOLET_PH09_CSS_OK not found; style.css may not have loaded"
+        if [[ "$VERBOSE" -eq 1 ]]; then cat "$run_log"; fi
+    fi
+
+    NAME="G2 js-asset-loads (picolet:// scheme / FR-WV-2)"
+    if grep -q "PICOLET_PH09_JS_OK" "$run_log"; then
+        pass "$NAME"
+    else
+        fail "$NAME" "PICOLET_PH09_JS_OK not found; app.js may not have executed"
+        if [[ "$VERBOSE" -eq 1 ]]; then cat "$run_log"; fi
+    fi
+}
+
+_run_asset_fixture
+
+echo
+
+# ---------------------------------------------------------------------------
 # Group F: regression — PH08 gates still pass (gate 9)
 # ---------------------------------------------------------------------------
 

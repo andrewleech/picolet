@@ -1,0 +1,25 @@
+# PH09 asset-load-e2e fixture: verifies that external CSS and JS files
+# referenced by relative URLs in index.html are served and executed.
+#
+# Gate: PICOLET_PH09_CSS_OK  — body background matches the colour declared
+#       in style.css (rgb(51, 102, 153) = #336699), confirming style.css loaded.
+# Gate: PICOLET_PH09_JS_OK   — app.js executed and posted an asset-check
+#       message with from="app.js", confirming the external script ran.
+
+[app]
+name = "asset-load-e2e"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[window]
+title = "PH09 Asset Load E2E"
+size = [800, 600]
+resizable = false
+
+[romfs]
+include = ["ui"]
