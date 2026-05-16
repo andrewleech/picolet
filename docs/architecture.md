@@ -142,3 +142,64 @@ Event (push, no reply expected):
 ```json
 { "event": "progress", "data": { "pct": 42 } }
 ```
+
+## Test surface (PH17)
+
+### PICOLET_TEST_MODE
+
+Set `PICOLET_TEST_MODE=1` in the environment before launching a picolet
+binary to enable the debug/inspect port.  The environment variable is
+read at runtime; it is never compiled into release builds (NFR-TEST-2).
+
+### Port announcement contract
+
+When `PICOLET_TEST_MODE=1` the runtime writes exactly one line to stderr
+immediately after the debug port is bound:
+
+```
+picolet:test-port=<N>
+```
+
+where `<N>` is the decimal port number (1024–65535).  The port is bound
+to 127.0.0.1 only (NFR-TEST-2 loopback restriction).
+
+- **Linux/WebKit**: `WEBKIT_INSPECTOR_SERVER=127.0.0.1:<N>` is set via
+  `setenv()` before `webkit_web_view_new()`.  The port is chosen with a
+  bind/getsockname/close probe so the kernel picks an ephemeral port.
+- **Windows/WebView2**: `--remote-debugging-port=<N>
+  --remote-debugging-address=127.0.0.1` is passed as
+  `AdditionalBrowserArguments` to `CreateCoreWebView2EnvironmentWithOptions`
+  via a stack-allocated `ICoreWebView2EnvironmentOptions` vtable shim.
+
+### AppHarness
+
+`picolet.testing.AppHarness` (in `packages/picolet-testing/`) is the
+host-side helper for writing automated tests against a running picolet app.
+
+```python
+async with AppHarness(binary, env={"PICOLET_TEST_MODE": "1"}) as h:
+    page = await h.page()          # Playwright Page (webview) or facade
+    await page.evaluate("...")     # run JS
+    png_bytes = await h.snapshot() # LVGL screenshot
+```
+
+`AppHarness` reads the `picolet:test-port=<N>` announcement from stderr,
+then connects to the debug port using the appropriate protocol:
+
+- Chromium / WebView2: Playwright `connect_over_cdp("http://127.0.0.1:<N>")`
+- WebKit: custom `WebKitPage` facade using the WebKit Inspector Protocol
+  (WebSocket JSON-RPC at `ws://127.0.0.1:<N>`)
+- LVGL: no debug port; `snapshot()` is driven via `picolet._test` stdio
+  channel; `page()` is not available
+
+### picolet._test API (LVGL)
+
+Available only when `PICOLET_TEST_MODE=1`.  Import raises `ImportError`
+otherwise.
+
+```python
+import picolet._test as t
+t.tap(x, y)          # inject pointer press+release at (x, y)
+t.press(key)         # inject keypad press+release
+png = t.snapshot()   # capture PNG bytes of the current screen
+```
