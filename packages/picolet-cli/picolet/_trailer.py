@@ -46,10 +46,11 @@ def pack_trailer(payload: bytes) -> bytes:
     )
 
 
-def unpack_trailer(buf: bytes) -> tuple[bytes, int, int, int, int]:
+def unpack_trailer(buf: bytes) -> tuple[bytes, int, int, int, int, int]:
     """Unpack the last 24 bytes of buf as a trailer.
 
-    Returns (magic, version, flags, payload_size, crc32).
-    Does not validate the magic or CRC — callers must check.
+    Returns a 6-tuple (magic, version, flags, payload_size, crc32, pad)
+    matching TRAILER_FMT ``<4sHHQII``.  Does not validate the magic or
+    CRC — callers must check.
     """
     return struct.unpack(TRAILER_FMT, buf[-TRAILER_SIZE:])
