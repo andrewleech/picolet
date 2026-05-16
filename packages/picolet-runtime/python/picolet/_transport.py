@@ -27,8 +27,81 @@
 # and WebviewTransport — PH13 SBOM tooling and `picolet dev` log shapes
 # don't need a special case for lvgl.
 
+import os
 import sys
 import json
+
+# ---------------------------------------------------------------------------
+# Inbound message size cap (S4).
+#
+# 1 MiB default; override with PICOLET_MAX_MESSAGE_BYTES env var.
+# Applied on all inbound paths: StdioTransport (blocking and MicroPython
+# generator paths) and InProcessTransport.  The cap prevents a hostile
+# or misbehaving peer from exhausting process memory by sending an
+# arbitrarily large newline-terminated line.
+#
+# On overflow the transport logs to stderr, attempts a structured error
+# reply if the partial payload contains a parseable "id" field, and then
+# drops the line and continues reading.  The channel is kept open.
+# ---------------------------------------------------------------------------
+
+MAX_MESSAGE_BYTES = 1024 * 1024  # 1 MiB
+
+try:
+    _env_cap = os.environ.get("PICOLET_MAX_MESSAGE_BYTES")
+    if _env_cap:
+        MAX_MESSAGE_BYTES = int(_env_cap)
+except (ValueError, AttributeError):
+    pass
+
+
+def _reject_oversized(stdout, raw):
+    """Log an oversized-message warning and attempt a structured error reply.
+
+    ``raw`` is the raw bytes (or bytes-like) of the oversized line.  We
+    attempt a best-effort parse of the first 256 bytes to extract an ``id``
+    field so the peer receives a structured reply rather than a silent drop.
+    The channel is left open.
+    """
+    nbytes = len(raw) if raw else 0
+    sys.stderr.write(
+        "picolet: inbound message too large ({} bytes > {} limit); dropping\n".format(
+            nbytes, MAX_MESSAGE_BYTES
+        )
+    )
+    # Best-effort id extraction from the first 256 bytes.
+    msg_id = None
+    try:
+        partial = raw[:256]
+        if isinstance(partial, (bytes, bytearray)):
+            partial = partial.decode("utf-8", errors="replace")
+        # Look for a simple "id": <number> pattern without a full parse.
+        import re as _re
+        m = _re.search(r'"id"\s*:\s*(\d+)', partial)
+        if m:
+            msg_id = int(m.group(1))
+    except Exception:
+        pass
+
+    if msg_id is not None and stdout is not None:
+        try:
+            reply = json.dumps({
+                "id": msg_id,
+                "ok": False,
+                "error": {
+                    "type": "RuntimeError",
+                    "message": "message too large",
+                },
+            })
+            stdout.write(reply)
+            stdout.write("\n")
+            try:
+                stdout.flush()
+            except (AttributeError, OSError):
+                pass
+        except Exception:
+            pass
+
 
 try:
     import asyncio
@@ -99,12 +172,16 @@ class StdioTransport:
     inside JSON strings are escaped by ``json.dumps`` so they cannot
     collide with the framing.
 
-    EOF on stdin → ``recv()`` returns ``None``; the dispatcher's run
+    EOF on stdin -> ``recv()`` returns ``None``; the dispatcher's run
     loop exits cleanly.
 
     Malformed JSON on input is logged to stderr and skipped; the
     transport keeps reading.  The peer's id is lost in this case, so no
     reply is sent.
+
+    Inbound messages exceeding ``MAX_MESSAGE_BYTES`` are logged, dropped,
+    and (if an id is detectable from the first 256 bytes) replied to with
+    a structured error (S4).  The channel is kept open.
     """
 
     def __init__(self, stdin=None, stdout=None):
@@ -114,10 +191,12 @@ class StdioTransport:
         # FileIO that select.poll() accepts.
         self._stdin = stdin if stdin is not None else sys.stdin
         self._stdout = stdout if stdout is not None else sys.stdout
-        # Shared state for the MicroPython recv generator: ``[buf,
-        # closed_flag]``.  The generator mutates these in place across
-        # yields.
-        self._state = [b"", False]
+        # Shared state for the MicroPython recv generator:
+        #   [buf, closed_flag, stdout_ref, max_bytes]
+        # buf and closed_flag are mutated in place across yields.
+        # stdout_ref is used for structured oversized-message replies (S4).
+        # max_bytes is the per-message cap (S4).
+        self._state = [b"", False, self._stdout, MAX_MESSAGE_BYTES]
         # Pre-resolved fd-like object to poll on; None if we are
         # falling back to a blocking readline.
         self._poll_target = None
@@ -131,7 +210,7 @@ class StdioTransport:
         ``asyncio._io_queue.queue_read`` can schedule a wake-up.
 
         On the windows port ``select.poll`` raises NotImplementedError
-        on file fds, so we fall back to blocking ``readline`` — PH06's
+        on file fds, so we fall back to blocking ``readline`` -- PH06's
         StdioTransport on Windows is not concurrency-friendly, but
         ``import picolet`` works and that is all PH06 requires on
         Windows.  PH10/PH12 will revisit the Windows transport story
@@ -163,7 +242,7 @@ class StdioTransport:
             # imports.
             from . import _stdio_mp
             return await _stdio_mp.recv_loop(self._poll_target, self._state)
-        # Blocking fallback — used on the windows port and in CPython
+        # Blocking fallback -- used on the windows port and in CPython
         # tests where the user passed a non-pollable file-like.
         return await self._recv_blocking()
 
@@ -173,6 +252,16 @@ class StdioTransport:
         line = self._stdin.readline()
         if not line:
             return None
+        # Size cap check before decoding (S4).
+        raw_len = len(line) if isinstance(line, (bytes, bytearray)) else len(
+            line.encode("utf-8", errors="replace")
+        )
+        if raw_len > MAX_MESSAGE_BYTES:
+            raw_bytes = line if isinstance(line, (bytes, bytearray)) else line.encode(
+                "utf-8", errors="replace"
+            )
+            _reject_oversized(self._stdout, raw_bytes)
+            return await self.recv()
         if isinstance(line, bytes):
             try:
                 line = line.decode("utf-8")
@@ -193,7 +282,7 @@ class StdioTransport:
             return await self.recv()
 
     async def send(self, msg):
-        # No ``await`` inside the body — keeps the on-the-wire framing
+        # No ``await`` inside the body -- keeps the on-the-wire framing
         # atomic without an explicit lock under MicroPython's
         # cooperative scheduler (see Transport.__doc__).
         line = json.dumps(msg)
@@ -356,7 +445,7 @@ class InProcessTransport:
             self._evt.set()
 
     async def recv(self):
-        # Drain anything sitting in the inbox before checking closed —
+        # Drain anything sitting in the inbox before checking closed --
         # close() races with send() and a final send right before
         # close should still be readable by the peer.
         while True:
@@ -365,6 +454,11 @@ class InProcessTransport:
                 if raw is None:
                     # Close sentinel.
                     return None
+                # Size cap check (S4): InProcessTransport JSON-encodes every
+                # message in send(), so len(raw) is the serialised byte count.
+                if len(raw) > MAX_MESSAGE_BYTES:
+                    _reject_oversized(None, raw.encode("utf-8", errors="replace"))
+                    continue
                 try:
                     return json.loads(raw)
                 except (ValueError, Exception) as e:

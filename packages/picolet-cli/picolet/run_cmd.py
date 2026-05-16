@@ -2,16 +2,19 @@
 picolet run — build (if needed) and execute the produced binary.
 
 Usage:
-    picolet run [--target TARGET] [--verbose] [--no-build]
+    picolet run [--target TARGET] [--verbose] [--no-build] [-- arg1 arg2 ...]
 
 The binary is rebuilt if it does not exist or if any source file
 (src/, ui/, picolet.toml) is newer than the binary.  Pass ``--no-build``
 to skip the freshness check and run whatever binary is already present.
 
+Any arguments after ``--`` are forwarded verbatim to the child binary.
+
 Closes: FR-CLI-6.
 """
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 
@@ -26,7 +29,7 @@ def add_parser(subparsers) -> None:
         help="build (if needed) and execute the app binary",
         description=(
             "Check whether the binary is up-to-date, rebuild if not, "
-            "then execute it."
+            "then execute it.  Arguments after -- are forwarded to the binary."
         ),
     )
     p.add_argument(
@@ -48,6 +51,11 @@ def add_parser(subparsers) -> None:
         dest="no_build",
         help="skip build freshness check; run existing binary directly",
     )
+    p.add_argument(
+        "args",
+        nargs=argparse.REMAINDER,
+        help="arguments forwarded to the binary (place after --)",
+    )
     p.set_defaults(func=run)
 
 
@@ -59,7 +67,7 @@ def run(args) -> int:
         if not binary_path.exists() or sources_newer_than(toml_path, data, binary_path):
             if args.verbose:
                 print("binary out of date; running build first", file=sys.stderr)
-            rc = build_cmd.run(_build_args_for(args))
+            rc = build_cmd.run(build_cmd.build_args_namespace(args.target, args.verbose))
             if rc != 0:
                 return rc
 
@@ -74,22 +82,10 @@ def run(args) -> int:
     if args.verbose:
         print(f"exec: {binary_path}", file=sys.stderr)
 
-    return subprocess.run([str(binary_path)]).returncode
+    # Strip a leading '--' separator if present (argparse.REMAINDER may
+    # include it when the user writes `picolet run -- arg1 arg2`).
+    forward = list(getattr(args, "args", None) or [])
+    if forward and forward[0] == "--":
+        forward = forward[1:]
 
-
-def _build_args_for(args):
-    """Synthesise a ``picolet build`` argparse Namespace from ``picolet run`` args.
-
-    ``build_cmd.run`` reads its args by attribute access; the fields it
-    consults are listed here in one place so the two stay in sync.
-    """
-    import argparse
-    return argparse.Namespace(
-        target=args.target,
-        verbose=args.verbose,
-        keep_staging=False,
-        runtime=None,
-        from_source=False,
-        no_cache=False,
-        no_sbom=False,
-    )
+    return subprocess.run([str(binary_path)] + forward).returncode

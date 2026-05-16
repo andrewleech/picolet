@@ -65,6 +65,31 @@ class BuildFailed(Exception):
     """
 
 
+def build_args_namespace(target, verbose, **overrides) -> argparse.Namespace:
+    """Return a :class:`argparse.Namespace` suitable for :func:`run`.
+
+    Provides the minimal set of attributes that :func:`run` / ``_do_build``
+    read.  ``target`` and ``verbose`` are the two most commonly varied
+    fields; all others default to False/None but may be overridden via
+    keyword arguments.
+
+    Used by ``run_cmd`` and ``dev_cmd`` to synthesise build arguments from
+    their own parsed args without duplicating the field list in each caller.
+    """
+    defaults = dict(
+        target=target,
+        verbose=verbose,
+        keep_staging=False,
+        runtime=None,
+        from_source=False,
+        no_cache=False,
+        no_sbom=False,
+        allow_unverified_runtime=False,
+    )
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
 def add_parser(subparsers) -> None:
     """Register the build subcommand with the given subparsers object."""
     p = subparsers.add_parser(

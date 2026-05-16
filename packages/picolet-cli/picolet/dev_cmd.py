@@ -16,7 +16,6 @@ Closes: FR-CLI-7.
 """
 from __future__ import annotations
 
-import argparse
 import atexit
 import signal
 import subprocess
@@ -78,7 +77,7 @@ def run(args) -> None:
 
     watcher = _Watcher(watch_dirs, args.verbose)
     child: Optional[subprocess.Popen] = None
-    build_args = _build_args_for(args)
+    build_args = build_cmd.build_args_namespace(args.target, args.verbose)
 
     def _kill_child() -> None:
         nonlocal child
@@ -153,19 +152,6 @@ def run(args) -> None:
         _kill_child()
 
     sys.exit(0)
-
-
-def _build_args_for(args):
-    """Synthesise a ``picolet build`` argparse Namespace from dev args."""
-    return argparse.Namespace(
-        target=args.target,
-        verbose=args.verbose,
-        keep_staging=False,
-        runtime=None,
-        from_source=False,
-        no_cache=False,
-        no_sbom=False,
-    )
 
 
 class _Watcher:

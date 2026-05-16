@@ -56,6 +56,38 @@ int32_t picolet_wv2_destroy_window(void *hw) { (void)hw; return -1; }
 #include "include/WebView2_min.h"
 
 /* ----------------------------------------------------------------------
+ * Inbound message size cap (S4).
+ *
+ * 1 MiB default, configurable at runtime via PICOLET_MAX_MESSAGE_BYTES.
+ * Applied to the wide-string length before wide_to_utf8 allocates.
+ * On overflow the message is freed and not enqueued; a diagnostic is
+ * written via OutputDebugStringW.
+ * ---------------------------------------------------------------------- */
+
+#define PICOLET_DEFAULT_MAX_MESSAGE_BYTES (1024 * 1024)
+
+static size_t g_max_message_bytes = 0;  /* 0 = not yet initialised */
+
+static size_t get_max_message_bytes(void) {
+    if (g_max_message_bytes != 0) {
+        return g_max_message_bytes;
+    }
+    /* Read PICOLET_MAX_MESSAGE_BYTES env var; fall back to default. */
+    wchar_t buf[32];
+    DWORD n = GetEnvironmentVariableW(L"PICOLET_MAX_MESSAGE_BYTES", buf,
+                                     (DWORD)(sizeof(buf) / sizeof(buf[0])));
+    if (n > 0 && n < (DWORD)(sizeof(buf) / sizeof(buf[0]))) {
+        size_t val = (size_t)_wtoi64(buf);
+        if (val > 0) {
+            g_max_message_bytes = val;
+            return val;
+        }
+    }
+    g_max_message_bytes = (size_t)PICOLET_DEFAULT_MAX_MESSAGE_BYTES;
+    return g_max_message_bytes;
+}
+
+/* ----------------------------------------------------------------------
  * Per-call state — last error captured for Python to read.
  * ---------------------------------------------------------------------- */
 
@@ -813,10 +845,34 @@ static HRESULT STDMETHODCALLTYPE inbound_Invoke(
             return S_OK;
         }
     }
+    /* Size cap check (S4): guard before wide_to_utf8 allocates. */
+    size_t wlen = wcslen(wjson);
+    size_t max_bytes = get_max_message_bytes();
+    /* UTF-8 is at most 3 bytes per wide char (BMP only; surrogates count
+     * as 2 wide chars yielding one 4-byte sequence, so 3x is a valid
+     * upper bound for BMP).  Reject if the worst-case UTF-8 size exceeds
+     * the cap — this avoids allocating before we know the true size. */
+    if (wlen > 0 && (wlen * 3) > max_bytes) {
+        wchar_t dbg[128];
+        _snwprintf(dbg, sizeof(dbg) / sizeof(dbg[0]),
+                   L"picolet_webview2: inbound message too large (%zu wide chars"
+                   L" * 3 > %zu limit); dropping\n",
+                   wlen, max_bytes);
+        OutputDebugStringW(dbg);
+        CoTaskMemFree(wjson);
+        return S_OK;
+    }
     char *u = wide_to_utf8(wjson);
     /* CoTaskMemFree the WebView2-allocated wide string. */
     CoTaskMemFree(wjson);
     if (u == NULL) { return S_OK; }
+    /* Secondary check on the actual UTF-8 byte count. */
+    if (strlen(u) > max_bytes) {
+        OutputDebugStringW(L"picolet_webview2: inbound message too large (UTF-8)"
+                           L"; dropping\n");
+        free(u);
+        return S_OK;
+    }
     if (ring_push(u) != 0) {
         fprintf(stderr, "picolet_webview2: inbound ring buffer full; dropping message\n");
         free(u);

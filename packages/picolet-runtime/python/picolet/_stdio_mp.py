@@ -13,6 +13,7 @@
 import json
 import sys as _sys
 from asyncio.core import _io_queue
+from ._transport import MAX_MESSAGE_BYTES, _reject_oversized
 
 
 # async (generator-coroutine; MicroPython convention)
@@ -20,21 +21,41 @@ def recv_loop(stream, state):
     """Drain one decoded JSON message from a non-blocking stream.
 
     ``stream`` must be readable via ``select.poll`` and expose a
-    non-blocking ``readline()``.  ``state`` is a mutable list ``[buf,
-    closed_flag]`` holding the accumulated read buffer (bytes) and a
-    boolean signalling external close.  Partial lines persist across
-    awaits.
+    non-blocking ``readline()``.  ``state`` is a mutable list::
 
-    Returns the next decoded dict, or None on EOF / close.  Malformed
-    JSON lines are logged to stderr and skipped.
+        [buf, closed_flag, stdout_ref, max_bytes]
+
+    ``buf`` is the accumulated read buffer (bytes); ``closed_flag`` is a
+    boolean signalling external close; ``stdout_ref`` is the stdout stream
+    used for oversized-message error replies (may be None); ``max_bytes``
+    is the per-message cap (S4).  Elements 2 and 3 are optional for
+    backward compatibility and default to None and MAX_MESSAGE_BYTES.
+
+    Partial lines persist across awaits.  Returns the next decoded dict,
+    or None on EOF / close.  Malformed JSON lines are logged to stderr
+    and skipped.  Lines exceeding max_bytes are logged, dropped, and (if
+    an id is detectable) replied to with a structured error.
     """
     empty = b""
     nl = b"\n"
+    stdout = state[2] if len(state) > 2 else None
+    max_bytes = state[3] if len(state) > 3 else MAX_MESSAGE_BYTES
     while not state[1]:
         # Drain a single newline-terminated line.
         line = None
         while True:
             buf = state[0]
+            # If the accumulated buffer exceeds the cap without a newline it
+            # can never form a valid message.  Discard and keep reading.
+            if len(buf) > max_bytes:
+                _sys.stderr.write(
+                    "picolet: inbound buffer too large ({}B); discarding\n".format(
+                        len(buf)
+                    )
+                )
+                _reject_oversized(stdout, buf)
+                state[0] = empty
+                buf = empty
             i = buf.find(nl)
             if i >= 0:
                 line = buf[: i + 1]
@@ -67,6 +88,10 @@ def recv_loop(stream, state):
             state[0] += chunk
         if not line:
             return None
+        # Enforce per-line cap before attempting UTF-8 decode.
+        if len(line) > max_bytes:
+            _reject_oversized(stdout, line)
+            continue
         # Strip trailing whitespace / newline.
         try:
             stripped = line.decode("utf-8").strip()

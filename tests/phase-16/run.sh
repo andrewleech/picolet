@@ -94,6 +94,13 @@ else
     fail "picolet run --help missing --no-build flag"
 fi
 
+# C9: picolet run forwards sys.argv via argparse.REMAINDER.
+if (cd "$REPO_ROOT" && uv run python -m picolet run --help 2>&1 | grep -q "forwarded to the binary"); then
+    pass "picolet run --help documents args forwarding"
+else
+    fail "picolet run --help missing args forwarding documentation"
+fi
+
 # ---------------------------------------------------------------------------
 # Gate B: _Watcher unit test (stdlib only, no runtime needed)
 # ---------------------------------------------------------------------------
@@ -472,6 +479,75 @@ PYEOF
     else
         fail "dev: no shutdown message found in output"
         verbose "sigint log: $(cat "$SIGINT_LOG" 2>/dev/null || true)"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Gate G: picolet run -- argv forwarding (C9)
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Gate G: picolet run -- argv forwarding (C9) ==="
+
+if [[ "$SKIP_INTEGRATION" -eq 1 ]]; then
+    skip "integration skipped via --skip-integration"
+elif [[ ! -f "$CLI_RUNTIME_LINUX" ]]; then
+    skip "runtime not found ($CLI_RUNTIME_LINUX); skipping argv forwarding gate"
+else
+    ARGV_APP="$WORKDIR/argv-app"
+    ARGV_LOG="$WORKDIR/argv.log"
+
+    # Scaffold a hello-cli app and adjust src/main.py to print sys.argv as JSON.
+    (
+        cd "$REPO_ROOT" && \
+        uv run python -m picolet init argv-app \
+            --template hello-cli \
+            --output-dir "$ARGV_APP" \
+            > /dev/null 2>&1
+    )
+
+    # Overwrite src/main.py to emit sys.argv as JSON and exit.
+    cat > "$ARGV_APP/src/main.py" <<'PYEOF'
+import sys
+import json
+sys.stdout.write(json.dumps(sys.argv) + "\n")
+sys.stdout.flush()
+PYEOF
+
+    # Build once (without args forwarding).
+    if (cd "$ARGV_APP" && uv run --project "$REPO_ROOT" python -m picolet build \
+            --runtime "$CLI_RUNTIME_LINUX" \
+            --allow-unverified-runtime \
+            > "$ARGV_LOG" 2>&1); then
+        verbose "argv-app build log: $(cat "$ARGV_LOG")"
+
+        # Run with forwarded args.
+        ARGV_OUTPUT="$WORKDIR/argv_output.txt"
+        if (cd "$ARGV_APP" && uv run --project "$REPO_ROOT" python -m picolet run \
+                --no-build \
+                --runtime "$CLI_RUNTIME_LINUX" \
+                --allow-unverified-runtime \
+                -- hello world \
+                > "$ARGV_OUTPUT" 2>/dev/null); then
+            verbose "argv run output: $(cat "$ARGV_OUTPUT" 2>/dev/null)"
+            if python3 -c "
+import json, sys
+data = json.loads(open('$ARGV_OUTPUT').read().strip())
+assert 'hello' in data, 'hello not in argv: {}'.format(data)
+assert 'world' in data, 'world not in argv: {}'.format(data)
+print('argv check OK:', data)
+" 2>&1; then
+                pass "picolet run: forwarded args appear in child sys.argv"
+            else
+                fail "picolet run: forwarded args not found in child sys.argv output"
+                verbose "output was: $(cat "$ARGV_OUTPUT" 2>/dev/null || true)"
+            fi
+        else
+            fail "picolet run -- hello world exited non-zero"
+            verbose "argv output: $(cat "$ARGV_OUTPUT" 2>/dev/null || true)"
+        fi
+    else
+        fail "argv-app build failed; skipping argv forwarding check"
+        verbose "build log: $(cat "$ARGV_LOG" 2>/dev/null || true)"
     fi
 fi
 

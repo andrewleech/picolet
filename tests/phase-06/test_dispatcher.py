@@ -1193,6 +1193,121 @@ class TransportClosedBeforeReplyTests(unittest.TestCase):
         self.assertIn("transport closed", str(exc))
 
 
+class OversizedMessageTests(unittest.TestCase):
+    """S4 — inbound message size cap on StdioTransport._recv_blocking.
+
+    Verifies that a line exceeding MAX_MESSAGE_BYTES is:
+      - Rejected (not parsed as a valid message).
+      - Logged to stderr with a human-readable diagnostic.
+      - Replied to with a structured {"ok": false, "error": {"type":
+        "RuntimeError", "message": "message too large"}} when the first
+        256 bytes contain a recognisable "id" field.
+      - Followed by normal message processing (channel kept open).
+    """
+
+    def setUp(self):
+        _reset_module_state()
+
+    def test_oversized_line_rejected_and_logged(self):
+        """A 2 MiB JSON line is rejected; stderr receives a diagnostic."""
+        import io
+        from picolet._transport import StdioTransport, MAX_MESSAGE_BYTES
+
+        # Build a JSON line that exceeds the cap.
+        oversized = (
+            '{"id":42,"cmd":"echo","args":"' + "x" * (2 * 1024 * 1024) + '"}\n'
+        )
+        good = '{"id":1,"cmd":"ping","args":null}\n'
+
+        fake_stdin = io.StringIO(oversized + good)
+        fake_stdout = io.StringIO()
+
+        transport = StdioTransport(stdin=fake_stdin, stdout=fake_stdout)
+
+        captured_stderr = []
+
+        async def go():
+            import sys
+            orig_stderr_write = sys.stderr.write
+            sys.stderr.write = lambda s: captured_stderr.append(s) or orig_stderr_write(s)
+            try:
+                msg = await transport.recv()
+            finally:
+                sys.stderr.write = orig_stderr_write
+            return msg
+
+        result = _run(go())
+        # The oversized message should be dropped and recv should return
+        # the *next* line (the good message), NOT None or the oversized one.
+        # However, because _recv_blocking recurses on drop, the good line
+        # should be returned.
+        self.assertIsNotNone(result, "should have returned the good message after the oversized one")
+        self.assertEqual(result.get("id"), 1)
+
+        # A diagnostic must have been logged to stderr.
+        full_stderr = "".join(captured_stderr)
+        self.assertIn("too large", full_stderr)
+
+    def test_oversized_line_with_id_gets_structured_reply(self):
+        """When the oversized line contains a parseable id, a reply is sent."""
+        import io
+        from picolet._transport import StdioTransport, MAX_MESSAGE_BYTES
+
+        oversized = (
+            '{"id":99,"cmd":"echo","args":"' + "X" * (2 * 1024 * 1024) + '"}\n'
+        )
+
+        fake_stdin = io.StringIO(oversized)
+        fake_stdout = io.StringIO()
+
+        transport = StdioTransport(stdin=fake_stdin, stdout=fake_stdout)
+
+        async def go():
+            # recv() will drop the oversized line, then hit EOF.
+            import sys
+            orig = sys.stderr.write
+            sys.stderr.write = lambda s: None  # suppress stderr noise in test output
+            try:
+                msg = await transport.recv()
+            finally:
+                sys.stderr.write = orig
+            return msg
+
+        result = _run(go())
+        self.assertIsNone(result, "EOF after oversized drop should return None")
+
+        # The stdout should contain a structured error reply for id=99.
+        written = fake_stdout.getvalue()
+        self.assertTrue(written, "structured error reply should have been written")
+        import json
+        lines = [l for l in written.splitlines() if l.strip()]
+        self.assertTrue(lines, "at least one reply line expected")
+        reply = json.loads(lines[0])
+        self.assertEqual(reply["id"], 99)
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"]["type"], "RuntimeError")
+        self.assertEqual(reply["error"]["message"], "message too large")
+
+    def test_normal_messages_unaffected_below_cap(self):
+        """Messages below MAX_MESSAGE_BYTES pass through without modification."""
+        import io
+        from picolet._transport import StdioTransport, MAX_MESSAGE_BYTES
+
+        normal = '{"id":7,"cmd":"hello","args":"world"}\n'
+        fake_stdin = io.StringIO(normal)
+        fake_stdout = io.StringIO()
+
+        transport = StdioTransport(stdin=fake_stdin, stdout=fake_stdout)
+
+        async def go():
+            return await transport.recv()
+
+        result = _run(go())
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], 7)
+        self.assertEqual(result["args"], "world")
+
+
 def _suite():
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
@@ -1221,6 +1336,8 @@ def _suite():
         # Post-review fixup additions
         MaxInboundInFlightTests,
         TransportClosedBeforeReplyTests,
+        # S4 message size cap
+        OversizedMessageTests,
     ):
         suite.addTests(loader.loadTestsFromTestCase(cls))
     return suite
