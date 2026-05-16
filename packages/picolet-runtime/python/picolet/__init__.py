@@ -12,7 +12,7 @@
 # under CPython, the other inside the frozen MicroPython runtime).
 
 from ._dispatcher import command, invoke, emit, on, run
-from ._transport import Transport, StdioTransport, MockTransport
+from ._transport import Transport, StdioTransport, InProcessTransport, MockTransport
 from ._errors import RemoteError
 
 __all__ = (
@@ -23,6 +23,11 @@ __all__ = (
     "run",
     "Transport",
     "StdioTransport",
-    "MockTransport",
+    "InProcessTransport",
     "RemoteError",
 )
+
+# MockTransport is kept as a module attribute for backwards-compatibility with
+# existing test code, but it is not part of the public API (__all__).  New
+# test code should import it from picolet._testing instead.
+
