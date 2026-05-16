@@ -268,6 +268,43 @@ except OSError:
 
 
 # ---------------------------------------------------------------------------
+# WebKitGTK settings / inspector symbols (PH17 — PICOLET_TEST_MODE)
+# ---------------------------------------------------------------------------
+
+# WebKitSettings *webkit_web_view_get_settings(WebKitWebView *)
+webkit_web_view_get_settings = webkit.func("p", "webkit_web_view_get_settings", "p")
+
+# void webkit_settings_set_enable_developer_extras(WebKitSettings *, gboolean)
+# Enables the right-click "Inspect Element" context menu and richer JS
+# introspection endpoints when the Web Inspector server is active.
+webkit_settings_set_enable_developer_extras = webkit.func(
+    "v", "webkit_settings_set_enable_developer_extras", "pi"
+)
+
+# void webkit_settings_set_enable_write_console_messages_to_stdout(WebKitSettings *, gboolean)
+# Forwards console.log / console.error to the process stdout so test
+# harnesses can assert on page-level diagnostic output.
+try:
+    webkit_settings_set_enable_write_console_messages_to_stdout = webkit.func(
+        "v", "webkit_settings_set_enable_write_console_messages_to_stdout", "pi"
+    )
+except OSError:
+    webkit_settings_set_enable_write_console_messages_to_stdout = None
+
+# int setenv(const char *name, const char *value, int overwrite) — libc
+# Used to set WEBKIT_INSPECTOR_SERVER before webkit_web_view_new() so the
+# Web Inspector server is bound at the correct address:port (R1: the env
+# var is read once at engine-init time, before any GtkWebView creation).
+try:
+    _libc = _safe_open("libc.so.6")
+    setenv = _libc.func("i", "setenv", "ssi")
+except (OSError, ImportError):
+    # Fallback: use os.environ (CPython testing context) — runtime always
+    # has libc.so.6 under the MicroPython unix port.
+    setenv = None
+
+
+# ---------------------------------------------------------------------------
 # JavaScriptCore symbols
 # ---------------------------------------------------------------------------
 

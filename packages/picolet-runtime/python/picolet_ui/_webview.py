@@ -303,6 +303,27 @@ else:
             self._gtk_ffi = _gtk_ffi
             self._closures = []  # keep callback closures alive
 
+            # PH17 — PICOLET_TEST_MODE inspector wiring (FR-TEST-1).
+            # WEBKIT_INSPECTOR_SERVER must be set BEFORE webkit_web_view_new()
+            # because WebKit reads it once at engine-init time (R1).  We do
+            # the env-var setup here, before any view creation.
+            self._test_port = None
+            import os
+            if os.getenv("PICOLET_TEST_MODE") == "1":
+                try:
+                    from ._test_port import pick_test_port
+                    port = pick_test_port()
+                    self._test_port = port
+                    inspector_addr = "127.0.0.1:{}".format(port)
+                    if _gtk_ffi.setenv is not None:
+                        _gtk_ffi.setenv("WEBKIT_INSPECTOR_SERVER", inspector_addr, 1)
+                    else:
+                        os.environ["WEBKIT_INSPECTOR_SERVER"] = inspector_addr
+                except Exception as exc:
+                    sys.stderr.write(
+                        "picolet_ui: PICOLET_TEST_MODE: failed to open inspector port: {}\n".format(exc)
+                    )
+
             if disable_sandbox and _gtk_ffi.webkit_web_context_set_sandbox_enabled:
                 # Risk-3 mitigation: trusted file:// content the runtime
                 # bundled itself; sandbox costs us correctness on some
@@ -392,6 +413,22 @@ else:
             _gtk_ffi.g_signal_connect_data(
                 self._manager, sig, cb, 0, 0, 0
             )
+
+            # PH17 — enable developer extras after view creation and
+            # announce the inspector port on stderr (FR-TEST-1).
+            if self._test_port is not None:
+                try:
+                    settings = _gtk_ffi.webkit_web_view_get_settings(self._view)
+                    if settings:
+                        _gtk_ffi.webkit_settings_set_enable_developer_extras(settings, 1)
+                        if _gtk_ffi.webkit_settings_set_enable_write_console_messages_to_stdout is not None:
+                            _gtk_ffi.webkit_settings_set_enable_write_console_messages_to_stdout(settings, 1)
+                except Exception as exc:
+                    sys.stderr.write(
+                        "picolet_ui: PICOLET_TEST_MODE: settings configuration failed: {}\n".format(exc)
+                    )
+                sys.stderr.write("picolet:test-port={}\n".format(self._test_port))
+                sys.stderr.flush()
 
             if root_uri is not None:
                 _gtk_ffi.webkit_web_view_load_uri(self._view, root_uri)
