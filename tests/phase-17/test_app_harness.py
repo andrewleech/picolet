@@ -368,13 +368,20 @@ class TestSpawnXvfb(unittest.TestCase):
         return fake_popen
 
     def test_spawn_xvfb_prepended_when_display_unset(self):
-        """_spawn wraps command in xvfb-run when DISPLAY is absent."""
+        """_spawn wraps command in xvfb-run when DISPLAY is absent and only xvfb-run is found."""
         h = AppHarness("/fake/picolet-runtime-linux-x64-webview", browser="webkit")
         captured_cmd = []
         env_without_display = {k: v for k, v in os.environ.items() if k != "DISPLAY"}
+        # Simulate: Xvfb not found but xvfb-run is available.
+        def _which(name):
+            if name == "Xvfb":
+                return None
+            if name == "xvfb-run":
+                return "/usr/bin/xvfb-run"
+            return None
         # Patch subprocess.Popen on the loaded module object directly.
         with patch.dict(os.environ, env_without_display, clear=True):
-            with patch("shutil.which", return_value="/usr/bin/xvfb-run"):
+            with patch("shutil.which", side_effect=_which):
                 with patch.object(sys, "platform", "linux"):
                     with patch.object(_harness_mod.subprocess, "Popen",
                                       side_effect=self._make_fake_popen(captured_cmd)):
@@ -383,7 +390,7 @@ class TestSpawnXvfb(unittest.TestCase):
         self.assertEqual(captured_cmd[0], "xvfb-run")
 
     def test_spawn_raises_when_display_unset_and_no_xvfb(self):
-        """_spawn raises RuntimeError when DISPLAY unset and xvfb-run missing."""
+        """_spawn raises RuntimeError when DISPLAY unset and neither Xvfb nor xvfb-run present."""
         h = AppHarness("/fake/picolet-runtime-linux-x64-webview", browser="webkit")
         env_without_display = {k: v for k, v in os.environ.items() if k != "DISPLAY"}
         with patch.dict(os.environ, env_without_display, clear=True):
@@ -391,7 +398,7 @@ class TestSpawnXvfb(unittest.TestCase):
                 with patch.object(sys, "platform", "linux"):
                     with self.assertRaises(RuntimeError) as ctx:
                         h._spawn()
-        self.assertIn("xvfb-run", str(ctx.exception))
+        self.assertIn("xvfb", str(ctx.exception).lower())
 
     def test_spawn_no_xvfb_when_display_set(self):
         """_spawn does not prepend xvfb-run when DISPLAY is set."""

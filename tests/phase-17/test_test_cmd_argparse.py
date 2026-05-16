@@ -224,31 +224,45 @@ class TestBuildChildCmd(unittest.TestCase):
         binary = Path("/fake/picolet-runtime-linux-x64-webview")
         env_with_display = {"DISPLAY": ":0"}
         with patch.dict(os.environ, env_with_display, clear=False):
-            cmd = test_cmd._build_child_cmd(args, binary)
+            cmd, uses_xvfb = test_cmd._build_child_cmd(args, binary, browser="webkit")
         self.assertNotIn("xvfb-run", cmd)
         self.assertEqual(cmd[0], str(binary))
 
     def test_xvfb_prepended_when_display_unset_and_xvfb_present(self):
-        """When $DISPLAY is unset and xvfb-run is available, it is prepended."""
+        """When $DISPLAY is unset and only xvfb-run is available (no Xvfb), it is prepended."""
         args = _make_args(args=[], verbose=False)
         binary = Path("/fake/picolet-runtime-linux-x64-webview")
         env_without_display = {k: v for k, v in os.environ.items() if k != "DISPLAY"}
+        # Simulate: Xvfb not found, only xvfb-run found.
+        def _which(name):
+            if name == "Xvfb":
+                return None
+            if name == "xvfb-run":
+                return "/usr/bin/xvfb-run"
+            return None
         with patch.dict(os.environ, env_without_display, clear=True):
-            with patch("shutil.which", return_value="/usr/bin/xvfb-run"):
+            with patch("shutil.which", side_effect=_which):
                 with patch.object(sys, "platform", "linux"):
-                    cmd = test_cmd._build_child_cmd(args, binary)
+                    cmd, uses_xvfb = test_cmd._build_child_cmd(args, binary, browser="webkit")
         self.assertEqual(cmd[0], "xvfb-run")
         self.assertIn(str(binary), cmd)
+        self.assertTrue(uses_xvfb)
 
     def test_xvfb_screen_size_in_args(self):
         """xvfb-run includes -screen 0 1280x800x24."""
         args = _make_args(args=[], verbose=False)
         binary = Path("/fake/picolet-runtime-linux-x64-webview")
         env_without_display = {k: v for k, v in os.environ.items() if k != "DISPLAY"}
+        def _which(name):
+            if name == "Xvfb":
+                return None
+            if name == "xvfb-run":
+                return "/usr/bin/xvfb-run"
+            return None
         with patch.dict(os.environ, env_without_display, clear=True):
-            with patch("shutil.which", return_value="/usr/bin/xvfb-run"):
+            with patch("shutil.which", side_effect=_which):
                 with patch.object(sys, "platform", "linux"):
-                    cmd = test_cmd._build_child_cmd(args, binary)
+                    cmd, uses_xvfb = test_cmd._build_child_cmd(args, binary, browser="webkit")
         cmd_str = " ".join(cmd)
         self.assertIn("1280x800x24", cmd_str)
 
@@ -261,7 +275,7 @@ class TestBuildChildCmd(unittest.TestCase):
             with patch("shutil.which", return_value=None):
                 with patch.object(sys, "platform", "linux"):
                     with self.assertRaises(SystemExit) as cm:
-                        test_cmd._build_child_cmd(args, binary)
+                        test_cmd._build_child_cmd(args, binary, browser="webkit")
         self.assertEqual(cm.exception.code, 1)
 
     def test_double_dash_separator_stripped_from_forwarded_args(self):
@@ -269,7 +283,7 @@ class TestBuildChildCmd(unittest.TestCase):
         args = _make_args(args=["--", "file:///tmp/index.html"], verbose=False)
         binary = Path("/fake/picolet-runtime-linux-x64-webview")
         with patch.dict(os.environ, {"DISPLAY": ":0"}):
-            cmd = test_cmd._build_child_cmd(args, binary)
+            cmd, _ = test_cmd._build_child_cmd(args, binary, browser="webkit")
         self.assertIn("file:///tmp/index.html", cmd)
         self.assertNotIn("--", cmd)
 
@@ -278,7 +292,7 @@ class TestBuildChildCmd(unittest.TestCase):
         args = _make_args(args=["http://example.com"], verbose=False)
         binary = Path("/fake/picolet-runtime-linux-x64-webview")
         with patch.dict(os.environ, {"DISPLAY": ":0"}):
-            cmd = test_cmd._build_child_cmd(args, binary)
+            cmd, _ = test_cmd._build_child_cmd(args, binary, browser="webkit")
         self.assertIn("http://example.com", cmd)
 
 
