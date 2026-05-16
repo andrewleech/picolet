@@ -35,8 +35,10 @@ import asyncio
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -120,40 +122,58 @@ def add_parser(subparsers) -> None:
 _PORT_RE = re.compile(r"^picolet:test-port=(\d+)$")
 
 
-def _wait_for_port(proc: subprocess.Popen, timeout: float, verbose: bool) -> int | None:
-    """Read stderr lines from proc until a port announcement is seen.
+def _wait_for_port(
+    proc: subprocess.Popen,
+    timeout: float,
+    verbose: bool,
+    scan_stdout: bool = False,
+) -> int | None:
+    """Read from proc's stderr (and optionally stdout) until a port announcement is seen.
 
-    Returns the port number, or None on timeout.  Continues draining stderr
-    in a daemon thread after the port is found so the child doesn't block on
-    a full pipe.
+    Returns the port number, or None on timeout.  Continues draining the pipe(s)
+    in daemon threads after the port is found so the child doesn't block on a
+    full pipe.
+
+    scan_stdout: set True when xvfb-run is used.  xvfb-run redirects the child's
+    stderr to its own stdout (``"$@" 2>&1`` in /usr/bin/xvfb-run line 184), so
+    the port announcement arrives on proc.stdout, not proc.stderr.
     """
     port_found: list[int] = []
     done = threading.Event()
 
-    def _reader():
-        try:
-            for raw in proc.stderr:
-                line = raw.rstrip(b"\n\r").decode("utf-8", "replace")
-                m = _PORT_RE.match(line)
-                if m:
-                    port_found.append(int(m.group(1)))
-                    done.set()
-                # Always forward stderr to ours.
-                sys.stderr.write(line + "\n")
-                sys.stderr.flush()
-                if done.is_set():
-                    # Keep draining (don't block the child's pipe) but
-                    # stop forwarding to avoid spam in test output.
-                    for leftover in proc.stderr:
-                        pass
-                    break
-        except Exception:
-            pass
-        finally:
-            done.set()  # unblock even on error
+    def _make_reader(pipe, is_stderr: bool):
+        def _reader():
+            try:
+                for raw in pipe:
+                    line = raw.rstrip(b"\n\r").decode("utf-8", "replace")
+                    m = _PORT_RE.match(line)
+                    if m:
+                        port_found.append(int(m.group(1)))
+                        done.set()
+                    if is_stderr:
+                        # Forward stderr to ours so the caller sees it.
+                        sys.stderr.write(line + "\n")
+                        sys.stderr.flush()
+                    if done.is_set():
+                        for _ in pipe:
+                            pass
+                        break
+            except Exception:
+                pass
+            finally:
+                done.set()
+        return _reader
 
-    t = threading.Thread(target=_reader, daemon=True)
-    t.start()
+    threads = []
+    if proc.stderr is not None:
+        t = threading.Thread(target=_make_reader(proc.stderr, is_stderr=True), daemon=True)
+        t.start()
+        threads.append(t)
+    if scan_stdout and proc.stdout is not None:
+        t = threading.Thread(target=_make_reader(proc.stdout, is_stderr=False), daemon=True)
+        t.start()
+        threads.append(t)
+
     done.wait(timeout=timeout)
 
     if port_found:
@@ -199,29 +219,120 @@ def _resolve_browser(args, binary: Path) -> str:
     return "webkit"
 
 
-def _build_child_cmd(args, binary: Path) -> list[str]:
-    """Build the subprocess argv list, prepending xvfb-run when needed."""
+def _find_free_display() -> int:
+    """Find a free X display number by checking the lock files in /tmp."""
+    for n in range(99, 200):
+        if not os.path.exists("/tmp/.X{}-lock".format(n)):
+            return n
+    return 99  # fallback
+
+
+def _start_xvfb(display: int, verbose: bool = False) -> subprocess.Popen | None:
+    """Start an Xvfb server on the given display number.
+
+    Returns the Xvfb process if started, or None if Xvfb is not available.
+    The caller is responsible for terminating the process.
+    """
+    xvfb = shutil.which("Xvfb")
+    if not xvfb:
+        return None
+    cmd = [xvfb, ":{}".format(display), "-screen", "0", "1280x800x24", "-nolisten", "tcp"]
+    if verbose:
+        sys.stderr.write("picolet test: starting Xvfb on display :{}\n".format(display))
+    return subprocess.Popen(cmd, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
+
+def _default_child_args(browser: str) -> list[str]:
+    """Return a default '-c <code>' argument list for binaries with no romfs.
+
+    When no romfs is present, the binary exits immediately without any Python
+    code to run.  For test mode (--screenshot / --run) to work, the binary
+    needs a '-c <code>' argument that starts the appropriate event loop.
+
+    For webview binaries: opens a window, loads a minimal page, and pumps
+    the GTK event loop until killed.
+    For LVGL binaries: loads picolet._test command handlers and starts the
+    stdio dispatcher loop.
+    """
+    if browser == "lvgl":
+        code = (
+            "import picolet._test; "
+            "from picolet_ui._lvgl import LvglDisplay; "
+            "import picolet._dispatcher as d; "
+            "LvglDisplay(); "
+            "d.run()"
+        )
+    else:
+        # Webview path: open a window and pump the GTK event loop.
+        code = (
+            "from picolet_ui._window import Window; "
+            "from picolet_ui._webview import Webview, WebviewTransport; "
+            "from picolet_ui import _loop; "
+            "import asyncio; "
+            "w = Window(title='Test', size=[640, 480], resizable=False); "
+            "t = WebviewTransport(); "
+            "v = Webview(w, root_uri='data:text/html,<html><body>ok</body></html>', transport=t); "
+            "w.show(); "
+            "asyncio.run(_loop._gtk_pump())"
+        )
+    return ["-c", code]
+
+
+def _build_child_cmd(
+    args, binary: Path, xvfb_display: int | None = None, browser: str = "webkit"
+) -> tuple[list[str], bool]:
+    """Build the subprocess argv list.  Start Xvfb manually if no DISPLAY is set.
+
+    Returns (cmd, uses_xvfb) where uses_xvfb is True when an Xvfb display is
+    being used.  Unlike xvfb-run, this approach starts Xvfb as a separate
+    process (tracked by the caller), keeping the child's stdout/stderr pipes
+    intact and accessible via proc.stdout/proc.stderr.
+
+    When no extra args are passed and the binary has no romfs (determined by
+    the absence of user-provided args), injects a default '-c <code>' argument
+    that starts the appropriate event loop so test mode works out of the box.
+    """
     forward = list(args.args or [])
     if forward and forward[0] == "--":
         forward = forward[1:]
 
+    # Auto-inject a default '-c <startup>' when the caller passes no args.
+    # Without this, binaries without a romfs exit immediately with no output.
+    if not forward:
+        forward = _default_child_args(browser)
+
     cmd = [str(binary)] + forward
+    uses_xvfb = False
 
     # Chunk 6 — xvfb autodetect (FR-TEST-4, D7).
-    if sys.platform == "linux" and not os.environ.get("DISPLAY"):
-        if shutil.which("xvfb-run"):
-            cmd = ["xvfb-run", "-a", "-s", "-screen 0 1280x800x24", "-e", "/dev/stderr"] + cmd
+    # When no DISPLAY is set, start Xvfb separately (tracked by the caller)
+    # instead of wrapping in xvfb-run.  xvfb-run redirects the child's stderr
+    # to its own stdout (``"$@" 2>&1``), which breaks the port-announcement
+    # pipe.  A manual Xvfb start lets us keep stdout/stderr separate.
+    if sys.platform == "linux" and not os.environ.get("DISPLAY") and browser != "lvgl":
+        if shutil.which("Xvfb"):
+            uses_xvfb = True
+            if args.verbose:
+                sys.stderr.write(
+                    "picolet test: no $DISPLAY, starting Xvfb on display :{}\n".format(
+                        xvfb_display
+                    )
+                )
+        elif shutil.which("xvfb-run"):
+            # Fall back to xvfb-run if Xvfb is not directly available.
+            cmd = ["xvfb-run", "-a", "-s", "-screen 0 1280x800x24"] + cmd
+            uses_xvfb = True
             if args.verbose:
                 sys.stderr.write("picolet test: no $DISPLAY, wrapping in xvfb-run\n")
         else:
             print(
-                "error: $DISPLAY is not set and xvfb-run is not installed.\n"
+                "error: $DISPLAY is not set and Xvfb is not installed.\n"
                 "Install xvfb with: apt install xvfb",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-    return cmd
+    return cmd, uses_xvfb
 
 
 # ---------------------------------------------------------------------------
@@ -271,14 +382,54 @@ def run(args) -> int:
     child_env = dict(os.environ)
     child_env["PICOLET_TEST_MODE"] = "1"
 
-    cmd = _build_child_cmd(args, binary)
+    # Start Xvfb manually if no display is available (Linux headless).
+    # Unlike xvfb-run, starting Xvfb as a separate process keeps the child's
+    # stdout/stderr pipes intact — xvfb-run's ``"$@" 2>&1`` redirect breaks them.
+    xvfb_proc: subprocess.Popen | None = None
+    xvfb_display: int | None = None
+    if sys.platform == "linux" and not os.environ.get("DISPLAY") and browser != "lvgl":
+        if shutil.which("Xvfb"):
+            xvfb_display = _find_free_display()
+            xvfb_proc = _start_xvfb(xvfb_display, verbose=args.verbose)
+            if xvfb_proc is not None:
+                # Give Xvfb a moment to start and create the socket.
+                # 0.1 s is sufficient; Xvfb binds its socket within a few ms.
+                import time
+                time.sleep(0.1)
+                child_env["DISPLAY"] = ":{}".format(xvfb_display)
+                # Force GDK to use the X11 backend.  On systems where
+                # WAYLAND_DISPLAY is set (e.g. WSL2 with a Wayland compositor),
+                # GTK4 prefers Wayland even when DISPLAY is set.  Unsetting
+                # WAYLAND_DISPLAY and setting GDK_BACKEND=x11 ensures GTK
+                # connects to the Xvfb display instead.
+                child_env["GDK_BACKEND"] = "x11"
+                child_env.pop("WAYLAND_DISPLAY", None)
+                if args.verbose:
+                    sys.stderr.write(
+                        "picolet test: Xvfb started on DISPLAY=:{} (pid={})\n".format(
+                            xvfb_display, xvfb_proc.pid
+                        )
+                    )
+        elif not shutil.which("xvfb-run"):
+            print(
+                "error: $DISPLAY is not set and Xvfb is not installed.\n"
+                "Install xvfb with: apt install xvfb",
+                file=sys.stderr,
+            )
+            return 1
+
+    cmd, uses_xvfb = _build_child_cmd(args, binary, xvfb_display=xvfb_display, browser=browser)
     if args.verbose:
         sys.stderr.write("picolet test: spawn: {}\n".format(" ".join(cmd)))
 
     # BUG-D fix: LVGL binaries use stdio as the transport, not an inspector port.
     # Open stdin+stdout pipes for the LVGL path so the AppHarness can write JSON
-    # commands and read JSON replies.  For webview paths, stdout is inherited and
-    # only stderr is piped (for the port announcement).
+    # commands and read JSON replies.
+    #
+    # For webview paths: pipe stderr always.  When using manual Xvfb (xvfb_proc),
+    # the child's stderr and stdout are separate — no redirect needed.
+    # When falling back to xvfb-run (uses_xvfb but no xvfb_proc), xvfb-run
+    # redirects the child's stderr to stdout, so we also pipe stdout.
     if browser == "lvgl":
         proc = subprocess.Popen(
             cmd,
@@ -292,13 +443,20 @@ def run(args) -> int:
         port = None  # LVGL has no inspector port — sentinel None is fine.
         # AppHarness will handle the LVGL-specific initialization.
     else:
-        proc = subprocess.Popen(
-            cmd,
-            env=child_env,
-            stderr=subprocess.PIPE,
-            # stdout inherited — let the app's own stdout reach the terminal.
+        # When using xvfb-run (fallback), pipe stdout too so we can scan it for
+        # the port announcement (xvfb-run does ``"$@" 2>&1``).
+        # When using manual Xvfb (xvfb_proc), stdout is NOT redirected.
+        xvfbrun_fallback = uses_xvfb and xvfb_proc is None
+        popen_kwargs: dict = {"env": child_env, "stderr": subprocess.PIPE}
+        if xvfbrun_fallback:
+            popen_kwargs["stdout"] = subprocess.PIPE
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        port = _wait_for_port(
+            proc,
+            timeout=args.timeout,
+            verbose=args.verbose,
+            scan_stdout=xvfbrun_fallback,
         )
-        port = _wait_for_port(proc, timeout=args.timeout, verbose=args.verbose)
 
         if port is None:
             print(
@@ -308,6 +466,8 @@ def run(args) -> int:
             )
             proc.terminate()
             proc.wait()
+            if xvfb_proc is not None:
+                xvfb_proc.terminate()
             return 1
 
     if args.verbose:
@@ -322,6 +482,8 @@ def run(args) -> int:
         print("connected browser={} port={} binary={}".format(browser, port, binary))
         proc.terminate()
         proc.wait()
+        if xvfb_proc is not None:
+            xvfb_proc.terminate()
         return 0
 
     # ---- screenshot / run modes — use AppHarness --------------------------
@@ -335,6 +497,8 @@ def run(args) -> int:
         )
         proc.terminate()
         proc.wait()
+        if xvfb_proc is not None:
+            xvfb_proc.terminate()
         return 1
 
     async def _async_main():
@@ -342,8 +506,9 @@ def run(args) -> int:
             binary=str(binary),
             browser=browser,
             timeout=args.timeout,
-            _running_proc=proc,   # pass the already-running process
-            _port=port,           # pass the already-known port
+            _running_proc=proc,     # pass the already-running process
+            _port=port,             # pass the already-known port
+            _xvfb_display=xvfb_display,  # pass display for xwd screenshot
         )
         try:
             await harness.start()
@@ -381,8 +546,20 @@ def run(args) -> int:
             await harness.stop()
 
     rc = asyncio.run(_async_main())
+    # AppHarness.stop() does not terminate the proc when _running_proc was
+    # pre-supplied (_owns_proc=False).  Terminate it here before waiting so
+    # proc.wait() returns promptly rather than blocking for the full timeout.
+    if proc.poll() is None:
+        proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.wait()
+    if xvfb_proc is not None:
+        xvfb_proc.terminate()
+        try:
+            xvfb_proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            xvfb_proc.kill()
     return rc if rc is not None else 0
