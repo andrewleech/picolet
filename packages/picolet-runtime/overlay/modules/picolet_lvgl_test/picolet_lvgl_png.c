@@ -160,6 +160,14 @@ static int append_chunk(ByteBuf *out, const char *type,
 
 /* ----- Public API --------------------------------------------------------- */
 
+/*
+ * __attribute__((used)) prevents --gc-sections from stripping these functions.
+ * They are referenced only by name via libffi string lookup in frozen Python
+ * bytecode (picolet._test.snapshot), so the linker sees no C-level call site
+ * and would otherwise eliminate them.  The attribute forces the linker to
+ * retain the symbols in the final binary regardless of reference analysis.
+ */
+__attribute__((used))
 int32_t picolet_lvgl_png_encode(const uint8_t *rgb888,
                               int32_t width, int32_t height,
                               uint8_t **out_bytes, size_t *out_size) {
@@ -247,6 +255,7 @@ fail:
     return -1;
 }
 
+__attribute__((used))
 void picolet_lvgl_png_free(uint8_t *bytes) {
     free(bytes);
 }

@@ -88,6 +88,15 @@ INC += -I$(TOP)/shared
 SRC_C += $(PICOLET_RUNTIME_ROOT)/overlay/modules/picolet_lvgl_test/picolet_lvgl_png.c
 INC += -I$(PICOLET_RUNTIME_ROOT)/overlay/modules/picolet_lvgl_test
 # Export the picolet_lvgl_png_* symbols so libffi.ffi.open(None) can resolve them.
-LDFLAGS_USERMOD += -Wl,--export-dynamic
+# LDFLAGS_EXTRA survives py.mk's LDFLAGS_USERMOD := reset (variant mk is
+# loaded before py.mk's foreach loop which resets LDFLAGS_USERMOD to empty).
+LDFLAGS_EXTRA += -Wl,--export-dynamic
+# Force linker to retain picolet_lvgl_png_* despite --gc-sections.
+# These symbols are referenced only by name through the MicroPython FFI
+# string lookup at runtime — the linker sees no C-level call site and
+# would otherwise eliminate the section. --undefined= acts like a
+# synthetic reference, making the section reachable from the GC root.
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_lvgl_png_encode
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_lvgl_png_free
 # -ldl for dlopen/dlsym used by the PNG encoder.
-LDFLAGS_USERMOD += -ldl
+LDFLAGS_EXTRA += -ldl
