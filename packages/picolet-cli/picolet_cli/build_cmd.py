@@ -25,6 +25,7 @@ import argparse
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -261,6 +262,12 @@ def _do_build(args) -> int:
     _verify_mpy_cross_version(runtime_path, mpy_cross, args.verbose)
 
     # -------------------------------------------------------------------------
+    # Step 4b – Frontend build (FR-VUE-4, FR-VUE-5): run npm install + build
+    # command when [ui.frontend].framework is non-vanilla.  No-op for vanilla.
+    # -------------------------------------------------------------------------
+    _run_frontend_build(data, app_root, args.verbose)
+
+    # -------------------------------------------------------------------------
     # Steps 5–9 in a temp staging area.
     # -------------------------------------------------------------------------
     staging = app_root / "target" / target / ".picolet-build"
@@ -276,6 +283,12 @@ def _do_build(args) -> int:
 
         # Step 6 – Copy [romfs] include dirs (FR-BP-4).
         _copy_includes(app_root, romfs_includes, romfs_root, args.verbose)
+
+        # Step 6a – For non-vanilla frontend frameworks, copy the built
+        # dist/ into romfs at the [ui] root.  Vanilla apps include their
+        # static files via [romfs] include = ["ui"] — Vue apps omit that
+        # entry and rely on this step instead (FR-VUE-4).
+        _copy_dist_to_ui_root(data, app_root, romfs_root, args.verbose)
 
         # Step 6b – UI variants: drop a sanitised picolet.toml at the
         # romfs root so the runtime can read [window] and [ui] at
@@ -462,6 +475,105 @@ def _guess_variant(runtime_path: Path) -> str:
     if len(parts) >= 5:
         return parts[4]
     return "cli"
+
+
+def _run_frontend_build(data: dict, app_root: Path, verbose: bool) -> None:
+    """Run npm install + the configured build command for non-vanilla frontends.
+
+    Called after runtime resolution (step 4) and before mpy-cross compilation
+    (step 5) so the dist/ output is available when _copy_dist_to_ui_root runs.
+
+    No-op when [ui.frontend].framework is absent or "vanilla".
+
+    Raises BuildFailed when:
+      - npm is not on PATH (Node ≥ 18 LTS required for Vue projects).
+      - npm install exits non-zero.
+      - The build command exits non-zero.
+    """
+    frontend = data.get("ui", {}).get("frontend", {})
+    framework = frontend.get("framework", "vanilla")
+    if framework == "vanilla":
+        return
+
+    if shutil.which("npm") is None:
+        print(
+            "error: npm not found on PATH; Node ≥ 18 LTS is required for Vue projects "
+            "(see docs/architecture.md §Frontend toolchains)",
+            file=sys.stderr,
+        )
+        raise BuildFailed()
+
+    if verbose:
+        print(f"  frontend: framework={framework!r}; running npm install …", file=sys.stderr)
+
+    # npm install --prefer-offline: respects package-lock.json when present;
+    # fast when node_modules/ already exists (D2).
+    subprocess.run(
+        ["npm", "install", "--prefer-offline", "--no-fund", "--no-audit"],
+        cwd=str(app_root),
+        check=True,
+        capture_output=not verbose,
+    )
+
+    build_cmd_str = frontend.get("build_cmd", "npm run build")
+    if verbose:
+        print(f"  frontend: running {build_cmd_str!r} in {app_root}", file=sys.stderr)
+
+    try:
+        subprocess.run(
+            shlex.split(build_cmd_str),
+            cwd=str(app_root),
+            check=True,
+            capture_output=not verbose,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(
+            f"error: frontend build command {build_cmd_str!r} failed (rc={exc.returncode})",
+            file=sys.stderr,
+        )
+        raise BuildFailed()
+
+
+def _copy_dist_to_ui_root(
+    data: dict, app_root: Path, romfs_root: Path, verbose: bool
+) -> None:
+    """Copy the frontend build dist/ into romfs at [ui] root.
+
+    No-op when [ui.frontend].framework is absent or "vanilla".
+
+    The dist/ contents are merged into romfs_root/<ui_root>/ using
+    shutil.copytree with dirs_exist_ok=True so any existing files from a
+    prior step are not clobbered.
+
+    Raises BuildFailed when dist_dir does not exist (frontend build must
+    have run first via _run_frontend_build).
+    """
+    frontend = data.get("ui", {}).get("frontend", {})
+    framework = frontend.get("framework", "vanilla")
+    if framework == "vanilla":
+        return
+
+    dist_dir = frontend.get("dist_dir", "dist")
+    ui_root = data.get("ui", {}).get("root", "ui")
+
+    src = app_root / dist_dir
+    if not src.is_dir():
+        print(
+            f"error: frontend dist directory not found: {src}; "
+            f"the build command did not produce expected output",
+            file=sys.stderr,
+        )
+        raise BuildFailed()
+
+    dst = romfs_root / ui_root
+    dst.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+    if verbose:
+        count = sum(1 for _ in dst.rglob("*") if _.is_file())
+        print(
+            f"  dist: copied {count} files from {src} → romfs/{ui_root}/",
+            file=sys.stderr,
+        )
 
 
 def _copy_bridge_js(romfs_root: Path, verbose: bool) -> None:
