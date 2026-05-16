@@ -474,6 +474,110 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
+# Group E: binary-safe template copy (Q9 fixup)
+# ---------------------------------------------------------------------------
+#
+# Inject a synthetic template with a small binary file and a text file.
+# Verify that: (a) the binary file arrives byte-identically; (b) {{name}} is
+# substituted in the text file; (c) the binary file is NOT corrupted by a
+# text pass.
+#
+# This exercises the _TEXT_EXTENSIONS whitelist in init_cmd._copy_template.
+
+echo "--- Group E: binary-safe template copy ---"
+
+FAKE_TMPL_PKG="$WORKDIR/fake_pkg"
+FAKE_TMPL_DIR="$FAKE_TMPL_PKG/picolet_templates/hello-binary-test"
+
+# Create a minimal Python package layout that importlib.resources can see.
+mkdir -p "$FAKE_TMPL_DIR/src"
+# Mark as a namespace package — init file not strictly required but keeps
+# importlib.resources happy across Python versions.
+touch "$FAKE_TMPL_PKG/picolet_templates/__init__.py"
+
+# picolet.toml with {{name}} placeholder (text file).
+cat > "$FAKE_TMPL_DIR/picolet.toml" <<'TOML_EOF'
+[app]
+name = "{{name}}"
+version = "0.1.0"
+entry = "src/main.py"
+TOML_EOF
+
+# Python source with {{name}} (text file).
+cat > "$FAKE_TMPL_DIR/src/main.py" <<'PY_EOF'
+print("Hello from {{name}}")
+PY_EOF
+
+# Small fake PNG: valid 8-byte PNG signature followed by a byte that would be
+# invalid UTF-8 (0xff) to guarantee a UnicodeDecodeError on naive text read.
+# We write it via printf to get exact bytes.
+# Byte sequence: 0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A 0xFF
+printf '\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\xff' > "$FAKE_TMPL_DIR/icon.png"
+
+# Capture the MD5 of the source binary so we can compare after copy.
+ORIG_MD5=$(md5sum "$FAKE_TMPL_DIR/icon.png" | cut -d' ' -f1)
+
+# Run picolet init pointing PYTHONPATH at our fake package so importlib.resources
+# picks it up first.  We need to add hello-binary-test to _KNOWN_TEMPLATES to
+# avoid the allow-list guard.  Rather than patching production code, we invoke
+# the copy logic directly via a small inline Python script.
+
+BINARY_OUTDIR="$WORKDIR/binary-copy-out"
+mkdir -p "$BINARY_OUTDIR"
+
+NAME="E1 binary-copy-via-copy-template"
+E1_RC=0
+python3 - <<PYEOF || E1_RC=$?
+import sys
+sys.path.insert(0, "$REPO_ROOT/packages/picolet-cli")
+from pathlib import Path
+from picolet.init_cmd import _copy_template
+_copy_template(
+    Path("$FAKE_TMPL_DIR"),
+    Path("$BINARY_OUTDIR"),
+    "myapp",
+)
+PYEOF
+
+if [[ "$E1_RC" -eq 0 ]]; then
+    pass "$NAME"
+else
+    fail "$NAME" "_copy_template raised an exception (exit $E1_RC)"
+fi
+
+NAME="E2 binary-file-byte-identical"
+if [[ ! -f "$BINARY_OUTDIR/icon.png" ]]; then
+    fail "$NAME" "icon.png not present in output directory"
+else
+    COPY_MD5=$(md5sum "$BINARY_OUTDIR/icon.png" | cut -d' ' -f1)
+    if [[ "$ORIG_MD5" == "$COPY_MD5" ]]; then
+        pass "$NAME"
+    else
+        fail "$NAME" "MD5 mismatch: orig=$ORIG_MD5 copy=$COPY_MD5"
+    fi
+fi
+
+NAME="E3 name-substituted-in-text-files"
+if [[ ! -f "$BINARY_OUTDIR/picolet.toml" ]]; then
+    fail "$NAME" "picolet.toml not found in output"
+elif grep -qF 'name = "myapp"' "$BINARY_OUTDIR/picolet.toml"; then
+    pass "$NAME"
+else
+    fail "$NAME" "{{name}} not substituted; got: $(cat "$BINARY_OUTDIR/picolet.toml" 2>/dev/null)"
+fi
+
+NAME="E4 no-placeholder-left-in-py"
+if [[ ! -f "$BINARY_OUTDIR/src/main.py" ]]; then
+    fail "$NAME" "src/main.py not found in output"
+elif grep -qF '{{name}}' "$BINARY_OUTDIR/src/main.py"; then
+    fail "$NAME" "literal {{name}} still present in src/main.py"
+else
+    pass "$NAME"
+fi
+
+echo
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

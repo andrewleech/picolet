@@ -710,8 +710,9 @@ build_windows_x64() {
     mkdir -p "$BUILD_DIR"
     cp "$built_binary" "$artifact"
     # Strip inside dockcross — the host strip is not MinGW-aware.
-    docker_windows "$PKG_ROOT" "${CROSS}strip" --strip-unneeded "$artifact" \
-        2>/dev/null || true
+    # Propagate both stderr and exit code; silent failures would produce an
+    # unstripped binary that only the NFR-1/2 size gate would catch.
+    docker_windows "$PKG_ROOT" "${CROSS}strip" --strip-unneeded "$artifact"
     echo "  artifact: $artifact"
 
     finish_artifact "$artifact"

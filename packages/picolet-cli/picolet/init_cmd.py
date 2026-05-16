@@ -149,14 +149,30 @@ def _resolve_template(template_name: str) -> Path | None:
     return None
 
 
+# Extensions treated as UTF-8 text with {{name}} substitution.
+# Everything else is byte-copied verbatim (images, fonts, compiled assets).
+_TEXT_EXTENSIONS: frozenset[str] = frozenset(
+    {".py", ".toml", ".html", ".css", ".js", ".md", ".txt", ".json", ".yaml", ".yml"}
+)
+
+
 def _copy_template(template_dir: Path, output_dir: Path, name: str) -> None:
-    """Recursively copy template_dir into output_dir, substituting {{name}}."""
+    """Recursively copy template_dir into output_dir, substituting {{name}}.
+
+    Files whose suffix is in _TEXT_EXTENSIONS are read as UTF-8 text and have
+    ``{{name}}`` replaced with *name*.  All other files (images, fonts, binary
+    assets) are copied byte-for-byte via shutil.copy2 so they arrive intact.
+    """
     for src_path in template_dir.rglob("*"):
         if src_path.is_dir():
             continue
         rel = src_path.relative_to(template_dir)
         dst_path = output_dir / rel
         dst_path.parent.mkdir(parents=True, exist_ok=True)
-        content = src_path.read_text(encoding="utf-8")
-        content = content.replace("{{name}}", name)
-        dst_path.write_text(content, encoding="utf-8")
+        if src_path.suffix.lower() in _TEXT_EXTENSIONS:
+            content = src_path.read_text(encoding="utf-8")
+            if "{{name}}" in content:
+                content = content.replace("{{name}}", name)
+            dst_path.write_text(content, encoding="utf-8")
+        else:
+            shutil.copy2(src_path, dst_path)
