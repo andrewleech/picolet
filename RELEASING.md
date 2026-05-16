@@ -100,6 +100,46 @@ to 2.35 (NFR-8).
 The `lvgl` variant builds SDL2 from source with `-ffunction-sections` to keep
 the binary under the 2 MiB NFR-3 ceiling.
 
+## Pre-release dry-run procedure
+
+Before pushing a real `runtime-v*` tag, validate the full release pipeline
+using a throwaway tag on a fork or on this repo:
+
+1. Push a test tag to trigger the workflow:
+
+   ```bash
+   git tag runtime-v0.0.0-test
+   git push origin runtime-v0.0.0-test
+   ```
+
+2. Monitor the workflow run at:
+
+   ```
+   https://github.com/<org>/picolet/actions
+   ```
+
+   Confirm the 3 × 2 matrix expands to 6 parallel build jobs and all 6 complete
+   successfully.
+
+3. Verify all 18 release files land on the draft/pre-release:
+
+   ```bash
+   gh release view runtime-v0.0.0-test --json assets --jq '[.assets[].name] | sort'
+   ```
+
+   Expected: 6 binaries + 6 `.sha256` sidecars + 6 `.cdx.json` SBOMs.
+
+4. Delete the test release and tag before pushing the real release tag:
+
+   ```bash
+   gh release delete runtime-v0.0.0-test --yes
+   git push origin --delete runtime-v0.0.0-test
+   git tag -d runtime-v0.0.0-test
+   ```
+
+This procedure catches cache key mismatches, upload path bugs, and
+artifact naming regressions before they affect a production release.
+
 ## Re-running a release
 
 Re-pushing a tag (after `git tag -f`) re-triggers the workflow. The
