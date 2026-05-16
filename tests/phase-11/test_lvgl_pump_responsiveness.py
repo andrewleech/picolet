@@ -38,12 +38,14 @@ class LvglPumpResponsivenessTest(unittest.TestCase):
 
     def setUp(self):
         _make_mock_lvgl()
-        import picolet._dispatcher as d
+        import picolet._dispatcher as _disp
+        d = _disp._default
         d._commands.clear()
         d._subscribers.clear()
         d._pending_invokes.clear()
         d._active_transport = None
         d._next_invoke_id = 1
+        d._inbound_in_flight = 0
 
     def tearDown(self):
         sys.modules.pop("lvgl", None)

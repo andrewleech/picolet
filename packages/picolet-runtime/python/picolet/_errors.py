@@ -42,6 +42,22 @@ class RemoteError(Exception):
 # becomes a RemoteError.  Keep this list conservative — every name added
 # here is a callable that any peer can cause the local process to
 # instantiate.
+#
+# Security rationale (intentional BaseException exclusion):
+#
+#   This list contains only ``Exception`` subclasses.  ``KeyboardInterrupt``
+#   and ``SystemExit`` (and any other direct ``BaseException`` subclass)
+#   are deliberately absent and must stay absent.  Code in the host
+#   process — and most user ``except`` clauses — catches ``Exception``,
+#   not ``BaseException``; ``BaseException`` subclasses propagate through
+#   normal cleanup paths and either trip ``sys.excepthook``
+#   (``KeyboardInterrupt``) or unwind the interpreter (``SystemExit``).
+#   Allowing a peer to specify ``"type": "KeyboardInterrupt"`` would let
+#   a malicious or buggy peer crash the host or skip user-level cleanup
+#   handlers without writing any code that catches the exception.  The
+#   safe behaviour is to surface unknown / disallowed type names as
+#   ``RemoteError`` (an ``Exception`` subclass), which user code can
+#   handle the same as any other remote failure.
 _BUILTIN_EXCEPTION_NAMES = (
     "Exception",
     "RuntimeError",

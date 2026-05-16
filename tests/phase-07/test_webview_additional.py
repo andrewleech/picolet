@@ -359,11 +359,13 @@ class ConcurrentRapidDeliveryTest(unittest.TestCase):
             import picolet._dispatcher as _dispatcher
 
             # Fresh dispatcher state.
-            _dispatcher._commands.clear()
-            _dispatcher._subscribers.clear()
-            _dispatcher._pending_invokes.clear()
-            _dispatcher._active_transport = None
-            _dispatcher._next_invoke_id = 1
+            d = _dispatcher._default
+            d._commands.clear()
+            d._subscribers.clear()
+            d._pending_invokes.clear()
+            d._active_transport = None
+            d._next_invoke_id = 1
+            d._inbound_in_flight = 0
 
             class FakeWebview:
                 def __init__(self):

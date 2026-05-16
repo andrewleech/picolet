@@ -67,13 +67,15 @@ class InProcessDispatcherTest(unittest.TestCase):
     """End-to-end: picolet.invoke over InProcessTransport.pair."""
 
     def setUp(self):
-        # Clear the module-level command registry between tests.
-        import picolet._dispatcher as d
+        # Reset the default dispatcher's state between tests.
+        import picolet._dispatcher as _disp
+        d = _disp._default
         d._commands.clear()
         d._subscribers.clear()
         d._pending_invokes.clear()
         d._active_transport = None
         d._next_invoke_id = 1
+        d._inbound_in_flight = 0
 
     def test_invoke_roundtrip(self):
         import picolet

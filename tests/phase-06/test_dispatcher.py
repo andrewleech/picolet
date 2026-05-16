@@ -16,26 +16,31 @@ import builtins
 import sys
 import unittest
 
-# Force a fresh import of picolet for each test module run (the dispatcher
-# carries module-level state — _commands, _subscribers, _pending_invokes
-# — that needs to be clean across tests).
+# Force a fresh import of picolet for each test module run (the default
+# dispatcher singleton carries state — _commands, _subscribers,
+# _pending_invokes — that needs to be clean across tests).
 import picolet
 from picolet._dispatcher import (
-    _commands,
-    _subscribers,
-    _pending_invokes,
     _run_dispatcher,
     _run_with_main,
 )
 import picolet._dispatcher as _dispatcher
+
+# Module-level aliases to the default dispatcher's state for legacy
+# tests.  These point at the *same* mutable container objects held by
+# the singleton, so .clear()/.append()/__setitem__ are reflected.
+_commands = _dispatcher._default._commands
+_subscribers = _dispatcher._default._subscribers
+_pending_invokes = _dispatcher._default._pending_invokes
 
 
 def _reset_module_state():
     _commands.clear()
     _subscribers.clear()
     _pending_invokes.clear()
-    _dispatcher._active_transport = None
-    _dispatcher._next_invoke_id = 1
+    _dispatcher._default._active_transport = None
+    _dispatcher._default._next_invoke_id = 1
+    _dispatcher._default._inbound_in_flight = 0
 
 
 def _run(coro):
@@ -284,7 +289,7 @@ class EmitOnTests(unittest.TestCase):
 
     def test_emit_writes_event_to_transport(self):
         a, b = picolet.MockTransport.pair()
-        _dispatcher._active_transport = a
+        _dispatcher._default._active_transport = a
 
         async def go():
             await picolet.emit("progress", {"pct": 42})
@@ -395,13 +400,13 @@ class WireFormatTests(unittest.TestCase):
         self.assertEqual(set(reply["error"].keys()), {"type", "message"})
 
     def test_event_keys(self):
-        _dispatcher._active_transport = picolet.MockTransport()
+        _dispatcher._default._active_transport = picolet.MockTransport()
 
         async def go():
             await picolet.emit("topic", {"x": 1})
 
         _run(go())
-        outbox = _dispatcher._active_transport.drain()
+        outbox = _dispatcher._default._active_transport.drain()
         self.assertEqual(len(outbox), 1)
         self.assertEqual(set(outbox[0].keys()), {"event", "data"})
 
@@ -482,7 +487,7 @@ class ReentrantInvokeTests(unittest.TestCase):
         # the outer-reply.
 
         async def go():
-            _dispatcher._active_transport = a
+            _dispatcher._default._active_transport = a
             disp_task = asyncio.create_task(_run_dispatcher(a))
             # Driver sends outer request.
             await b.send({"id": 1, "cmd": "outer", "args": {"x": 5}})
@@ -645,7 +650,7 @@ class MaxInFlightTests(unittest.TestCase):
         a, b = picolet.MockTransport.pair()
 
         async def go():
-            _dispatcher._active_transport = a
+            _dispatcher._default._active_transport = a
             _dispatcher.MAX_IN_FLIGHT = 3
 
             # Manually stuff the pending-invoke table to the cap.
@@ -879,7 +884,7 @@ class ReentrancyDepthTests(unittest.TestCase):
         a, b = picolet.MockTransport.pair()
 
         async def go():
-            _dispatcher._active_transport = a
+            _dispatcher._default._active_transport = a
             disp_task = asyncio.create_task(_run_dispatcher(a))
 
             # Driver sends a request for cmd_a with args=1.
@@ -1043,6 +1048,151 @@ class ExceptionTypePreservationTests(unittest.TestCase):
         self.assertEqual(exc.message, "custom")
 
 
+class MaxInboundInFlightTests(unittest.TestCase):
+    """FR-IPC-2 — inbound concurrency cap returns structured error to peer.
+
+    Symmetric to MAX_IN_FLIGHT for outbound invokes: when the dispatcher
+    has MAX_INBOUND_IN_FLIGHT handler tasks in flight, additional
+    requests get a 'too many concurrent requests' RuntimeError reply
+    rather than spawning unbounded tasks.
+    """
+
+    def setUp(self):
+        _reset_module_state()
+
+    def tearDown(self):
+        _dispatcher.MAX_INBOUND_IN_FLIGHT = 1024
+        _reset_module_state()
+
+    def test_overflow_replies_with_structured_error(self):
+        """Send MAX_INBOUND_IN_FLIGHT + 5 requests; assert five get the cap error."""
+        # Lower the cap so the test is fast.  Set to 3 in-flight; we
+        # send 8 (cap + 5) and expect 5 cap rejections.
+        _dispatcher.MAX_INBOUND_IN_FLIGHT = 3
+
+        gate = asyncio.Event()
+
+        @picolet.command
+        async def slow(args):
+            # Hold the handler open until the test releases it; this
+            # keeps the inbound in-flight count at the cap for the
+            # overflow requests to bounce against.
+            await gate.wait()
+            return "done"
+
+        a, b = picolet.MockTransport.pair()
+        N_CAP = _dispatcher.MAX_INBOUND_IN_FLIGHT  # 3
+        N_TOTAL = N_CAP + 5
+
+        async def go():
+            disp_task = asyncio.create_task(_run_dispatcher(a))
+            # Send 3 + 5 = 8 requests.  The first 3 should be accepted
+            # (their handlers will block on the gate); the remaining 5
+            # should get cap-error replies immediately.
+            for i in range(N_TOTAL):
+                await b.send({"id": i + 1, "cmd": "slow", "args": None})
+
+            # Collect the 5 immediate error replies.  Their ids are
+            # the last five we sent.
+            cap_replies = []
+            for _ in range(5):
+                cap_replies.append(await asyncio.wait_for(b.recv(), timeout=1.0))
+
+            # Release the 3 held handlers; collect their replies.
+            gate.set()
+            ok_replies = []
+            for _ in range(N_CAP):
+                ok_replies.append(await asyncio.wait_for(b.recv(), timeout=1.0))
+
+            disp_task.cancel()
+            try:
+                await disp_task
+            except asyncio.CancelledError:
+                pass
+            return cap_replies, ok_replies
+
+        cap_replies, ok_replies = _run(go())
+
+        # All five cap replies must be structured RuntimeError replies.
+        cap_ids = sorted(r["id"] for r in cap_replies)
+        self.assertEqual(cap_ids, [4, 5, 6, 7, 8])
+        for r in cap_replies:
+            self.assertFalse(r["ok"], "cap reply must be ok=False")
+            self.assertEqual(r["error"]["type"], "RuntimeError")
+            self.assertIn("too many concurrent requests", r["error"]["message"])
+
+        # The three admitted handlers must have returned cleanly.
+        ok_ids = sorted(r["id"] for r in ok_replies)
+        self.assertEqual(ok_ids, [1, 2, 3])
+        for r in ok_replies:
+            self.assertTrue(r["ok"], "admitted handler reply must be ok=True")
+            self.assertEqual(r["result"], "done")
+
+
+class TransportClosedBeforeReplyTests(unittest.TestCase):
+    """FR-IPC-2 — invoke() awaiter raises RemoteError('transport closed').
+
+    Honours the invoke() docstring contract: when the transport is torn
+    down with pending replies outstanding, the awaiter must observe a
+    RemoteError rather than CancelledError.
+    """
+
+    def setUp(self):
+        _reset_module_state()
+
+    def tearDown(self):
+        _reset_module_state()
+
+    def test_pending_invoke_gets_remote_error_on_transport_close(self):
+        from picolet import RemoteError
+
+        a, b = picolet.MockTransport.pair()
+
+        # Drive a dispatcher whose main() invokes a command on the peer
+        # that will never reply, then closes the transport.  The
+        # invoke() awaiter must raise RemoteError("transport closed").
+
+        captured = []
+
+        async def main():
+            try:
+                await picolet.invoke("never_replies", None)
+            except BaseException as e:
+                captured.append(e)
+                raise
+
+        async def driver():
+            # Wait for the request to land on b, then close a from this
+            # side to tear down _run_with_main while the invoke is
+            # outstanding.
+            req = await asyncio.wait_for(b.recv(), timeout=1.0)
+            self.assertEqual(req["cmd"], "never_replies")
+            # Closing the dispatcher's own transport ('a') causes
+            # _run_dispatcher to exit with msg=None, which sets the
+            # done_event, which lets _run_with_main reach its finally
+            # block (and the new transport-closed cleanup).
+            await a.close()
+
+        async def go():
+            driver_task = asyncio.create_task(driver())
+            try:
+                await _run_with_main(a, main)
+            except RemoteError:
+                # Re-raised from main_wrapper; expected.
+                pass
+            await driver_task
+
+        _run(go())
+        self.assertEqual(len(captured), 1, "expected one exception in invoke awaiter")
+        exc = captured[0]
+        self.assertIsInstance(
+            exc,
+            RemoteError,
+            "expected RemoteError, got {}: {}".format(type(exc).__name__, exc),
+        )
+        self.assertIn("transport closed", str(exc))
+
+
 def _suite():
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
@@ -1068,6 +1218,9 @@ def _suite():
         ReentrancyDepthTests,
         ArgumentTypeTests,
         ExceptionTypePreservationTests,
+        # Post-review fixup additions
+        MaxInboundInFlightTests,
+        TransportClosedBeforeReplyTests,
     ):
         suite.addTests(loader.loadTestsFromTestCase(cls))
     return suite

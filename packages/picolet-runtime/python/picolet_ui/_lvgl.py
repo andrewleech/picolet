@@ -127,12 +127,13 @@ def run(transport=None, main=None):
         # writes to it.  For a single-process app the second endpoint
         # is the "peer" that user-side lvgl event handlers will
         # picolet.invoke into.  PH11 wires the *first* endpoint into the
-        # dispatcher and stores the second on picolet for the user to
-        # access (see picolet_ui.__init__ for the convenience binding).
+        # dispatcher and stores the second on the default Dispatcher
+        # instance (replaces the historical picolet._inprocess_peer
+        # module-attribute side channel — see _dispatcher.Dispatcher).
         transport = a
         try:
-            import picolet as _picolet
-            _picolet._inprocess_peer = b
+            from picolet._dispatcher import _default as _disp
+            _disp.inprocess_peer = b
         except ImportError:
             pass
 
