@@ -119,6 +119,8 @@ class TestBuildCmdResolverIntegration(unittest.TestCase):
             runtime = None
             from_source = False
             no_cache = False
+            allow_unverified_runtime = False
+            no_sbom = True
         for k, v in kwargs.items():
             setattr(Args, k, v)
         return Args()
@@ -137,13 +139,11 @@ class TestBuildCmdResolverIntegration(unittest.TestCase):
         class _Captured(Exception):
             pass
 
-        def fake_resolve(target, variant, *, explicit_path, from_source, no_cache, config, verbose):
+        def fake_resolve(target, variant, **kwargs):
             captured.update({
                 "target": target,
                 "variant": variant,
-                "explicit_path": explicit_path,
-                "from_source": from_source,
-                "no_cache": no_cache,
+                **kwargs,
             })
             raise rr.RuntimeNotFound("captured")
 

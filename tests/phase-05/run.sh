@@ -156,6 +156,8 @@ echo '{}' > "$FAKE_RELEASE/$TAG/$ARTIFACT.cdx.json"
 export PICOLET_RUNTIME_TAG="$TAG"
 export PICOLET_RUNTIME_SOURCE="file://$FAKE_RELEASE"
 export PICOLET_CACHE_DIR="$CACHE_DIR"
+# PH05 fixup (S2): file:// scheme is rejected by default; tests opt in.
+export PICOLET_ALLOW_FILE_URLS=1
 
 # App directory: copy fixture to a temp location to avoid polluting source.
 APP_DIR="$WORKDIR/hello-cli"

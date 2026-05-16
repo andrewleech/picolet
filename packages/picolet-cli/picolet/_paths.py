@@ -22,15 +22,32 @@ _IGNORE_DIRS = frozenset({"target", ".picolet-cache", "__pycache__"})
 _IGNORE_SUFFIXES = frozenset({".pyc", ".mpy"})
 
 
+def find_picolet_toml(start: Path) -> Path | None:
+    """Walk up from ``start`` looking for ``picolet.toml``.
+
+    Returns the located path, or ``None`` when the filesystem root is reached
+    without finding one.  The walk is iterative to avoid stack-depth issues
+    on pathological paths (and to keep the implementation MicroPython-safe
+    by avoiding deep recursion).
+    """
+    current = start
+    while True:
+        candidate = current / "picolet.toml"
+        if candidate.is_file():
+            return candidate
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
 def resolve_app(args) -> tuple[Path, dict, str, Path]:
     """Validate picolet.toml and resolve the binary path.
 
     Returns ``(toml_path, data, target, binary_path)``. Exits 1 on any
     validation error.
     """
-    from picolet.build_cmd import _find_picolet_toml
-
-    toml_path = _find_picolet_toml(Path.cwd())
+    toml_path = find_picolet_toml(Path.cwd())
     if toml_path is None:
         print(
             "error: picolet.toml not found in current directory or any ancestor",

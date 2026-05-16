@@ -31,6 +31,7 @@ import sys
 import tomllib
 from pathlib import Path
 
+from picolet._paths import find_picolet_toml as _find_picolet_toml
 from picolet._targets import (
     SUPPORTED_RENDERERS,
     SUPPORTED_TARGETS,
@@ -47,6 +48,7 @@ from picolet.runtime_resolver import (
     locate_mpy_cross,
     resolve_runtime,
     ResolvedRuntime,
+    RuntimeIntegrityError,
     RuntimeNotFound,
 )
 from picolet.sbom_gen import emit_app_sbom, SbomViolation
@@ -113,6 +115,17 @@ def add_parser(subparsers) -> None:
         default=False,
         dest="no_cache",
         help="skip the runtime artifact cache; always download fresh",
+    )
+    p.add_argument(
+        "--allow-unverified-runtime",
+        action="store_true",
+        default=False,
+        dest="allow_unverified_runtime",
+        help=(
+            "run with a runtime binary that has no .sha256 sidecar "
+            "(escape hatch for air-gapped mirrors; equivalent to "
+            "PICOLET_ALLOW_UNVERIFIED_CACHE=1)"
+        ),
     )
     p.add_argument(
         "--no-sbom",
@@ -203,10 +216,11 @@ def _do_build(args) -> int:
             explicit_path=Path(args.runtime) if args.runtime else None,
             from_source=args.from_source,
             no_cache=args.no_cache,
+            allow_unverified=getattr(args, "allow_unverified_runtime", False),
             config=data,
             verbose=args.verbose,
         )
-    except RuntimeNotFound as exc:
+    except (RuntimeNotFound, RuntimeIntegrityError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
@@ -303,17 +317,6 @@ def _do_build(args) -> int:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _find_picolet_toml(start: Path) -> Path | None:
-    """Walk up from start looking for picolet.toml; return its path or None."""
-    candidate = start / "picolet.toml"
-    if candidate.is_file():
-        return candidate
-    parent = start.parent
-    if parent == start:
-        return None
-    return _find_picolet_toml(parent)
-
 
 def _find_repo_root() -> Path:
     """Return the repository root (three levels up from this file).

@@ -98,9 +98,18 @@ class TestResolverUnit(unittest.TestCase):
         os.environ["PICOLET_RUNTIME_TAG"] = self.tag
         os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.fake_release_dir)
         os.environ["PICOLET_CACHE_DIR"] = str(self.cache_dir)
+        # PH05 fixup: file:// schemes are rejected by default (S2); the
+        # fake release fixtures all use file:// so the test suite opts in.
+        os.environ["PICOLET_ALLOW_FILE_URLS"] = "1"
 
     def tearDown(self) -> None:
-        for key in ("PICOLET_RUNTIME_TAG", "PICOLET_RUNTIME_SOURCE", "PICOLET_CACHE_DIR"):
+        for key in (
+            "PICOLET_RUNTIME_TAG",
+            "PICOLET_RUNTIME_SOURCE",
+            "PICOLET_CACHE_DIR",
+            "PICOLET_ALLOW_FILE_URLS",
+            "PICOLET_ALLOW_UNVERIFIED_CACHE",
+        ):
             os.environ.pop(key, None)
         self._tmpdir.cleanup()
 
@@ -588,6 +597,189 @@ class TestResolverUnit(unittest.TestCase):
         result = resolve_runtime("linux-x64", "cli")
         self.assertTrue(result.binary.is_file())
         self.assertIsNone(result.sbom)
+
+
+class TestUrlSchemeAllowList(unittest.TestCase):
+    """PH05 fixup (S2): non-http(s) URL schemes are rejected by default."""
+
+    def setUp(self) -> None:
+        # Save and clear opt-in env so the default policy is observed.
+        self._saved = os.environ.pop("PICOLET_ALLOW_FILE_URLS", None)
+        os.environ["PICOLET_RUNTIME_TAG"] = "runtime-v0.1.0-test"
+
+    def tearDown(self) -> None:
+        os.environ.pop("PICOLET_ALLOW_FILE_URLS", None)
+        if self._saved is not None:
+            os.environ["PICOLET_ALLOW_FILE_URLS"] = self._saved
+        os.environ.pop("PICOLET_RUNTIME_TAG", None)
+        os.environ.pop("PICOLET_RUNTIME_SOURCE", None)
+
+    def test_file_url_rejected_by_default(self) -> None:
+        """file:// URLs raise RuntimeNotFound without PICOLET_ALLOW_FILE_URLS=1."""
+        os.environ["PICOLET_RUNTIME_SOURCE"] = "file:///tmp/anything"
+        with self.assertRaises(RuntimeNotFound) as ctx:
+            resolve_runtime("linux-x64", "cli")
+        msg = str(ctx.exception)
+        self.assertIn("file://", msg)
+        self.assertIn("PICOLET_ALLOW_FILE_URLS", msg)
+
+    def test_file_url_allowed_with_env_opt_in(self) -> None:
+        """PICOLET_ALLOW_FILE_URLS=1 permits file:// (download itself may fail)."""
+        os.environ["PICOLET_RUNTIME_SOURCE"] = "file:///does/not/exist"
+        os.environ["PICOLET_ALLOW_FILE_URLS"] = "1"
+        # Should NOT raise the scheme-rejection message; it'll go on to attempt
+        # the download and fail with a different error path.
+        from picolet import runtime_resolver as rr
+        with mock.patch.object(rr, "_intree_fallback", return_value=None):
+            with self.assertRaises(RuntimeNotFound) as ctx:
+                resolve_runtime("linux-x64", "cli")
+        msg = str(ctx.exception)
+        self.assertNotIn("PICOLET_ALLOW_FILE_URLS", msg)
+        # The scheme passed validation; the eventual failure is a download error.
+        self.assertIn("Tried:", msg)
+
+    def test_ftp_url_always_rejected(self) -> None:
+        """ftp:// has no opt-in; rejected unconditionally."""
+        os.environ["PICOLET_RUNTIME_SOURCE"] = "ftp://example.com/releases"
+        os.environ["PICOLET_ALLOW_FILE_URLS"] = "1"  # does not apply to ftp
+        with self.assertRaises(RuntimeNotFound) as ctx:
+            resolve_runtime("linux-x64", "cli")
+        msg = str(ctx.exception)
+        self.assertIn("ftp", msg)
+        self.assertIn("unsupported scheme", msg)
+
+    def test_https_url_accepted(self) -> None:
+        """https:// passes the scheme check (downstream connection may fail)."""
+        os.environ["PICOLET_RUNTIME_SOURCE"] = "https://example.invalid/releases"
+        from picolet import runtime_resolver as rr
+        with mock.patch.object(rr, "_intree_fallback", return_value=None):
+            with self.assertRaises(RuntimeNotFound) as ctx:
+                resolve_runtime("linux-x64", "cli")
+        # Reached the download attempt; scheme check passed.
+        self.assertIn("Tried:", str(ctx.exception))
+
+
+class TestUnverifiedCacheRefusal(unittest.TestCase):
+    """PH05 fixup (S3): missing .sha256 sidecar is a hard error by default."""
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+        self.cache_dir = self.tmp / "cache"
+        self.tag = "runtime-v0.1.0-test"
+
+        os.environ["PICOLET_RUNTIME_TAG"] = self.tag
+        os.environ["PICOLET_CACHE_DIR"] = str(self.cache_dir)
+        os.environ["PICOLET_ALLOW_FILE_URLS"] = "1"
+
+    def tearDown(self) -> None:
+        for key in (
+            "PICOLET_RUNTIME_TAG",
+            "PICOLET_RUNTIME_SOURCE",
+            "PICOLET_CACHE_DIR",
+            "PICOLET_ALLOW_FILE_URLS",
+            "PICOLET_ALLOW_UNVERIFIED_CACHE",
+        ):
+            os.environ.pop(key, None)
+        self._tmpdir.cleanup()
+
+    def _stage_unverified_cache_entry(self) -> Path:
+        """Populate the cache with a binary and *no* .sha256 sidecar."""
+        artifact = _artifact_name("linux-x64", "cli")
+        tag_dir = self.cache_dir / "runtime" / self.tag
+        tag_dir.mkdir(parents=True, exist_ok=True)
+        bin_path = tag_dir / artifact
+        bin_path.write_bytes(FAKE_BINARY)
+        return bin_path
+
+    def test_cache_hit_without_sha256_refuses_by_default(self) -> None:
+        """Cache hit + no sidecar + no opt-in → RuntimeIntegrityError."""
+        from picolet.runtime_resolver import RuntimeIntegrityError
+
+        self._stage_unverified_cache_entry()
+        # Point at a non-existent source so the resolver cannot re-download
+        # and "fix" the missing sidecar.
+        os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.tmp / "nonexistent")
+
+        from picolet import runtime_resolver as rr
+        with mock.patch.object(rr, "_intree_fallback", return_value=None):
+            with self.assertRaises(RuntimeIntegrityError) as ctx:
+                resolve_runtime("linux-x64", "cli")
+
+        msg = str(ctx.exception)
+        self.assertIn("refusing to execute", msg)
+        self.assertIn("PICOLET_ALLOW_UNVERIFIED_CACHE", msg)
+
+    def test_cache_hit_without_sha256_permitted_with_env(self) -> None:
+        """PICOLET_ALLOW_UNVERIFIED_CACHE=1 lets a sidecar-less cache hit through."""
+        bin_path = self._stage_unverified_cache_entry()
+        os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.tmp / "nonexistent")
+        os.environ["PICOLET_ALLOW_UNVERIFIED_CACHE"] = "1"
+
+        result = resolve_runtime("linux-x64", "cli")
+        self.assertEqual(result.binary, bin_path)
+
+    def test_cache_hit_without_sha256_permitted_with_flag(self) -> None:
+        """allow_unverified=True (CLI flag) lets a sidecar-less cache hit through."""
+        bin_path = self._stage_unverified_cache_entry()
+        os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.tmp / "nonexistent")
+
+        result = resolve_runtime("linux-x64", "cli", allow_unverified=True)
+        self.assertEqual(result.binary, bin_path)
+
+    def test_download_without_sha256_refuses_by_default(self) -> None:
+        """Download succeeds but source has no .sha256 → RuntimeIntegrityError."""
+        from picolet.runtime_resolver import RuntimeIntegrityError
+
+        release_dir = self.tmp / "no-sha-release"
+        _make_fake_release(release_dir, tag=self.tag, include_sha256=False)
+        os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(release_dir)
+
+        from picolet import runtime_resolver as rr
+        with mock.patch.object(rr, "_intree_fallback", return_value=None):
+            with self.assertRaises(RuntimeIntegrityError) as ctx:
+                resolve_runtime("linux-x64", "cli")
+        msg = str(ctx.exception)
+        self.assertIn("refusing to execute", msg)
+
+
+class TestPathsNoCrossModulePrivateImport(unittest.TestCase):
+    """PH05 fixup (Q7): _paths.resolve_app must not import private names from build_cmd."""
+
+    def test_resolve_app_does_not_import_build_cmd_private(self) -> None:
+        """_paths module text must not contain ``from picolet.build_cmd import _``."""
+        from picolet import _paths
+
+        source = Path(_paths.__file__).read_text()
+        # No private-name imports from build_cmd anywhere in the module.
+        self.assertNotIn("from picolet.build_cmd import", source)
+        self.assertNotIn("import picolet.build_cmd", source)
+
+    def test_find_picolet_toml_lives_in_paths(self) -> None:
+        """find_picolet_toml is a public helper in _paths."""
+        from picolet._paths import find_picolet_toml
+        self.assertTrue(callable(find_picolet_toml))
+
+
+class TestRepoRootSingleHelper(unittest.TestCase):
+    """PH05 fixup (A6): repo-root walk is funnelled through one helper."""
+
+    def test_repo_root_and_find_repo_root_agree(self) -> None:
+        """_find_repo_root (back-compat alias) returns the same path as _repo_root."""
+        from picolet.runtime_resolver import _find_repo_root, _repo_root
+        self.assertEqual(_repo_root(), _find_repo_root())
+
+    def test_locate_mpy_cross_uses_repo_root(self) -> None:
+        """locate_mpy_cross must look under _repo_root() (no second walker)."""
+        from picolet import runtime_resolver as rr
+        fake_repo = Path("/tmp/fake-picolet-repo-test")
+        with mock.patch.object(rr, "_repo_root", return_value=fake_repo):
+            try:
+                rr.locate_mpy_cross()
+            except rr.RuntimeNotFound as exc:
+                # Error path must reflect the patched repo root.
+                self.assertIn(str(fake_repo), str(exc))
 
 
 class TestValidatorRuntimeSection(unittest.TestCase):

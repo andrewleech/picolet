@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,16 @@ _URLOPEN_TIMEOUT = 30
 
 # Streaming chunk size for SHA256 computation and download writes.
 _CHUNK_SIZE = 65536
+
+# URL schemes accepted by default.  Anything else (file://, ftp://, data://,
+# gopher://, ...) is rejected to avoid local-file or non-HTTP exfiltration via
+# a hostile picolet.toml.  Tests and air-gapped workflows can opt in to file://
+# by setting PICOLET_ALLOW_FILE_URLS=1.
+_ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
+
+# Environment variables.
+_ENV_ALLOW_FILE_URLS = "PICOLET_ALLOW_FILE_URLS"
+_ENV_ALLOW_UNVERIFIED = "PICOLET_ALLOW_UNVERIFIED_CACHE"
 
 
 class ResolvedRuntime(NamedTuple):
@@ -80,19 +91,76 @@ class _Config:
     cache_root: Path
 
 
-def _find_repo_root() -> Path:
+# ---------------------------------------------------------------------------
+# Repo-root resolution
+#
+# TODO(A6): the repo-walk pattern here is a development convenience.  When
+# the CLI ships as an installable wheel the resolver must locate mpy-cross,
+# build-runtime.sh, the in-tree build/ directory, and the RUNTIME_TAG sidecar
+# via importlib.resources.files("picolet_runtime") (or similar) instead of
+# walking three parents up from __file__.  That is a packaging refactor —
+# layout for the wheel, a picolet_runtime data package, sdist/MANIFEST changes —
+# and is deliberately left for a follow-up phase.  The single _repo_root()
+# helper below is the chokepoint to update when that work lands.
+# ---------------------------------------------------------------------------
+
+def _repo_root() -> Path:
     """Walk up from this file to find the repo root.
 
     This file lives at packages/picolet-cli/picolet/runtime_resolver.py.
-    The repo root is three levels up.
+    The repo root is three levels up.  See the TODO(A6) note above for the
+    packaging story.
     """
-    here = Path(__file__).parent      # packages/picolet-cli/picolet/
-    return here.parent.parent.parent  # repo root
+    return Path(__file__).parent.parent.parent.parent
+
+
+# Back-compat alias.  Existing tests (and external callers) patch
+# ``rr._find_repo_root`` via mock.patch.object; keep the name so they
+# continue to work while internal code uses _repo_root() directly.
+def _find_repo_root() -> Path:
+    """Deprecated alias for :func:`_repo_root`.  See A6 TODO."""
+    return _repo_root()
+
+
+def _validate_url_scheme(url: str) -> None:
+    """Reject URLs whose scheme is not in :data:`_ALLOWED_URL_SCHEMES`.
+
+    ``file://`` is accepted only when :envvar:`PICOLET_ALLOW_FILE_URLS` is set
+    to ``1`` — this is the documented test / air-gapped escape hatch.  All
+    other schemes (ftp, data, gopher, jar, ...) hard-error so that a hostile
+    ``[runtime] source`` cannot smuggle local-file reads or non-HTTP
+    protocols past the resolver.
+
+    Raises
+    ------
+    RuntimeNotFound
+        When the scheme is rejected.  The message explicitly names the env
+        var that would re-enable file:// so users can self-serve.
+    """
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme in _ALLOWED_URL_SCHEMES:
+        return
+    if scheme == "file" and os.environ.get(_ENV_ALLOW_FILE_URLS) == "1":
+        return
+    if scheme == "file":
+        raise RuntimeNotFound(
+            f"runtime source URL uses file:// scheme: {url}\n"
+            f"  file:// is rejected by default to prevent a hostile "
+            f"picolet.toml from reading arbitrary local files.\n"
+            f"  Set {_ENV_ALLOW_FILE_URLS}=1 to allow file:// "
+            f"(intended for tests and air-gapped mirrors only)."
+        )
+    raise RuntimeNotFound(
+        f"runtime source URL uses unsupported scheme {scheme!r}: {url}\n"
+        f"  Allowed schemes: {', '.join(sorted(_ALLOWED_URL_SCHEMES))}.\n"
+        f"  Update PICOLET_RUNTIME_SOURCE or [runtime] source in picolet.toml."
+    )
 
 
 def _read_runtime_tag_sidecar() -> str:
     """Read packages/picolet-runtime/RUNTIME_TAG; return stripped content."""
-    tag_file = _find_repo_root() / "packages" / "picolet-runtime" / "RUNTIME_TAG"
+    tag_file = _repo_root() / "packages" / "picolet-runtime" / "RUNTIME_TAG"
     if tag_file.is_file():
         return tag_file.read_text().strip()
     return "runtime-v0.1.0"   # last-resort default if sidecar absent
@@ -151,6 +219,8 @@ def _load_config(config: "dict | None" = None) -> _Config:
         or _DEFAULT_BASE_URL
     )
 
+    _validate_url_scheme(base_url)
+
     return _Config(tag=tag, base_url=base_url.rstrip("/"), cache_root=_cache_root())
 
 
@@ -203,14 +273,42 @@ def _verify_sha256(artifact: Path, sha256_path: Path) -> bool:
 # Cache lookup
 # ---------------------------------------------------------------------------
 
+def _unverified_allowed(allow_unverified: bool) -> bool:
+    """Return True iff the user opted into running without a sha256 sidecar.
+
+    Two channels are accepted: the ``--allow-unverified-runtime`` CLI flag
+    (which surfaces here as the function arg) and the
+    :envvar:`PICOLET_ALLOW_UNVERIFIED_CACHE` env var.  Both are escape hatches
+    for development and air-gapped mirrors; the default is to refuse.
+    """
+    if allow_unverified:
+        return True
+    return os.environ.get(_ENV_ALLOW_UNVERIFIED) == "1"
+
+
+def _unverified_refusal(artifact: str, where: str) -> RuntimeIntegrityError:
+    """Build the canonical refusal error for a missing sha256 sidecar."""
+    return RuntimeIntegrityError(
+        f"{artifact} {where} has no .sha256 sidecar — "
+        f"binary not verified — refusing to execute. "
+        f"Set {_ENV_ALLOW_UNVERIFIED}=1 to override."
+    )
+
+
 def _check_cache(
     cfg: _Config,
     artifact: str,
     verbose: bool,
+    allow_unverified: bool = False,
 ) -> "ResolvedRuntime | None":
     """Return a ResolvedRuntime if the artifact is in the cache and valid.
 
-    Verifies SHA256 on cache hit. Returns None on miss or integrity failure.
+    Verifies SHA256 on cache hit.  A missing sidecar is a hard error unless
+    the caller has opted into unverified runs (see :func:`_unverified_allowed`).
+
+    Returns None on cache miss or SHA256 mismatch (so the caller can attempt
+    a re-download).  Raises :class:`RuntimeIntegrityError` only when the cache
+    entry exists but cannot be verified and the user has not opted in.
     """
     tag_dir = cfg.cache_root / "runtime" / cfg.tag
     binary = tag_dir / artifact
@@ -221,9 +319,12 @@ def _check_cache(
         return None
 
     if not sha256_file.is_file():
-        # No sidecar — development concession; proceed with warning.
+        if not _unverified_allowed(allow_unverified):
+            raise _unverified_refusal(artifact, "in cache")
+        # Opted in: proceed without verification, but make the bypass visible.
         print(
-            f"warning: no .sha256 sidecar in cache for {artifact}; skipping integrity check",
+            f"warning: no .sha256 sidecar in cache for {artifact}; "
+            f"proceeding without integrity check ({_ENV_ALLOW_UNVERIFIED}=1 set)",
             file=sys.stderr,
         )
         sbom = sbom_file if sbom_file.is_file() else None
@@ -260,19 +361,46 @@ def _fetch_url(url: str, dest: Path) -> None:
                 fh.write(chunk)
 
 
+def _commit_temp(tmp: Path, final: Path) -> None:
+    """Atomically move ``tmp`` to ``final``.
+
+    Prefers :meth:`Path.rename` (atomic on a single filesystem); falls back to
+    :func:`shutil.move` for cross-filesystem writes.  The ``finally`` unlink
+    of ``tmp`` is a belt-and-suspenders cleanup — both ``rename`` and
+    ``shutil.move`` are expected to remove the source on success; the unlink
+    catches the corner case where ``shutil.move`` raises mid-copy.
+    """
+    try:
+        tmp.rename(final)
+    except OSError:
+        shutil.move(str(tmp), final)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def _download(
     cfg: _Config,
     artifact: str,
     verbose: bool,
+    allow_unverified: bool = False,
 ) -> "ResolvedRuntime":
     """Fetch artifact + .sha256 + .cdx.json into the cache.
 
-    Uses atomic write: download to <artifact>.tmp, verify SHA256, rename.
-    The .sha256 and .cdx.json sidecars are written only after the binary
-    rename succeeds, so a partial state has a re-downloadable missing sidecar
-    rather than a corrupted binary.
+    Uses atomic write: download to ``<artifact>.tmp``, verify SHA256, rename.
+    The ``.sha256`` and ``.cdx.json`` sidecars are written only after the
+    binary rename succeeds, so a partial state has a re-downloadable missing
+    sidecar rather than a corrupted binary.
 
-    Raises RuntimeDownloadError on network failure or integrity error.
+    A missing ``.sha256`` sidecar at the source is a hard error unless the
+    caller opts into unverified runs via :envvar:`PICOLET_ALLOW_UNVERIFIED_CACHE`
+    or the ``--allow-unverified-runtime`` CLI flag.
+
+    Raises
+    ------
+    RuntimeDownloadError
+        On network failure (binary fetch) or SHA256 mismatch.
+    RuntimeIntegrityError
+        When the sidecar is unavailable and the user has not opted in.
     """
     tag_dir = cfg.cache_root / "runtime" / cfg.tag
     tag_dir.mkdir(parents=True, exist_ok=True)
@@ -306,48 +434,36 @@ def _download(
         sha256_available = True
     except (urllib.error.URLError, OSError):
         tmp_sha256.unlink(missing_ok=True)
+
+    if not sha256_available:
+        if not _unverified_allowed(allow_unverified):
+            tmp_binary.unlink(missing_ok=True)
+            raise _unverified_refusal(artifact, "at the download source")
         print(
-            f"warning: no .sha256 sidecar available for {artifact}; skipping integrity check",
+            f"warning: no .sha256 sidecar available for {artifact}; "
+            f"proceeding without integrity check ({_ENV_ALLOW_UNVERIFIED}=1 set)",
             file=sys.stderr,
         )
 
     # Verify SHA256 before committing to cache.
-    if sha256_available:
-        if not _verify_sha256(tmp_binary, tmp_sha256):
-            tmp_binary.unlink(missing_ok=True)
-            tmp_sha256.unlink(missing_ok=True)
-            raise RuntimeDownloadError(
-                f"SHA256 mismatch for downloaded {artifact}; "
-                "the release artifact may be corrupted"
-            )
-
-    # Atomic rename of binary into cache.
-    try:
-        tmp_binary.rename(binary_path)
-    except OSError:
-        shutil.move(str(tmp_binary), binary_path)
-    finally:
+    if sha256_available and not _verify_sha256(tmp_binary, tmp_sha256):
         tmp_binary.unlink(missing_ok=True)
+        tmp_sha256.unlink(missing_ok=True)
+        raise RuntimeDownloadError(
+            f"SHA256 mismatch for downloaded {artifact}; "
+            "the release artifact may be corrupted"
+        )
 
-    # Commit .sha256 sidecar (only after binary is in place).
+    # Commit binary, then sidecar (sidecar only after binary lands).
+    _commit_temp(tmp_binary, binary_path)
     if sha256_available:
-        try:
-            tmp_sha256.rename(sha256_path)
-        except OSError:
-            shutil.move(str(tmp_sha256), sha256_path)
-        finally:
-            tmp_sha256.unlink(missing_ok=True)
+        _commit_temp(tmp_sha256, sha256_path)
 
     # Fetch .cdx.json (best-effort; 404 is not a failure).
     sbom: "Path | None" = None
     try:
         _fetch_url(sbom_url, tmp_sbom)
-        try:
-            tmp_sbom.rename(sbom_path)
-        except OSError:
-            shutil.move(str(tmp_sbom), sbom_path)
-        finally:
-            tmp_sbom.unlink(missing_ok=True)
+        _commit_temp(tmp_sbom, sbom_path)
         sbom = sbom_path
     except (urllib.error.URLError, OSError) as exc:
         tmp_sbom.unlink(missing_ok=True)
@@ -456,6 +572,7 @@ def resolve_runtime(
     explicit_path: "Path | None" = None,
     from_source: bool = False,
     no_cache: bool = False,
+    allow_unverified: bool = False,
     config: "dict | None" = None,
     verbose: bool = False,
 ) -> ResolvedRuntime:
@@ -475,6 +592,10 @@ def resolve_runtime(
     no_cache:
         Skip cache read and write; always download fresh.  If the download
         fails, hard-errors immediately (no in-tree fallback).
+    allow_unverified:
+        Permit running with a runtime binary that has no ``.sha256`` sidecar.
+        The default refuses such binaries to avoid running unverified code.
+        :envvar:`PICOLET_ALLOW_UNVERIFIED_CACHE` ``=1`` has the same effect.
     config:
         Pre-parsed picolet.toml data (or None).  Used to read [runtime] section.
     verbose:
@@ -524,13 +645,13 @@ def resolve_runtime(
 
     if not no_cache:
         # Step 3 — cache lookup (SHA256-verified).
-        cached = _check_cache(cfg, artifact, verbose)
+        cached = _check_cache(cfg, artifact, verbose, allow_unverified=allow_unverified)
         if cached is not None:
             return cached
 
         # Step 4 — download.
         try:
-            return _download(cfg, artifact, verbose)
+            return _download(cfg, artifact, verbose, allow_unverified=allow_unverified)
         except RuntimeDownloadError as exc:
             download_exc_str = str(exc)
 
@@ -546,7 +667,7 @@ def resolve_runtime(
     else:
         # no_cache mode: skip cache and in-tree fallback; download only.
         try:
-            return _download(cfg, artifact, verbose)
+            return _download(cfg, artifact, verbose, allow_unverified=allow_unverified)
         except RuntimeDownloadError as exc:
             download_exc_str = str(exc)
 
@@ -589,10 +710,8 @@ def locate_mpy_cross() -> Path:
     will error here. Use `picolet build --from-source` to build mpy-cross
     alongside the runtime (future phase: mpy-cross distribution).
     """
-    here = Path(__file__).parent
-    repo_root = here.parent.parent.parent
     mpy_cross = (
-        repo_root
+        _repo_root()
         / "packages"
         / "picolet-runtime"
         / "micropython"
