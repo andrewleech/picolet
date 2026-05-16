@@ -26,7 +26,8 @@
 int32_t picolet_wv2_last_error(void) { return -1; }
 void *picolet_wv2_load_loader_dll(const uint8_t *b, size_t s) { (void)b; (void)s; return 0; }
 int32_t picolet_wv2_init_com(void) { return -1; }
-void *picolet_wv2_create_environment_blocking(int32_t t) { (void)t; return 0; }
+int32_t picolet_wv2_pick_test_port(void) { return -1; }
+void *picolet_wv2_create_environment_blocking(const wchar_t *a, int32_t t) { (void)a; (void)t; return 0; }
 void *picolet_wv2_create_controller_blocking(void *e, void *h, int32_t t) { (void)e; (void)h; (void)t; return 0; }
 int32_t picolet_wv2_set_visible(void *c, int32_t v) { (void)c; (void)v; return -1; }
 int32_t picolet_wv2_set_bounds(void *c, int32_t w, int32_t h) { (void)c; (void)w; (void)h; return -1; }
@@ -44,6 +45,9 @@ int32_t picolet_wv2_window_attach_controller(void *hw, void *c) { (void)hw; (voi
 int32_t picolet_wv2_destroy_window(void *hw) { (void)hw; return -1; }
 #else  /* _WIN32 */
 
+/* Winsock2 must come before windows.h to avoid winsock/winsock2 conflicts. */
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <objbase.h>
 #include <shlwapi.h>
@@ -96,6 +100,55 @@ static __thread HRESULT g_last_error = S_OK;
 static void set_last(HRESULT hr) { g_last_error = hr; }
 
 int32_t picolet_wv2_last_error(void) { return (int32_t)g_last_error; }
+
+/* ----------------------------------------------------------------------
+ * PH17 — pick a free loopback TCP port (FR-TEST-1, Windows/WebView2)
+ * ---------------------------------------------------------------------- */
+
+int32_t picolet_wv2_pick_test_port(void) {
+    /* Bind a TCP socket to 127.0.0.1:0, read the assigned port, close.
+     * The race window between close and the engine re-binding the port is
+     * microseconds (no TIME_WAIT on a never-accepted listen socket).
+     * The AppHarness retries on connect failure for up to 10 s (D4/F8). */
+    WSADATA wsa;
+    int need_cleanup = 0;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) {
+        need_cleanup = 1;
+    }
+
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) {
+        if (need_cleanup) WSACleanup();
+        return -1;
+    }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = 0;  /* let OS pick */
+    addr.sin_addr.s_addr = htonl(0x7f000001);  /* 127.0.0.1 */
+
+    if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        closesocket(s);
+        if (need_cleanup) WSACleanup();
+        return -1;
+    }
+
+    struct sockaddr_in out;
+    int outlen = sizeof(out);
+    if (getsockname(s, (struct sockaddr *)&out, &outlen) != 0) {
+        closesocket(s);
+        if (need_cleanup) WSACleanup();
+        return -1;
+    }
+
+    int port = (int)ntohs(out.sin_port);
+    closesocket(s);
+    /* Do NOT WSACleanup here — the caller still needs Winsock active when
+     * it passes the port to WebView2 shortly after this call. */
+    (void)need_cleanup;
+    return (int32_t)port;
+}
 
 /* ----------------------------------------------------------------------
  * Loader-DLL extract path
@@ -386,7 +439,75 @@ static HRESULT STDMETHODCALLTYPE env_handler_Invoke(
     return S_OK;
 }
 
-void *picolet_wv2_create_environment_blocking(int32_t timeout_ms) {
+/* ----------------------------------------------------------------------
+ * PH17 — ICoreWebView2EnvironmentOptions vtable shim
+ *
+ * A minimal stack-allocated COM object used to pass AdditionalBrowserArguments
+ * when PICOLET_TEST_MODE=1.  WebView2 calls the getters synchronously during
+ * CreateCoreWebView2EnvironmentWithOptions and does NOT retain the pointer
+ * past the call (R9), so stack allocation is safe.
+ * ---------------------------------------------------------------------- */
+
+static HRESULT STDMETHODCALLTYPE env_opts_QI(
+    PicoletWv2EnvOptions *self, REFIID riid, void **ppv) {
+    (void)self; (void)riid;
+    *ppv = NULL;
+    return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE env_opts_AddRef(PicoletWv2EnvOptions *self) {
+    (void)self; return 1;
+}
+static ULONG STDMETHODCALLTYPE env_opts_Release(PicoletWv2EnvOptions *self) {
+    (void)self; return 1;
+}
+static HRESULT STDMETHODCALLTYPE env_opts_get_AdditionalBrowserArguments(
+    PicoletWv2EnvOptions *self, LPWSTR *out) {
+    /* Return a copy the caller must CoTaskMemFree. */
+    if (self->additional_args == NULL) { *out = NULL; return S_OK; }
+    size_t len = wcslen(self->additional_args) + 1;
+    LPWSTR buf = (LPWSTR)CoTaskMemAlloc(len * sizeof(WCHAR));
+    if (buf == NULL) return E_OUTOFMEMORY;
+    wmemcpy(buf, self->additional_args, len);
+    *out = buf;
+    return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE env_opts_put_AdditionalBrowserArguments(
+    PicoletWv2EnvOptions *self, LPCWSTR v) {
+    self->additional_args = v; return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE env_opts_stub_get_str(
+    PicoletWv2EnvOptions *self, LPWSTR *out) {
+    (void)self; if (out) *out = NULL; return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE env_opts_stub_put_str(
+    PicoletWv2EnvOptions *self, LPCWSTR v) {
+    (void)self; (void)v; return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE env_opts_get_sso(
+    PicoletWv2EnvOptions *self, BOOL *out) {
+    (void)self; if (out) *out = FALSE; return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE env_opts_put_sso(
+    PicoletWv2EnvOptions *self, BOOL v) {
+    (void)self; (void)v; return S_OK;
+}
+
+static PicoletWv2EnvOptionsVtbl g_env_opts_vtbl = {
+    env_opts_QI,
+    env_opts_AddRef,
+    env_opts_Release,
+    env_opts_get_AdditionalBrowserArguments,
+    env_opts_put_AdditionalBrowserArguments,
+    env_opts_stub_get_str,  /* get_Language */
+    env_opts_stub_put_str,  /* put_Language */
+    env_opts_stub_get_str,  /* get_TargetCompatibleBrowserVersion */
+    env_opts_stub_put_str,  /* put_TargetCompatibleBrowserVersion */
+    env_opts_get_sso,
+    env_opts_put_sso,
+};
+
+void *picolet_wv2_create_environment_blocking(const wchar_t *extra_browser_args,
+                                             int32_t timeout_ms) {
     if (g_pfn_create_env == NULL) {
         set_last(HRESULT_FROM_WIN32(ERROR_INVALID_STATE));
         return NULL;
@@ -409,7 +530,19 @@ void *picolet_wv2_create_environment_blocking(int32_t timeout_ms) {
         return NULL;
     }
 
-    HRESULT hr = g_pfn_create_env(NULL, NULL, NULL, &ctx->base);
+    /* Build the environment options shim when extra_browser_args is provided
+     * (PH17 PICOLET_TEST_MODE path).  Stack-allocated; lifetime is bounded by
+     * this function frame (R9 — WebView2 does not retain the pointer). */
+    PicoletWv2EnvOptions env_opts;
+    PicoletWv2EnvOptions *opts_ptr = NULL;
+    if (extra_browser_args != NULL) {
+        memset(&env_opts, 0, sizeof(env_opts));
+        env_opts.lpVtbl = &g_env_opts_vtbl;
+        env_opts.additional_args = extra_browser_args;
+        opts_ptr = &env_opts;
+    }
+
+    HRESULT hr = g_pfn_create_env(NULL, NULL, opts_ptr, &ctx->base);
     if (FAILED(hr)) {
         set_last(hr);
         env_handler_Release(&ctx->base);  /* closes event via refcount=0 cleanup */

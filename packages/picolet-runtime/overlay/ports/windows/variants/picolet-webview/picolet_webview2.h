@@ -49,11 +49,25 @@ void *picolet_wv2_load_loader_dll(const uint8_t *bytes, size_t size);
  * re-initialising. */
 int32_t picolet_wv2_init_com(void);
 
+/* Pick a free 127.0.0.1 TCP port.
+ *
+ * PH17 (FR-TEST-1, Windows/WebView2 path).  Binds a socket to
+ * 127.0.0.1:0, reads the kernel-assigned port via getsockname, closes
+ * the socket, and returns the port.  Returns -1 on failure.
+ * Used to choose a remote-debugging-port before environment creation. */
+int32_t picolet_wv2_pick_test_port(void);
+
 /* Create the WebView2 environment, blocking the calling thread (pumping
  * the message queue) until the async completion fires or `timeout_ms`
  * elapses.  Returns an opaque ICoreWebView2Environment * on success,
- * NULL on timeout/error (see picolet_wv2_last_error()). */
-void *picolet_wv2_create_environment_blocking(int32_t timeout_ms);
+ * NULL on timeout/error (see picolet_wv2_last_error()).
+ *
+ * PH17: extra_browser_args is a UTF-16 string passed to
+ * AdditionalBrowserArguments (e.g. L"--remote-debugging-port=9222
+ * --remote-debugging-address=127.0.0.1").  Pass NULL for defaults
+ * (backward-compatible with existing call sites). */
+void *picolet_wv2_create_environment_blocking(const wchar_t *extra_browser_args,
+                                             int32_t timeout_ms);
 
 /* Create the WebView2 controller parented to `hwnd`, blocking with the
  * same message-pump pattern.  Caches the underlying ICoreWebView2 on

@@ -66,9 +66,17 @@ picolet_wv2_load_loader_dll = self_exe.func(
 # int32_t picolet_wv2_init_com(void)
 picolet_wv2_init_com = self_exe.func("i", "picolet_wv2_init_com", "")
 
-# void *picolet_wv2_create_environment_blocking(int32_t timeout_ms)
+# int32_t picolet_wv2_pick_test_port(void)
+# PH17 (FR-TEST-1): pick a free 127.0.0.1 TCP port for CDP debugging.
+picolet_wv2_pick_test_port = self_exe.func("i", "picolet_wv2_pick_test_port", "")
+
+# void *picolet_wv2_create_environment_blocking(const wchar_t *extra_browser_args,
+#                                              int32_t timeout_ms)
+# PH17: extra_browser_args is a UTF-16 string or NULL (pass NULL for normal init).
+# The 'p' param accepts a buffer pointer produced by extra_args.encode("utf-16-le")
+# via uctypes; Python callers pass 0 (NULL) for the normal (no-test) path.
 picolet_wv2_create_environment_blocking = self_exe.func(
-    "p", "picolet_wv2_create_environment_blocking", "i"
+    "p", "picolet_wv2_create_environment_blocking", "pi"
 )
 
 # void *picolet_wv2_create_controller_blocking(void *env, void *hwnd, int32_t timeout_ms)

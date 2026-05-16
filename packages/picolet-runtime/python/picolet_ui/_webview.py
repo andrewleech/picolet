@@ -106,7 +106,7 @@ if sys.platform == "win32":
         _com_initialised = True
 
 
-    def _ensure_environment():
+    def _ensure_environment(extra_browser_args=None):
         global _env
         if _env is not None:
             return _env
@@ -115,7 +115,20 @@ if sys.platform == "win32":
         _ensure_com_initialised()
         # 30 s timeout — environment creation should be sub-second in
         # practice; the high ceiling tolerates first-run host warmups.
-        env = _win_ffi.picolet_wv2_create_environment_blocking(30000)
+        #
+        # PH17: extra_browser_args is a UTF-16LE buffer pointer (or NULL=0).
+        # We pass it as the first argument; _win_ffi.func("p","..","pi") maps
+        # it as a void* (pointer arg). NULL (0) = no extra args = normal path.
+        if extra_browser_args is not None:
+            import uctypes
+            # extra_browser_args is a str; encode to UTF-16LE with NUL terminator.
+            utf16 = extra_browser_args.encode("utf-16-le") + b"\x00\x00"
+            buf = bytearray(utf16)
+            env = _win_ffi.picolet_wv2_create_environment_blocking(
+                uctypes.addressof(buf), 30000
+            )
+        else:
+            env = _win_ffi.picolet_wv2_create_environment_blocking(0, 30000)
         if not env:
             err = _win_ffi.picolet_wv2_last_error()
             if (err & 0xFFFFFFFF) == 0x80070002:  # HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)
@@ -136,7 +149,23 @@ if sys.platform == "win32":
 
         def __init__(self, window, root_uri=None, transport=None):
             from . import _win_ffi
-            env = _ensure_environment()
+            # PH17 — PICOLET_TEST_MODE CDP port wiring (FR-TEST-1, Windows).
+            import os as _os
+            _test_browser_args = None
+            _test_port_num = None
+            if _os.getenv("PICOLET_TEST_MODE") == "1":
+                port = _win_ffi.picolet_wv2_pick_test_port()
+                if port > 0:
+                    _test_port_num = port
+                    _test_browser_args = (
+                        "--remote-debugging-port={} "
+                        "--remote-debugging-address=127.0.0.1".format(port)
+                    )
+                else:
+                    sys.stderr.write(
+                        "picolet_ui: PICOLET_TEST_MODE: picolet_wv2_pick_test_port() failed\n"
+                    )
+            env = _ensure_environment(extra_browser_args=_test_browser_args)
             ctrl = _win_ffi.picolet_wv2_create_controller_blocking(
                 env, window.handle, 30000,
             )
@@ -183,6 +212,11 @@ if sys.platform == "win32":
                     "picolet_ui: register_inbound_handler failed "
                     "(HRESULT 0x{:08x})\n".format(rc & 0xFFFFFFFF)
                 )
+
+            # PH17 — announce the CDP debugging port on stderr (FR-TEST-1).
+            if _test_port_num is not None:
+                sys.stderr.write("picolet:test-port={}\n".format(_test_port_num))
+                sys.stderr.flush()
 
         def navigate_to_string(self, html):
             from . import _win_ffi

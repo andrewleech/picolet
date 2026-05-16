@@ -336,11 +336,57 @@ struct ICoreWebView2WebMessageReceivedEventArgsVtbl {
         ICoreWebView2WebMessageReceivedEventArgs *, LPWSTR *webMessageAsString);
 };
 
+/* ----- ICoreWebView2EnvironmentOptions ---------------------------------
+ *
+ * PH17 — needed to pass AdditionalBrowserArguments containing
+ * --remote-debugging-port=<N> --remote-debugging-address=127.0.0.1 when
+ * PICOLET_TEST_MODE=1 (FR-TEST-1, Windows/WebView2 path).
+ *
+ * The full ICoreWebView2EnvironmentOptions interface (SDK 1.0.488) has
+ * these methods in declared order after QI/AddRef/Release:
+ *   3: get_AdditionalBrowserArguments
+ *   4: put_AdditionalBrowserArguments
+ *   5: get_Language
+ *   6: put_Language
+ *   7: get_TargetCompatibleBrowserVersion
+ *   8: put_TargetCompatibleBrowserVersion
+ *   9: get_AllowSingleSignOnUsingOSPrimaryAccount
+ *  10: put_AllowSingleSignOnUsingOSPrimaryAccount
+ *
+ * We only implement put_AdditionalBrowserArguments with real logic; the
+ * other getters/setters are stub slot-holders so the vtable layout is
+ * correct when WebView2 calls any of them.  WebView2 calls the getters
+ * synchronously during CreateCoreWebView2EnvironmentWithOptions and
+ * does not retain the options pointer (R9). */
+
+typedef struct PicoletWv2EnvOptions PicoletWv2EnvOptions;
+typedef struct PicoletWv2EnvOptionsVtbl {
+    /* IUnknown */
+    HRESULT (STDMETHODCALLTYPE *QueryInterface)(PicoletWv2EnvOptions *, REFIID, void **);
+    ULONG   (STDMETHODCALLTYPE *AddRef)(PicoletWv2EnvOptions *);
+    ULONG   (STDMETHODCALLTYPE *Release)(PicoletWv2EnvOptions *);
+    /* ICoreWebView2EnvironmentOptions */
+    HRESULT (STDMETHODCALLTYPE *get_AdditionalBrowserArguments)(PicoletWv2EnvOptions *, LPWSTR *);
+    HRESULT (STDMETHODCALLTYPE *put_AdditionalBrowserArguments)(PicoletWv2EnvOptions *, LPCWSTR);
+    HRESULT (STDMETHODCALLTYPE *get_Language)(PicoletWv2EnvOptions *, LPWSTR *);
+    HRESULT (STDMETHODCALLTYPE *put_Language)(PicoletWv2EnvOptions *, LPCWSTR);
+    HRESULT (STDMETHODCALLTYPE *get_TargetCompatibleBrowserVersion)(PicoletWv2EnvOptions *, LPWSTR *);
+    HRESULT (STDMETHODCALLTYPE *put_TargetCompatibleBrowserVersion)(PicoletWv2EnvOptions *, LPCWSTR);
+    HRESULT (STDMETHODCALLTYPE *get_AllowSingleSignOnUsingOSPrimaryAccount)(PicoletWv2EnvOptions *, BOOL *);
+    HRESULT (STDMETHODCALLTYPE *put_AllowSingleSignOnUsingOSPrimaryAccount)(PicoletWv2EnvOptions *, BOOL);
+} PicoletWv2EnvOptionsVtbl;
+struct PicoletWv2EnvOptions {
+    PicoletWv2EnvOptionsVtbl *lpVtbl;
+    /* AdditionalBrowserArguments string pointer; set by caller before
+     * CreateCoreWebView2EnvironmentWithOptions is invoked. */
+    LPCWSTR additional_args;
+};
+
 /* Loader DLL entry point — exported by WebView2Loader.dll. */
 typedef HRESULT (STDMETHODCALLTYPE *PFN_CreateCoreWebView2EnvironmentWithOptions)(
     LPCWSTR browserExecutableFolder,
     LPCWSTR userDataFolder,
-    void *environmentOptions,        /* ICoreWebView2EnvironmentOptions — NULL = defaults */
+    PicoletWv2EnvOptions *environmentOptions,  /* NULL = defaults */
     PicoletWv2EnvCreatedHandler *environmentCreatedHandler);
 
 #ifdef __cplusplus

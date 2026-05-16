@@ -35,7 +35,10 @@ LDFLAGS += -Wl,--export-all-symbols
 # WindowExW, ole32 for CoInitializeEx, shell32 for SHGetFolderPathW
 # fallback in the loader-DLL extract path).  bcrypt and ws2_32 are
 # already pulled in by the port Makefile.
-LIB += -lole32 -loleaut32 -luser32 -lshell32 -lshlwapi
+# ws2_32 is needed by picolet_wv2_pick_test_port() (PH17) — WSAStartup/socket/
+# getsockname/closesocket.  The port Makefile may already link ws2_32 but we
+# add it explicitly so the dependency is captured here.
+LIB += -lole32 -loleaut32 -luser32 -lshell32 -lshlwapi -lws2_32
 
 # Frozen manifest: windows-aware webview variant.  See manifest_webview_windows.py.
 FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_webview_windows.py
