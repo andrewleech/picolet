@@ -97,7 +97,23 @@ libusb_close = libusb.func("v", "libusb_close", "p")
 libusb_get_bus_number = libusb.func("B", "libusb_get_bus_number", "p")
 libusb_get_device_address = libusb.func("B", "libusb_get_device_address", "p")
 libusb_ref_device = libusb.func("p", "libusb_ref_device", "p")
+libusb_unref_device = libusb.func("v", "libusb_unref_device", "p")
 libusb_control_transfer = libusb.func("i", "libusb_control_transfer", "pBBHHpHI")
+
+# ---------------------------------------------------------------------------
+# Module-level libusb context — initialise once, exit at process shutdown.
+# Matches the upstream pyusb pattern (one context per process lifetime).
+# MicroPython may not have atexit; guard the import.
+# ---------------------------------------------------------------------------
+
+if libusb_init(0) < 0:
+    raise OSError("libusb_init failed")
+
+try:
+    import atexit as _atexit
+    _atexit.register(libusb_exit, 0)
+except ImportError:
+    pass  # MicroPython without atexit; libusb_exit runs at VM teardown
 
 
 def _new(sdesc):
@@ -122,7 +138,6 @@ class Configuration:
     def __init__(self, dev, cfg_idx):
         cfgs = _new(ptr_descriptor)
         if libusb_get_config_descriptor(dev._dev, cfg_idx, cfgs) != 0:
-            libusb_exit(0)
             raise Exception
         descr = uctypes.struct(cfgs[0], libusb_config_descriptor)
 
@@ -200,13 +215,11 @@ class Device:
             # Open the USB device.
             handle = _new(ptr_descriptor)
             if libusb_open(self._dev, handle) != 0:
-                libusb_exit(0)
                 raise Exception
             self._handle = handle[0]
 
     def _claim_interface(self, i):
         if libusb_claim_interface(self._handle, i) != 0:
-            libusb_exit(0)
             raise Exception
 
     def set_configuration(self):
@@ -215,7 +228,6 @@ class Device:
         cfg = Configuration(self, 0).bConfigurationValue
         ret = libusb_set_configuration(self._handle, cfg)
         if ret != 0:
-            libusb_exit(0)
             raise Exception
 
     def ctrl_transfer(
@@ -240,7 +252,6 @@ class Device:
             self._handle, bmRequestType, bRequest, wValue, wIndex, data, l, timeout * 1000
         )
         if ret < 0:
-            libusb_exit(0)
             raise Exception
         if isinstance(data_or_wLength, int):
             return data
@@ -258,13 +269,9 @@ class Device:
 
 
 def find(*, find_all=False, custom_match=None, idVendor=None, idProduct=None):
-    if libusb_init(0) < 0:
-        raise Exception
-
     devs = _new(ptr_descriptor)
     count = libusb_get_device_list(0, devs)
     if count < 0:
-        libusb_exit(0)
         raise Exception
 
     dev_array = uctypes.struct(devs[0], (0 | uctypes.ARRAY, count | UINTPTR))
@@ -280,6 +287,8 @@ def find(*, find_all=False, custom_match=None, idVendor=None, idProduct=None):
         libusb_ref_device(dev_array[i])
         device = Device(dev_array[i], descr)
         if custom_match and not custom_match(device):
+            # custom_match rejected this device; drop the extra ref we just added.
+            libusb_unref_device(dev_array[i])
             continue
         if not find_all:
             # Free the device list (unref all devices; our device is safe because we ref'd it)
