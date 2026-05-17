@@ -168,3 +168,25 @@ source_url  = "https://github.com/IBM/plex"
 link_type   = "static"
 purl        = "pkg:github/IBM/plex@v6.4.0"
 notes       = "OFL-1.1 (SIL Open Font Licence). Used as body font in the pydfu example UI. Latin subset woff2 files (Regular + SemiBold) bundled in romfs at /rom/ui/fonts/. Sourced from @fontsource/ibm-plex-sans npm package."
+
+# ---------------------------------------------------------------------------
+# notes example fonts — bundled in romfs/ui/fonts/ (PH20)
+# ---------------------------------------------------------------------------
+
+[[component]]
+name        = "Source Serif 4"
+version     = "4.005"
+licence     = "OFL-1.1"
+source_url  = "https://github.com/adobe-fonts/source-serif"
+link_type   = "static"
+purl        = "pkg:github/adobe-fonts/source-serif@4.005R"
+notes       = "OFL-1.1 (SIL Open Font Licence). Used as display/heading font in the notes example UI. Variable woff2 files (Roman + Italic, weight range 200-900) bundled in romfs at /rom/ui/fonts/. Renamed from canonical axis-tag filenames to avoid Vite bracket-character issues (O4 in PH20 plan)."
+
+[[component]]
+name        = "Source Sans 3"
+version     = "3.052"
+licence     = "OFL-1.1"
+source_url  = "https://github.com/adobe-fonts/source-sans"
+link_type   = "static"
+purl        = "pkg:github/adobe-fonts/source-sans@3.052R"
+notes       = "OFL-1.1 (SIL Open Font Licence). Used as body/UI font in the notes example UI. Variable woff2 (Upright, weight range 200-900) bundled in romfs at /rom/ui/fonts/source-sans-3.woff2."

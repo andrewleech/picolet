@@ -1,9 +1,9 @@
-"""notes_store.py — host-filesystem note storage.
+"""notes_store.py — host-filesystem note storage for {{name}}.
 
 Storage path (in priority order):
   1. PICOLET_NOTES_DIR env var (test isolation)
-  2. Linux: $XDG_CONFIG_HOME/notes/ or ~/.config/notes/
-  3. Windows: %APPDATA%\\notes\\
+  2. Linux: $XDG_CONFIG_HOME/{{name}}/ or ~/.config/{{name}}/
+  3. Windows: %APPDATA%\\{{name}}\\
 
 Note file format:
   Filename: <slug>-<unix-ts>.md
@@ -14,6 +14,8 @@ import sys
 import re
 import time
 from pathlib import Path
+
+_APP_NAME = "{{name}}"
 
 
 def _notes_dir() -> Path:
@@ -30,11 +32,11 @@ def _notes_dir() -> Path:
         base = os.environ.get("APPDATA")
         if not base:
             raise RuntimeError("APPDATA not set on Windows")
-        p = Path(base) / "notes"
+        p = Path(base) / _APP_NAME
     else:
         xdg = os.environ.get("XDG_CONFIG_HOME")
         base = Path(xdg) if xdg else Path.home() / ".config"
-        p = base / "notes"
+        p = base / _APP_NAME
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -81,7 +83,7 @@ def list_notes() -> list:
         try:
             text = f.read_text(encoding="utf-8")
             m = _parse_note(text)
-            slug = f.stem  # filename without .md
+            slug = f.stem
             notes.append({
                 "slug": slug,
                 "title": m["title"],
@@ -89,7 +91,7 @@ def list_notes() -> list:
                 "updated": m["updated"],
             })
         except Exception:
-            pass  # skip malformed files silently
+            pass
     notes.sort(key=lambda n: n["updated"], reverse=True)
     return notes
 
@@ -107,7 +109,7 @@ def load_note(slug: str) -> dict:
 
 
 def save_note(slug: str, body: str) -> dict:
-    """Overwrite body; update `updated` timestamp. Returns updated metadata."""
+    """Overwrite body; update `updated` timestamp."""
     d = _notes_dir()
     f = d / f"{slug}.md"
     if not f.exists():
@@ -153,7 +155,6 @@ def create_note(title: str) -> dict:
     base_slug = _make_slug(title)
     slug = f"{base_slug}-{now}"
     f = d / f"{slug}.md"
-    # Handle slug collision (same title, same second).
     counter = 1
     while f.exists():
         slug = f"{base_slug}-{now}-{counter}"
