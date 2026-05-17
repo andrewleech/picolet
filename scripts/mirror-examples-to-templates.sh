@@ -247,9 +247,11 @@ def main() -> int:
                 all_diffs.append((dst_path, old_bytes, new_bytes))
 
         # Detect orphan files in template that no longer exist in example.
+        # Do NOT apply EXCLUDE_DIRS here: any file in a forbidden dir (e.g.
+        # scripts/, screenshots/, tests/) that somehow leaked into the template
+        # must be treated as an orphan and deleted, not silently skipped.
         if dst_root.is_dir():
             for dirpath, dirnames, filenames in os.walk(dst_root):
-                dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
                 for fname in filenames:
                     dst_path = Path(dirpath) / fname
                     rel = dst_path.relative_to(dst_root)
