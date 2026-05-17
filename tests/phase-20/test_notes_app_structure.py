@@ -252,6 +252,41 @@ class TestEditView(unittest.TestCase):
         """rename_note is the extra command the dev added beyond the original 5."""
         self.assertIn("rename_note", self.content)
 
+    def test_loading_false_before_nexttick_in_try(self):
+        """loading.value = false must precede await nextTick() in the try block.
+
+        The editor-pane is guarded by v-if="!loading", so titleEl is only
+        mounted after loading becomes false.  Setting innerText before that
+        yields a null ref and a silently empty title on every note open.
+        """
+        script_match = re.search(r"<script[^>]*>(.*?)</script>", self.content, re.DOTALL)
+        self.assertIsNotNone(script_match, "No <script> block found in EditView.vue")
+        script = script_match.group(1)
+
+        # Locate the try block that contains load_note.
+        try_start = script.find("try {")
+        catch_start = script.find("} catch", try_start)
+        self.assertGreater(try_start, -1, "No try block found")
+        self.assertGreater(catch_start, try_start, "No catch block found after try")
+        try_body = script[try_start:catch_start]
+
+        loading_pos = try_body.find("loading.value = false")
+        nexttick_pos = try_body.find("await nextTick()")
+        self.assertGreater(
+            loading_pos, -1,
+            "loading.value = false not found in try block — title DOM write will fail",
+        )
+        self.assertGreater(
+            nexttick_pos, -1,
+            "await nextTick() not found in try block",
+        )
+        self.assertLess(
+            loading_pos,
+            nexttick_pos,
+            "loading.value = false must come before await nextTick() in try block "
+            "so that the editor-pane v-if renders before titleEl.innerText is set",
+        )
+
 
 # ---------------------------------------------------------------------------
 # main.css — CSS custom properties and aesthetic rules

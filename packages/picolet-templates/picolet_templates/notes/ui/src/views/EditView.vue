@@ -40,7 +40,9 @@ onMounted(async () => {
     body.value = note.body;
     savedBody.value = note.body;
     savedTitle.value = note.title;
-    // Set contenteditable content after DOM is ready.
+    // Reveal the editor pane before writing to the contenteditable ref,
+    // because titleEl is mounted only after loading becomes false.
+    loading.value = false;
     await nextTick();
     if (titleEl.value) {
       titleEl.value.innerText = note.title;
@@ -50,12 +52,11 @@ onMounted(async () => {
     body.value = "";
     savedBody.value = "";
     savedTitle.value = "Untitled";
+    loading.value = false;
     await nextTick();
     if (titleEl.value) {
       titleEl.value.innerText = "Untitled";
     }
-  } finally {
-    loading.value = false;
   }
 
   document.addEventListener("keydown", onKeydown);
