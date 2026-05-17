@@ -77,6 +77,19 @@ EXAMPLES: dict[str, bool] = {
     "dashboard":     False,   # preserves "System Dashboard"
 }
 
+# Per-example files where the literal app-name string in path segments should
+# be replaced with {{name}} in the template.  Format:
+#   example-name → [(relative-path-in-example, literal-string-to-replace), ...]
+# The substitution is applied AFTER the normal picolet.toml / package.json passes.
+PARAMETERISED_FILES: dict[str, list[tuple[str, str]]] = {
+    "notes": [
+        ("src/notes_store.py", "notes"),
+    ],
+    "config-editor": [
+        ("src/config_store.py", "config-editor"),
+    ],
+}
+
 
 def transform_picolet_toml(content: str, title_token: bool) -> str:
     """Replace [app] name and (optionally) [window] title with {{name}}."""
@@ -121,7 +134,7 @@ def collect_src_files(src_root: Path) -> list[Path]:
     return result
 
 
-def compute_new_bytes(src_path: Path, example_name: str, title_token: bool) -> bytes:
+def compute_new_bytes(src_path: Path, example_name: str, src_root: Path, title_token: bool) -> bytes:
     """Compute the desired template content for a given source file."""
     if src_path.suffix.lower() not in TEXT_EXTENSIONS:
         return src_path.read_bytes()
@@ -132,9 +145,55 @@ def compute_new_bytes(src_path: Path, example_name: str, title_token: bool) -> b
         content = transform_picolet_toml(content, title_token)
     elif src_path.name == "package.json":
         content = transform_package_json(content)
-    # All other text files: verbatim.
+    else:
+        # Check per-example parameterised-file substitutions.
+        rel = str(src_path.relative_to(src_root))
+        for param_rel, literal in PARAMETERISED_FILES.get(example_name, []):
+            if rel == param_rel:
+                content = _substitute_path_segment(content, literal)
+                break
 
     return content.encode("utf-8")
+
+
+def _substitute_path_segment(content: str, literal: str) -> str:
+    """Replace path-segment occurrences of *literal* with {{name}}.
+
+    Targets the specific patterns used in notes_store.py and config_store.py:
+      Path(base) / "notes"          →  Path(base) / "{{name}}"
+      Path(base) / "config-editor"  →  Path(base) / "{{name}}"
+    and the docstring comment references like ~/.config/notes/ or
+    ~/.config/config-editor/schemas/.
+    """
+    import re
+    # Replace Python path-join patterns: <expr> / "literal"
+    # Matches both: Path(base) / "notes"  and  base / "notes"
+    content = re.sub(
+        r'(\S+\s*/\s*)"' + re.escape(literal) + r'"',
+        r'\1"{{name}}"',
+        content,
+    )
+    # Replace bare path segment string in docstrings / comments:
+    # ~/.config/notes/  or  ~/.config/config-editor/schemas/
+    content = re.sub(
+        r'(~/.config/)' + re.escape(literal) + r'(/)',
+        r'\1{{name}}\2',
+        content,
+    )
+    # $XDG_CONFIG_HOME/notes/  or  $XDG_CONFIG_HOME/config-editor/
+    content = re.sub(
+        r'(\$XDG_CONFIG_HOME/)' + re.escape(literal) + r'(/)',
+        r'\1{{name}}\2',
+        content,
+    )
+    # Replace Windows path segment in docstrings:
+    # %APPDATA%\notes\  or  %APPDATA%\config-editor\schemas\
+    content = re.sub(
+        r'(%APPDATA%\\\\)' + re.escape(literal) + r'(\\\\)',
+        r'\1{{name}}\2',
+        content,
+    )
+    return content
 
 
 def unified_diff_str(path: Path, old_bytes: bytes | None, new_bytes: bytes | None) -> str:
@@ -181,7 +240,7 @@ def main() -> int:
             expected_rels.add(rel)
             dst_path = dst_root / rel
 
-            new_bytes = compute_new_bytes(src_path, example_name, title_token)
+            new_bytes = compute_new_bytes(src_path, example_name, src_root, title_token)
             old_bytes = dst_path.read_bytes() if dst_path.exists() else None
 
             if old_bytes != new_bytes:

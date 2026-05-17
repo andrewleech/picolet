@@ -8,7 +8,7 @@ Supported formats (detected by file extension):
 Diff: generated Python-side via difflib.unified_diff() (vendored) before save.
 
 Test isolation: PICOLET_CONFIG_DIR overrides the schemas base directory.
-Default schemas dir: ~/.config/config-editor/schemas/
+Default schemas dir: ~/.config/{{name}}/schemas/
 
 Licence: MIT (Picolet project).
 """
@@ -38,11 +38,11 @@ def _schemas_dir() -> Path:
         base_env = os.environ.get("APPDATA")
         if not base_env:
             raise RuntimeError("APPDATA not set on Windows")
-        p = Path(base_env) / "config-editor" / "schemas"
+        p = Path(base_env) / "{{name}}" / "schemas"
     else:
         xdg = os.environ.get("XDG_CONFIG_HOME")
         base = Path(xdg) if xdg else Path.home() / ".config"
-        p = base / "config-editor" / "schemas"
+        p = base / "{{name}}" / "schemas"
     p.mkdir(parents=True, exist_ok=True)
     return p
 

@@ -2,8 +2,8 @@
 
 Storage path (in priority order):
   1. PICOLET_NOTES_DIR env var (test isolation)
-  2. Linux: $XDG_CONFIG_HOME/notes/ or ~/.config/notes/
-  3. Windows: %APPDATA%\\notes\\
+  2. Linux: $XDG_CONFIG_HOME/{{name}}/ or ~/.config/{{name}}/
+  3. Windows: %APPDATA%\\{{name}}\\
 
 Note file format:
   Filename: <slug>-<unix-ts>.md
@@ -30,11 +30,11 @@ def _notes_dir() -> Path:
         base = os.environ.get("APPDATA")
         if not base:
             raise RuntimeError("APPDATA not set on Windows")
-        p = Path(base) / "notes"
+        p = Path(base) / "{{name}}"
     else:
         xdg = os.environ.get("XDG_CONFIG_HOME")
         base = Path(xdg) if xdg else Path.home() / ".config"
-        p = base / "notes"
+        p = base / "{{name}}"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
