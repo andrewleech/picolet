@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:908e3858-134d-4d6d-8d8c-bf9892d285f8",
+  "serialNumber": "urn:uuid:4c27c21a-5370-4c8a-a8a6-517bb6d5ac83",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-16T17:25:07.899944Z",
+    "timestamp": "2026-05-17T06:15:01.128922Z",
     "tools": [
       {
         "vendor": "picolet",
@@ -107,6 +107,168 @@
         }
       ],
       "description": "LGPL-2.1-or-later; loaded dynamically — the Picolet runtime binary does not statically incorporate any LGPL object code. Relinking is possible by replacing the system WebKitGTK package. NFR-5 is satisfied."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-jetbrains-mono-3",
+      "name": "JetBrains Mono",
+      "version": "2.304",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/JetBrains/JetBrainsMono"
+        }
+      ],
+      "purl": "pkg:github/JetBrains/JetBrainsMono@v2.304",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as display/monospace font in the pydfu example UI. Woff2 file bundled in romfs at /rom/ui/fonts/JetBrainsMono-Regular.woff2. No embedding restriction under OFL-1.1."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-ibm-plex-sans-4",
+      "name": "IBM Plex Sans",
+      "version": "6.4.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/IBM/plex"
+        }
+      ],
+      "purl": "pkg:github/IBM/plex@v6.4.0",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as body font in the pydfu example UI. Latin subset woff2 files (Regular + SemiBold) bundled in romfs at /rom/ui/fonts/. Sourced from @fontsource/ibm-plex-sans npm package."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-source-serif-4-5",
+      "name": "Source Serif 4",
+      "version": "4.005",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/adobe-fonts/source-serif"
+        }
+      ],
+      "purl": "pkg:github/adobe-fonts/source-serif@4.005R",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as display/heading font in the notes example UI. Variable woff2 files (Roman + Italic, weight range 200-900) bundled in romfs at /rom/ui/fonts/. Renamed from canonical axis-tag filenames to avoid Vite bracket-character issues (O4 in PH20 plan)."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-source-sans-3-6",
+      "name": "Source Sans 3",
+      "version": "3.052",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/adobe-fonts/source-sans"
+        }
+      ],
+      "purl": "pkg:github/adobe-fonts/source-sans@3.052R",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as body/UI font in the notes example UI. Variable woff2 (Upright, weight range 200-900) bundled in romfs at /rom/ui/fonts/source-sans-3.woff2."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-antonio-7",
+      "name": "Antonio",
+      "version": "22",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://fonts.google.com/specimen/Antonio"
+        }
+      ],
+      "purl": "pkg:generic/google-fonts/Antonio@v22",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as condensed display font in the dashboard example UI (OFL fallback for GT America Condensed per spec aesthetic). Variable font: a single latin-subset woff2 covers the full weight axis; Antonio-Bold.woff2 is byte-identical to Antonio-Regular.woff2 (Google Fonts serves one file for all weights). Both files bundled in romfs at /rom/ui/fonts/. Downloaded from fonts.gstatic.com."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-dm-sans-8",
+      "name": "DM Sans",
+      "version": "17",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://fonts.google.com/specimen/DM+Sans"
+        }
+      ],
+      "purl": "pkg:generic/google-fonts/DM+Sans@v17",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as body/label font in the dashboard example UI (OFL fallback for GT Walsheim per spec aesthetic). Variable font: a single latin-subset woff2 covers the full weight axis; DMSans-Medium.woff2 is byte-identical to DMSans-Regular.woff2 (Google Fonts serves one file for all weights). Both files bundled in romfs at /rom/ui/fonts/. Downloaded from fonts.gstatic.com."
     }
   ]
 }
