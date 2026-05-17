@@ -268,6 +268,103 @@ else:
     _active_callbacks = {}
 
 
+    def _wait_for_inspector_port(port, gtk_ffi, timeout_ms=5000, poll_ms=50,
+                                  drive_gtk=True):
+        """Poll TCP 127.0.0.1:port until connect() succeeds or timeout.
+
+        Drives GTK events between poll attempts so the WebKitGTK GMain-based
+        networking thread can progress and actually bind the socket.
+
+        Returns True if the port became reachable, False on timeout.
+
+        All socket operations go through libc directly (MicroPython unix port
+        disables the socket module).  Uses AF_INET SOCK_STREAM with
+        connect-then-close — the inspector server will accept and immediately
+        close; we only care that bind succeeded.
+        """
+        import uctypes
+
+        AF_INET    = 2
+        SOCK_STREAM = 1
+        # EINPROGRESS / ECONNREFUSED — we expect these while the socket isn't
+        # bound yet; any other errno is also a "not ready" signal so we just
+        # retry on all errors.
+
+        # Open libc for socket syscalls.
+        import ffi as _ffi
+        _libc = None
+        for _name in ("libc.so.6", "libc.so", "libc.so.0"):
+            try:
+                _libc = _ffi.open(_name)
+                break
+            except OSError:
+                pass
+        if _libc is None:
+            return False
+
+        try:
+            sock_f    = _libc.func("i", "socket",  "iii")
+            connect_f = _libc.func("i", "connect", "ipi")
+            close_f   = _libc.func("i", "close",   "i")
+        except OSError:
+            return False
+
+        # Build struct sockaddr_in for 127.0.0.1:<port> once.
+        addr_buf = bytearray(16)
+        addr_buf[0] = 2   # sin_family = AF_INET (LE uint16, low byte)
+        addr_buf[1] = 0
+        # sin_port in network byte order (big-endian)
+        addr_buf[2] = (port >> 8) & 0xFF
+        addr_buf[3] = port & 0xFF
+        # sin_addr = 127.0.0.1 in network byte order
+        addr_buf[4] = 0x7F
+        addr_buf[5] = 0x00
+        addr_buf[6] = 0x00
+        addr_buf[7] = 0x01
+        addr_ptr = uctypes.addressof(addr_buf)
+
+        try:
+            import utime
+            _ticks_ms = utime.ticks_ms
+            _ticks_diff = utime.ticks_diff
+            def _sleep_ms(ms):
+                utime.sleep_ms(ms)
+        except ImportError:
+            import time as _time_mod
+            def _ticks_ms():
+                return int(_time_mod.monotonic() * 1000)
+            def _ticks_diff(end, start):
+                return end - start
+            def _sleep_ms(ms):
+                _time_mod.sleep(ms / 1000.0)
+
+        deadline_ms = _ticks_ms() + timeout_ms
+
+        while True:
+            fd = sock_f(AF_INET, SOCK_STREAM, 0)
+            if fd >= 0:
+                rc = connect_f(fd, addr_ptr, 16)
+                close_f(fd)
+                if rc == 0:
+                    return True  # connected — port is bound
+
+            # Drive GTK so WebKitGTK's GMain loop can make progress.
+            if drive_gtk:
+                try:
+                    for _ in range(5):
+                        gtk_ffi.gtk_main_iteration_do(0)
+                except Exception:
+                    pass
+
+            remaining = _ticks_diff(deadline_ms, _ticks_ms())
+            if remaining <= 0:
+                return False
+
+            # Sleep poll_ms (capped to remaining).
+            sleep_ms = poll_ms if poll_ms < remaining else remaining
+            _sleep_ms(sleep_ms)
+
+
     def _build_on_script_message(transport):
         """Build the (manager, js_result, user_data) signal handler.
 
@@ -448,8 +545,15 @@ else:
                 self._manager, sig, cb, 0, 0, 0
             )
 
-            # PH17 — enable developer extras after view creation and
-            # announce the inspector port on stderr (FR-TEST-1).
+            # PH17 — enable developer extras after view creation, explicitly
+            # open the inspector (which triggers the WEBKIT_INSPECTOR_SERVER
+            # TCP bind), poll until the port accepts connections, then announce
+            # the port on stderr (FR-TEST-1 race fix).
+            #
+            # Race: the env var alone does not bind the TCP socket.  WebKitGTK
+            # only binds when webkit_web_inspector_show() is called on the view.
+            # Without the explicit show() + TCP-poll guard, the port announcement
+            # races ahead of the bind and consumers see ECONNREFUSED.
             if self._test_port is not None:
                 try:
                     settings = _gtk_ffi.webkit_web_view_get_settings(self._view)
@@ -461,6 +565,39 @@ else:
                     sys.stderr.write(
                         "picolet_ui: PICOLET_TEST_MODE: settings configuration failed: {}\n".format(exc)
                     )
+
+                # Explicitly open the inspector to trigger the TCP bind.
+                _inspector_opened = False
+                try:
+                    if (_gtk_ffi.webkit_web_view_get_inspector is not None and
+                            _gtk_ffi.webkit_web_inspector_show is not None):
+                        inspector = _gtk_ffi.webkit_web_view_get_inspector(self._view)
+                        if inspector:
+                            _gtk_ffi.webkit_web_inspector_show(inspector)
+                            _inspector_opened = True
+                except Exception as exc:
+                    sys.stderr.write(
+                        "picolet_ui: PICOLET_TEST_MODE: inspector show failed: {}\n".format(exc)
+                    )
+
+                # TCP-poll: wait until the inspector port accepts connections
+                # (or 5 s timeout).  This is the only reliable "port is bound"
+                # signal available — WebKitGTK has no synchronous callback for
+                # inspector server ready.
+                #
+                # We call connect()/close() in a loop, driving GTK events between
+                # attempts so WebKitGTK's GMain-based networking can progress.
+                _port_ready = _wait_for_inspector_port(
+                    self._test_port, _gtk_ffi,
+                    timeout_ms=5000, poll_ms=50,
+                    drive_gtk=_inspector_opened,
+                )
+                if not _port_ready:
+                    sys.stderr.write(
+                        "picolet_ui: PICOLET_TEST_MODE: inspector port {} not ready "
+                        "after 5 s; announcing anyway\n".format(self._test_port)
+                    )
+
                 sys.stderr.write("picolet:test-port={}\n".format(self._test_port))
                 sys.stderr.flush()
 

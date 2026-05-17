@@ -291,6 +291,28 @@ try:
 except OSError:
     webkit_settings_set_enable_write_console_messages_to_stdout = None
 
+# WebKitWebInspector *webkit_web_view_get_inspector(WebKitWebView *)
+# Returns the WebKitWebInspector associated with the view.  Calling
+# webkit_web_inspector_show() on this object triggers WebKitGTK to open
+# the TCP listener at WEBKIT_INSPECTOR_SERVER (the env var alone does not
+# bind until the inspector is shown on a view).
+try:
+    webkit_web_view_get_inspector = webkit.func(
+        "p", "webkit_web_view_get_inspector", "p"
+    )
+except OSError:
+    webkit_web_view_get_inspector = None
+
+# void webkit_web_inspector_show(WebKitWebInspector *)
+# Triggers the Web Inspector to connect and, in WEBKIT_INSPECTOR_SERVER
+# mode, binds the TCP listener on the configured address:port.
+try:
+    webkit_web_inspector_show = webkit.func(
+        "v", "webkit_web_inspector_show", "p"
+    )
+except OSError:
+    webkit_web_inspector_show = None
+
 # int setenv(const char *name, const char *value, int overwrite) — libc
 # Used to set WEBKIT_INSPECTOR_SERVER before webkit_web_view_new() so the
 # Web Inspector server is bound at the correct address:port (R1: the env
