@@ -1,7 +1,14 @@
 @font-face {
   font-family: 'Monaspace Neon';
   src: url('/fonts/MonaspaceNeon-Regular.woff2') format('woff2');
-  font-weight: 400 700;
+  font-weight: 400;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Monaspace Neon';
+  src: url('/fonts/MonaspaceNeon-Bold.woff2') format('woff2');
+  font-weight: 700;
   font-display: block;
 }
 
