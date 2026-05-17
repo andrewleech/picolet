@@ -33,11 +33,28 @@ picolet/
 └── scripts/               # repo-wide tooling
 ```
 
+## Examples
+
+Four reference apps, each with a distinct visual direction. See
+[`examples/`](examples/) for source and [`docs/examples.md`](docs/examples.md)
+for the walkthrough.
+
+| pydfu | notes |
+|---|---|
+| ![pydfu — industrial control panel](examples/pydfu/screenshots/device-list-populated.png) | ![notes — editorial refined](examples/notes/screenshots/list-populated.png) |
+
+| config-editor | dashboard |
+|---|---|
+| ![config-editor — brutalist terminal](examples/config-editor/screenshots/edit-toml.png) | ![dashboard — data-dense dark UI](examples/dashboard/screenshots/full-dashboard.png) |
+
 ## Status
 
-Pre-alpha scaffolding. No releases. See
-[docs/architecture.md](docs/architecture.md) for the v1 design decisions
-and [docs/sbom.md](docs/sbom.md) for the dependency-tracking plan.
+v1.1 examples complete. Four reference apps (pydfu, notes, config-editor,
+dashboard) with screenshots, integration tests, and `picolet init` templates.
+See [docs/examples.md](docs/examples.md) and [examples/](examples/).
+
+Architecture decisions: [docs/architecture.md](docs/architecture.md).
+Dependency tracking: [docs/sbom.md](docs/sbom.md).
 
 ## Roadmap
 
