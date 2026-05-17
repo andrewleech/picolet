@@ -1,0 +1,153 @@
+---
+# .github/workflows/perf-check.yml
+#
+# Perf-check workflow — closes PO audit conditions C4 + C5.
+#
+#   C4  NFR-EX-2:   spawn → window-visible + first paint  ≤ 1500 ms
+#   C5  NFR-TEST-1: picolet test spawn → port announcement   ≤ 3000 ms
+#
+# Both gates measure the median of 5 runs; a single run up to 2× the
+# bound triggers a soft warning rather than a failure (runner noise).
+#
+# Trigger:
+#   - workflow_dispatch  (manual run)
+#   - schedule           (weekly, Sunday 03:00 UTC)
+#   - push to dev touching picolet-runtime or example source
+
+name: Perf check (NFR-EX-2 + NFR-TEST-1)
+
+"on":
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 3 * * 0'
+  push:
+    branches:
+      - dev
+    paths:
+      - 'packages/picolet-runtime/**'
+      - 'examples/**'
+
+permissions:
+  contents: read
+
+jobs:
+  perf-check:
+    name: Measure startup latency
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Checkout (submodules needed for the runtime build).
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      # 2. Install uv (mirrors release.yml / screenshots.yml pattern).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      # 3. Install system packages.
+      #    - build-essential / pkg-config: compiler toolchain
+      #    - libwebkit2gtk-4.1-dev: WebKitGTK 4.1 headers + .so
+      #    - xvfb: virtual framebuffer for headless X11
+      #    - xdotool: confirm window visibility in perf-check.py
+      #    - x11-apps: xwd for framebuffer capture (AppHarness)
+      #    - mpremote: romfs assembly (host-side)
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libwebkit2gtk-4.1-dev \
+            xvfb \
+            xdotool \
+            x11-apps
+          pip install --quiet mpremote
+          python3 -m mpremote --help > /dev/null
+
+      # 4. Restore Docker layer cache for the linux-x64 build image.
+      #    Key matches release.yml so both workflows share the cache slot.
+      - name: Restore Docker layer cache (linux build image)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/docker-cache-linux
+          key: >-
+            docker-linux-build-${{
+              hashFiles(
+                'packages/picolet-runtime/scripts/dockerfiles/linux-x64-build/Dockerfile'
+              )
+            }}
+          restore-keys: docker-linux-build-
+
+      # 5. Restore libffi build cache.
+      - name: Restore libffi build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/picolet-runtime/micropython/ports/unix/build-picolet-*/lib/libffi
+          key: >-
+            libffi-linux-x64-webview-${{
+              hashFiles(
+                'packages/picolet-runtime/micropython/lib/libffi/**'
+              )
+            }}
+          restore-keys: libffi-linux-x64-webview-
+
+      # 6. Build the linux-x64-webview runtime.
+      #    build-runtime.sh is idempotent; a warm cache takes ~30 s.
+      - name: Build linux-x64-webview runtime
+        run: |
+          bash packages/picolet-runtime/scripts/build-runtime.sh \
+            --target linux-x64 \
+            --variant webview
+
+      # 7. Build example apps (npm install + npm run build).
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build example apps (notes + pydfu)
+        run: |
+          npm --prefix examples/notes ci
+          npm --prefix examples/notes run build
+          npm --prefix examples/pydfu ci
+          npm --prefix examples/pydfu run build
+
+      # 8. Build example binaries (embed romfs onto the runtime).
+      - name: Build notes example binary
+        run: |
+          uv run -p picolet picolet build --no-build-runtime \
+            --target linux-x64 \
+            --source examples/notes
+
+      - name: Build pydfu example binary
+        run: |
+          uv run -p picolet picolet build --no-build-runtime \
+            --target linux-x64 \
+            --source examples/pydfu
+
+      # 9. Run perf-check measurements.
+      #    The script starts its own Xvfb when $DISPLAY is unset.
+      #    Results land in perf-results.json for the artifact step.
+      - name: Run perf-check
+        run: |
+          uv run --no-project scripts/perf-check.py \
+            --binary \
+              packages/picolet-runtime/build/picolet-runtime-linux-x64-webview \
+            --example examples/notes \
+            --example examples/pydfu \
+            --runs 5 \
+            --output perf-results.json
+
+      # 10. Upload JSON measurements for trend analysis (90-day retention).
+      - name: Upload perf results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: perf-results.json
+          retention-days: 90

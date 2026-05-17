@@ -206,6 +206,72 @@ png = t.snapshot()   # capture PNG bytes of the current screen
 
 ---
 
+## Perf-check CI (C4 + C5)
+
+`.github/workflows/perf-check.yml` enforces two startup NFRs that are too
+noisy to measure reliably in WSL2.  It runs on `ubuntu-latest` (GitHub-hosted
+VM) for more consistent timing.
+
+### NFR bounds
+
+| ID | Metric | Median cap |
+|----|--------|------------|
+| NFR-EX-2 | spawn → window visible + first paint | 1500 ms |
+| NFR-TEST-1 | spawn → `picolet:test-port=<N>` announcement | 3000 ms |
+
+### Methodology
+
+`scripts/perf-check.py` (PEP 723; `uv run --no-project scripts/perf-check.py`)
+drives both measurements:
+
+**NFR-TEST-1** — port-announcement latency:
+1. Spawn the webview binary with `PICOLET_TEST_MODE=1` inside the example's
+   working directory.
+2. Read stderr line-by-line until `picolet:test-port=<N>` is seen.
+3. Record elapsed wall time from `Popen()` to the matching line.
+
+**NFR-EX-2** — window-visible latency:
+1. Same spawn as NFR-TEST-1.
+2. After the port line is seen (the GTK window creation precedes the port bind),
+   call `xdotool search --sync` to confirm a visible X window in the Xvfb
+   framebuffer.
+3. Record elapsed wall time from `Popen()` to `xdotool` return.
+
+Each NFR is measured in 5 runs per example app; the **median** is compared
+against the bound.  The **max** is recorded in the JSON artifact but does not
+drive the gate.
+
+### Noise tolerance
+
+If a single run exceeds 2× the NFR bound while the median stays within it, the
+script emits a soft warning in the log and the gate passes.  This handles
+transient runner noise (shared CPU, page-cache cold misses).  The script does
+not auto-disable the gate regardless of noise level; persistent breaches
+(3+ consecutive CI runs failing) are the signal to escalate.
+
+### `AppHarness` timing attributes
+
+`AppHarness` exposes two float attributes (milliseconds since epoch) after
+`start()` completes:
+
+- `spawn_ms` — set immediately after `Popen()` returns inside `_spawn()`.
+- `ready_ms` — set at the end of `start()` once the debug driver is attached.
+
+These are used by `scripts/perf-check.py` and are also available to any test
+that wants to assert on startup latency without reinventing the measurement.
+
+### Trigger conditions
+
+The workflow runs:
+- On `workflow_dispatch` (manual).
+- On a weekly schedule (Sunday 03:00 UTC).
+- On `push` to `dev` touching `packages/picolet-runtime/**` or `examples/**`.
+
+Results are uploaded as a `perf-results` workflow artifact (JSON, retained 90
+days) for trend analysis across runs.
+
+---
+
 ## Frontend toolchains (PH18, FR-VUE-1..5)
 
 Picolet supports multi-framework frontends through the `[ui.frontend]` table

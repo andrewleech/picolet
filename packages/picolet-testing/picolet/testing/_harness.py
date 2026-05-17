@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,12 @@ class AppHarness:
         # _wait_for_port() to scan stdout instead of stderr for the port line.
         self._uses_xvfb = False
 
+        # Perf timing attributes (milliseconds since epoch, set by start()).
+        # spawn_ms: wall time immediately after Popen() returns.
+        # ready_ms: wall time when start() finishes (port found + driver attached).
+        self.spawn_ms: float | None = None
+        self.ready_ms: float | None = None
+
     # -------------------------------------------------------------------------
     # Spawn + attach
     # -------------------------------------------------------------------------
@@ -107,7 +114,9 @@ class AppHarness:
     async def start(self) -> "AppHarness":
         """Spawn the child (unless pre-spawned), wait for the port, attach.
 
-        Returns self.
+        Returns self.  On return, spawn_ms and ready_ms are populated with
+        wall-clock timestamps (milliseconds since epoch) recording when the
+        process was created and when the harness became ready for driving.
         """
         if self._proc is None:
             self._proc = self._spawn()
@@ -154,6 +163,7 @@ class AppHarness:
         if self._browser in ("chromium", "webkit") and self.page is not None:
             await self._wait_for_ready()
 
+        self.ready_ms = time.time() * 1000.0
         return self
 
     def _default_args(self) -> list[str]:
@@ -245,17 +255,20 @@ class AppHarness:
         # For webview paths: pipe stderr. Also pipe stdout when xvfb-run fallback
         # is used (xvfb-run routes the child's stderr to its stdout).
         if self._browser == "lvgl":
-            return subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd,
                 env=self._env,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-        popen_kwargs: dict = {"env": self._env, "stderr": subprocess.PIPE}
-        if self._uses_xvfb:
-            popen_kwargs["stdout"] = subprocess.PIPE
-        return subprocess.Popen(cmd, **popen_kwargs)
+        else:
+            popen_kwargs: dict = {"env": self._env, "stderr": subprocess.PIPE}
+            if self._uses_xvfb:
+                popen_kwargs["stdout"] = subprocess.PIPE
+            proc = subprocess.Popen(cmd, **popen_kwargs)
+        self.spawn_ms = time.time() * 1000.0
+        return proc
 
     async def _wait_for_port(self) -> int | None:
         """Read pipe(s) until 'picolet:test-port=<N>' appears or timeout.
