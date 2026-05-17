@@ -222,20 +222,24 @@ VM) for more consistent timing.
 ### Methodology
 
 `scripts/perf-check.py` (PEP 723; `uv run --no-project scripts/perf-check.py`)
-drives both measurements:
+drives both measurements using `AppHarness` for timing and process management:
 
 **NFR-TEST-1** — port-announcement latency:
-1. Spawn the webview binary with `PICOLET_TEST_MODE=1` inside the example's
-   working directory.
-2. Read stderr line-by-line until `picolet:test-port=<N>` is seen.
-3. Record elapsed wall time from `Popen()` to the matching line.
+1. Call `AppHarness.start()` with `_xvfb_display` set; this spawns the binary
+   with `PICOLET_TEST_MODE=1`, drains stderr via a daemon thread, and sets
+   `spawn_ms` immediately after `Popen()` returns.
+2. On the webkit/xvfb path, `start()` returns as soon as `picolet:test-port=<N>`
+   is seen (no inspector attach), setting `ready_ms` at that point.
+3. Elapsed time is `ready_ms - spawn_ms`.
 
 **NFR-EX-2** — window-visible latency:
-1. Same spawn as NFR-TEST-1.
-2. After the port line is seen (the GTK window creation precedes the port bind),
-   call `xdotool search --sync` to confirm a visible X window in the Xvfb
-   framebuffer.
-3. Record elapsed wall time from `Popen()` to `xdotool` return.
+1. Same `AppHarness.start()` call as NFR-TEST-1; `spawn_ms` marks the spawn
+   instant.
+2. After `start()` returns (port seen, child running), call
+   `xdotool search --sync --pid <child-pid>` to confirm the app's own window
+   is visible in the Xvfb framebuffer.
+3. Elapsed time is `time.time()*1000 - spawn_ms` (covers spawn to xdotool
+   return, inclusive of the port-announcement delay).
 
 Each NFR is measured in 5 runs per example app; the **median** is compared
 against the bound.  The **max** is recorded in the JSON artifact but does not
@@ -255,7 +259,10 @@ not auto-disable the gate regardless of noise level; persistent breaches
 `start()` completes:
 
 - `spawn_ms` — set immediately after `Popen()` returns inside `_spawn()`.
-- `ready_ms` — set at the end of `start()` once the debug driver is attached.
+  `None` when the harness is constructed with a pre-spawned `_running_proc`
+  (we did not spawn the process, so the spawn instant is unknown).
+- `ready_ms` — set at the end of `start()` once the debug driver is attached
+  (or the port line is seen if no inspector is available).
 
 These are used by `scripts/perf-check.py` and are also available to any test
 that wants to assert on startup latency without reinventing the measurement.

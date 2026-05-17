@@ -14,6 +14,11 @@ If the median exceeds the bound the exit code is non-zero.
 If the median is within the bound but any individual run exceeds 2× the bound,
 a soft warning is emitted (the gate still passes on that single run).
 
+Timing is centralised in AppHarness (packages/picolet-testing):
+  spawn_ms — epoch ms recorded immediately after Popen() inside _spawn().
+  ready_ms — epoch ms recorded at the end of start() (port found + driver
+             attached, or just port-found when no inspector is available).
+
 Usage:
     uv run --no-project scripts/perf-check.py --help
     uv run --no-project scripts/perf-check.py \\
@@ -29,17 +34,30 @@ run in a local dev environment without a display server installed.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 from statistics import median
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Resolve AppHarness from the monorepo tree without requiring an install.
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).parent.parent
+_TESTING_PKG = _REPO_ROOT / "packages" / "picolet-testing"
+if str(_TESTING_PKG) not in sys.path:
+    sys.path.insert(0, str(_TESTING_PKG))
+
+# AppHarness is imported lazily inside the measurement functions so that
+# --help works without the package being importable (e.g. no picolet-testing
+# installed and the monorepo tree is absent).
 
 # ---------------------------------------------------------------------------
 # NFR bounds
@@ -48,8 +66,6 @@ from typing import Any
 NFR_EX2_MEDIAN_MS = 1500       # median spawn→window-visible cap
 NFR_TEST1_MEDIAN_MS = 3000     # median spawn→port-announcement cap
 SOFT_WARN_MULTIPLIER = 2.0     # single-run soft-warn threshold (2× bound)
-
-_PORT_RE = re.compile(rb"picolet:test-port=(\d+)")
 
 
 # ---------------------------------------------------------------------------
@@ -86,51 +102,65 @@ def _build_child_env(display: int) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# NFR-TEST-1: spawn → port-announcement timing
+# NFR-TEST-1: spawn → port-announcement timing (via AppHarness)
 # ---------------------------------------------------------------------------
 
-def _measure_test1_run(binary: Path, app_dir: Path, env: dict[str, str]) -> float:
+async def _measure_test1_run(
+    binary: Path,
+    app_dir: Path,
+    env: dict[str, str],
+    xvfb_display: int,
+) -> float:
     """
     Single timed run for NFR-TEST-1.
 
-    Spawns the binary under PICOLET_TEST_MODE=1 inside the app_dir, reads stderr
-    until 'picolet:test-port=<N>' appears, then terminates the child.
+    Uses AppHarness.start() which spawns the binary, drains stderr via a
+    daemon thread (no blocking read loop), and records spawn_ms / ready_ms.
+    On the Linux/webkit path with an explicit _xvfb_display, AppHarness sets
+    page=None and returns as soon as the port line is seen — so
+    (ready_ms - spawn_ms) captures spawn → port-announcement elapsed time.
 
-    Returns elapsed wall-clock milliseconds from Popen() to port announcement.
+    Returns elapsed milliseconds.
     """
-    cmd = [str(binary)]
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(app_dir),
+    from picolet.testing._harness import AppHarness
+
+    harness = AppHarness(
+        binary,
+        browser="webkit",
         env=env,
-        stderr=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
+        timeout=10.0,
+        _xvfb_display=xvfb_display,
     )
-    t0 = time.monotonic()
+    # Override cwd for the child process via env; AppHarness does not accept
+    # a cwd kwarg, but the binary resolves its romfs relative to cwd.
+    # We patch the internal env to carry PICOLET_APP_DIR so callers know the
+    # working directory.  The actual cwd is set by subclassing Popen call
+    # below via a thin wrapper.
 
-    port_ms: list[float] = []
+    # AppHarness._spawn() does not accept a cwd argument, so we wrap Popen
+    # on the module to inject app_dir as cwd for the child process only.
+    import subprocess as _subprocess
+    _real_popen = _subprocess.Popen
+
+    def _popen_with_cwd(cmd, **kwargs):
+        # Only inject cwd for the app binary (first element matches binary path).
+        if cmd and str(cmd[0]) == str(binary):
+            kwargs.setdefault("cwd", str(app_dir))
+        return _real_popen(cmd, **kwargs)
+
+    import picolet.testing._harness as _harness_mod
+    _harness_mod.subprocess.Popen = _popen_with_cwd  # type: ignore[attr-defined]
     try:
-        assert proc.stderr is not None
-        for raw in proc.stderr:
-            if _PORT_RE.search(raw):
-                port_ms.append((time.monotonic() - t0) * 1000.0)
-                break
-            # Safety: bail after 10 s
-            if (time.monotonic() - t0) > 10.0:
-                break
+        await harness.start()
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        _harness_mod.subprocess.Popen = _real_popen  # type: ignore[attr-defined]
+        await harness.stop()
 
-    if not port_ms:
+    if harness.spawn_ms is None or harness.ready_ms is None:
         raise RuntimeError(
-            f"NFR-TEST-1: 'picolet:test-port=<N>' not seen within 10 s for {app_dir}"
+            f"NFR-TEST-1: AppHarness did not set timing attributes for {app_dir}"
         )
-    return port_ms[0]
+    return harness.ready_ms - harness.spawn_ms
 
 
 def measure_test1(
@@ -145,7 +175,7 @@ def measure_test1(
     errors: list[str] = []
     for i in range(runs):
         try:
-            ms = _measure_test1_run(binary, app_dir, env)
+            ms = asyncio.run(_measure_test1_run(binary, app_dir, env, xvfb_display))
             samples.append(ms)
             print(f"  [NFR-TEST-1] run {i + 1}/{runs}: {ms:.0f} ms")
         except Exception as exc:
@@ -186,10 +216,10 @@ def measure_test1(
 
 
 # ---------------------------------------------------------------------------
-# NFR-EX-2: spawn → window-visible timing
+# NFR-EX-2: spawn → window-visible timing (via AppHarness + xdotool)
 # ---------------------------------------------------------------------------
 
-def _measure_ex2_run(
+async def _measure_ex2_run(
     binary: Path,
     app_dir: Path,
     env: dict[str, str],
@@ -198,75 +228,72 @@ def _measure_ex2_run(
     """
     Single timed run for NFR-EX-2.
 
-    Spawn the binary (with PICOLET_TEST_MODE=1 so the port is announced), then:
-    1. Watch stderr for 'picolet:test-port=<N>' (confirms the GTK window loop
-       has started and WebKit is initialising — the window is created before
-       the port is bound in the current runtime implementation).
-    2. After the port announcement, call `xdotool search --sync` (with a 5 s
-       timeout) to confirm the window is visible in the Xvfb framebuffer.
-    3. Record elapsed time from Popen() to xdotool success.
+    Uses AppHarness.start() to spawn the binary and wait for the port
+    announcement (daemon thread drains stderr — no blocking read loop).
+    spawn_ms is set by AppHarness._spawn() just before Popen() returns.
+    After start() returns (port seen, child running), calls xdotool with
+    --pid to filter by the child's PID, confirming the window is visible
+    in the Xvfb framebuffer.
 
-    Returns elapsed milliseconds.
+    Returns elapsed milliseconds from spawn_ms to xdotool return.
     """
-    cmd = [str(binary)]
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(app_dir),
+    from picolet.testing._harness import AppHarness
+
+    harness = AppHarness(
+        binary,
+        browser="webkit",
         env=env,
-        stderr=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
+        timeout=10.0,
+        _xvfb_display=xvfb_display,
     )
-    t0 = time.monotonic()
 
-    port_seen = False
+    import subprocess as _subprocess
+    _real_popen = _subprocess.Popen
+
+    child_pid: list[int] = []
+
+    def _popen_with_cwd(cmd, **kwargs):
+        if cmd and str(cmd[0]) == str(binary):
+            kwargs.setdefault("cwd", str(app_dir))
+        proc = _real_popen(cmd, **kwargs)
+        if cmd and str(cmd[0]) == str(binary):
+            child_pid.append(proc.pid)
+        return proc
+
+    import picolet.testing._harness as _harness_mod
+    _harness_mod.subprocess.Popen = _popen_with_cwd  # type: ignore[attr-defined]
     try:
-        assert proc.stderr is not None
-        for raw in proc.stderr:
-            if _PORT_RE.search(raw):
-                port_seen = True
-                break
-            if (time.monotonic() - t0) > 10.0:
-                break
-    except Exception:
-        pass
+        await harness.start()
+    finally:
+        _harness_mod.subprocess.Popen = _real_popen  # type: ignore[attr-defined]
 
-    if not port_seen:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+    if harness.spawn_ms is None:
+        await harness.stop()
         raise RuntimeError(
-            f"NFR-EX-2: 'picolet:test-port=<N>' not seen within 10 s for {app_dir}"
+            f"NFR-EX-2: AppHarness did not set spawn_ms for {app_dir}"
         )
 
-    # Port seen — now confirm the X window is visible via xdotool.
+    # After the port is announced (window creation precedes the port bind in
+    # the current runtime implementation), confirm the X window is visible.
     xdotool = shutil.which("xdotool")
-    if xdotool:
+    if xdotool and child_pid:
         try:
-            xdotool_env = dict(env)
-            # xdotool search --sync blocks until a matching window appears or
-            # the timeout elapses.  The timeout flag is in seconds (float ok).
+            # Filter by the child process's PID so only the app's own windows
+            # satisfy the search (prevents matching the root window or other
+            # processes that happen to be running on the display).
             subprocess.run(
-                [xdotool, "search", "--sync", "--onlyvisible", "--any",
-                 "--name", "", "--class", ""],
-                env=xdotool_env,
+                [xdotool, "search", "--sync", "--onlyvisible",
+                 "--pid", str(child_pid[0]), ""],
+                env=env,
                 timeout=5,
                 capture_output=True,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
-    # Regardless of xdotool result, record elapsed time.
-    elapsed_ms = (time.monotonic() - t0) * 1000.0
 
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+    elapsed_ms = (time.time() * 1000.0) - harness.spawn_ms
 
+    await harness.stop()
     return elapsed_ms
 
 
@@ -282,7 +309,7 @@ def measure_ex2(
     errors: list[str] = []
     for i in range(runs):
         try:
-            ms = _measure_ex2_run(binary, app_dir, env, xvfb_display)
+            ms = asyncio.run(_measure_ex2_run(binary, app_dir, env, xvfb_display))
             samples.append(ms)
             print(f"  [NFR-EX-2]   run {i + 1}/{runs}: {ms:.0f} ms")
         except Exception as exc:

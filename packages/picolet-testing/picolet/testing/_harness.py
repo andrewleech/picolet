@@ -102,7 +102,8 @@ class AppHarness:
         self._uses_xvfb = False
 
         # Perf timing attributes (milliseconds since epoch, set by start()).
-        # spawn_ms: wall time immediately after Popen() returns.
+        # spawn_ms: wall time immediately after Popen() returns inside _spawn().
+        #   None when constructed with _running_proc (we did not spawn the process).
         # ready_ms: wall time when start() finishes (port found + driver attached).
         self.spawn_ms: float | None = None
         self.ready_ms: float | None = None
@@ -114,9 +115,10 @@ class AppHarness:
     async def start(self) -> "AppHarness":
         """Spawn the child (unless pre-spawned), wait for the port, attach.
 
-        Returns self.  On return, spawn_ms and ready_ms are populated with
-        wall-clock timestamps (milliseconds since epoch) recording when the
-        process was created and when the harness became ready for driving.
+        Returns self.  On return, ready_ms is set to the current wall-clock
+        time (milliseconds since epoch).  spawn_ms is set only when this
+        call spawned the process via _spawn(); it remains None when the
+        harness was constructed with a pre-spawned _running_proc.
         """
         if self._proc is None:
             self._proc = self._spawn()

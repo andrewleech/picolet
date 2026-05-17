@@ -34,6 +34,7 @@ jobs:
   perf-check:
     name: Measure startup latency
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
 
@@ -65,7 +66,7 @@ jobs:
             xvfb \
             xdotool \
             x11-apps
-          pip install --quiet mpremote
+          python3 -m pip install --quiet mpremote
           python3 -m mpremote --help > /dev/null
 
       # 4. Restore Docker layer cache for the linux-x64 build image.
