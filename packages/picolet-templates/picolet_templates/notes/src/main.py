@@ -1,4 +1,4 @@
-# {{name}} — markdown notes app (picolet example).
+# notes — markdown notes app (picolet example).
 #
 # IPC commands:
 #   list_notes()                     -> list of {slug, title, created, updated}

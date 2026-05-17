@@ -4,7 +4,7 @@
 
 <template>
   <div class="about-view">
-    <h1>{{name}}</h1>
+    <h1>Notes</h1>
     <p>
       A plain-text markdown notes app. Notes are stored as
       <code>.md</code> files with YAML front matter on your local filesystem.
@@ -15,8 +15,8 @@
     </p>
     <p>
       Storage location:<br />
-      Linux: <code>~/.config/{{name}}/</code><br />
-      Windows: <code>%APPDATA%\{{name}}\</code>
+      Linux: <code>~/.config/notes/</code><br />
+      Windows: <code>%APPDATA%\notes\</code>
     </p>
     <p>
       <a href="#/">← Back</a>

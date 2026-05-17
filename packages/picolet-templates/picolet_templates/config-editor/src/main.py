@@ -1,4 +1,4 @@
-# {{name}} — schema-driven config file editor (picolet example).
+# config-editor — schema-driven config file editor (picolet example).
 #
 # IPC commands:
 #   list_dir(path)                        -> [{name, is_dir}]

@@ -1,4 +1,4 @@
-# {{name}} — DFU flasher (picolet pydfu template).
+# pydfu — DFU firmware flasher (picolet example).
 #
 # Registers five IPC commands consumed by the Vue frontend:
 #   list_devices        -> list of DFU device dicts
@@ -7,7 +7,7 @@
 #   flash               -> start async flash task, emits dfu:progress / dfu:done / dfu:error
 #   abort_flash         -> cancel the running flash task
 #
-# device_id convention: "<bus>:<addr>" string (e.g. "1:1").
+# device_id convention: "<bus>:<addr>" string (e.g. "1:1"). O4 in phase plan.
 import asyncio
 
 import picolet
@@ -56,6 +56,9 @@ async def flash(args):
     Progress events: dfu:progress {"addr", "done", "total", "pct"}
     Completion:      dfu:done    {"ok": True}
     Error:           dfu:error   {"message": str}
+
+    Error sentinel: if dfu_path ends with ".error.dfu", a simulated error
+    is emitted immediately (used by tests and mock flash error screenshots).
     """
     global _flash_task
 
@@ -65,6 +68,7 @@ async def flash(args):
     if not device_id or not dfu_path:
         return {"ok": False, "error": "device_id and dfu_path required"}
 
+    # Error sentinel path — emit error immediately without reading file.
     if str(dfu_path).endswith(".error.dfu"):
         picolet.emit("dfu:error", {"message": "simulated flash error (sentinel path)"})
         return {"ok": False, "error": "simulated error"}
