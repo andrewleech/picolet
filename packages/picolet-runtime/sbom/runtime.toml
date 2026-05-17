@@ -153,13 +153,13 @@ notes       = "Picolet-authored minimal header derived from the public Microsoft
 
 [[component]]
 name        = "libusb-1.0"
-version     = "1.0"
+version     = "1.0.27"
 licence     = "LGPL-2.1-or-later"
 source_url  = "https://github.com/libusb/libusb"
 link_type   = "dynamic"
 targets     = ["linux-x64"]
-purl        = "pkg:deb/ubuntu/libusb-1.0-0"
-notes       = "LGPL-2.1-or-later; loaded dynamically via ffi.open('libusb-1.0.so.0') at runtime by the pydfu example app. The Picolet runtime binary does not statically incorporate any LGPL object code. Relinking is possible by replacing the system libusb-1.0-0 package. NFR-5 is satisfied."
+purl        = "pkg:deb/ubuntu/libusb-1.0-0@1.0.27-1"
+notes       = "LGPL-2.1-or-later; loaded dynamically via ffi.open('libusb-1.0.so.0') at runtime by the pydfu example app. Version tracks the Ubuntu package libusb-1.0-0 (2:1.0.27-1), not the libusb API series. The Picolet runtime binary does not statically incorporate any LGPL object code. Relinking is possible by replacing the system libusb-1.0-0 package. NFR-5 is satisfied."
 
 # ---------------------------------------------------------------------------
 # pydfu example fonts — bundled in romfs/ui/fonts/ (PH19)
