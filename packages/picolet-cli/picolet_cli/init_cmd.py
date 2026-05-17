@@ -36,23 +36,48 @@ def add_parser(subparsers) -> None:
         help="scaffold a new app from a template",
         description="Create a new picolet app directory from a starter template.",
     )
-    p.add_argument("name", help="app name (used as the project directory name)")
+    p.add_argument(
+        "name",
+        nargs="?",
+        help="app name (used as the project directory name); omit when using --list-templates",
+    )
     p.add_argument(
         "--template",
         default="hello-cli",
-        help='template to use (default: hello-cli; available: "hello-cli", "hello-webview", "hello-lvgl", "hello-vue", "pydfu", "notes", "config-editor", "dashboard")',
+        help=(
+            'template to use (default: hello-cli; available: '
+            '"hello-cli", "hello-webview", "hello-lvgl", "hello-vue", '
+            '"pydfu", "notes", "config-editor", "dashboard")'
+        ),
     )
     p.add_argument(
         "--output-dir",
         default=None,
         help="directory to create (default: ./<name>)",
     )
+    p.add_argument(
+        "--list-templates",
+        action="store_true",
+        default=False,
+        help="print available template names (one per line) and exit",
+    )
     p.set_defaults(func=run)
 
 
 def run(args) -> None:
     """Entry point for `picolet init`."""
+    if getattr(args, "list_templates", False):
+        for t in sorted(_KNOWN_TEMPLATES):
+            print(t)
+        return
+
     name: str = args.name
+    if not name:
+        print(
+            "error: name argument is required when not using --list-templates",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     template: str = args.template
     output_dir = Path(args.output_dir) if args.output_dir else Path(name)
 
