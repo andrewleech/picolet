@@ -1,8 +1,9 @@
 # PH13 gate-6 fixture: sbom policy warn path.
-# [sbom] allow_licences restricts to MIT only.
-# Components with other licences (e.g. Zlib for SDL2, LicenseRef-MS-WebView2-Fixed)
-# trigger warn_unknown=true (default) but NOT fail_unknown (default false).
-# Build must exit 0 and emit "warn:" on stderr.
+# [sbom] allow_licences permits MIT and OFL-1.1.  OFL-1.1 covers the
+# JetBrains Mono and IBM Plex Sans woff2 fonts baked into romfs since PH19.
+# Components with LicenseRef-Unknown licences trigger warn_unknown=true
+# (default) but NOT fail_unknown (default false).
+# Build must exit 0; "warn:" is emitted only when unknown-licence deps exist.
 
 [app]
 name = "strict-sbom-warn"
@@ -10,6 +11,6 @@ version = "0.1.0"
 entry = "src/main.py"
 
 [sbom]
-allow_licences = ["MIT"]
+allow_licences = ["MIT", "OFL-1.1"]
 warn_unknown = true
 fail_unknown = false
