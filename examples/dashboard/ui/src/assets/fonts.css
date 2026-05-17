@@ -1,0 +1,53 @@
+/* dashboard — font declarations. Three typefaces, all OFL-1.1, no CDN.
+ * Woff2 files bundled in romfs at /rom/ui/fonts/.
+ * NFR-EX-4 satisfied: no external CDN references.
+ * SBOM: Antonio (Google Fonts / OFL-1.1), DM Sans (Google Fonts / OFL-1.1),
+ *       JetBrains Mono (JetBrains / OFL-1.1, copied from pydfu example).
+ */
+
+/* Antonio — condensed display type for widget titles and header strip.
+ * OFL fallback for GT America Condensed (spec aesthetic direction).
+ * Both weights use the same Latin-subset woff2 file (single-axis variable).
+ */
+@font-face {
+  font-family: 'Antonio';
+  font-weight: 400;
+  font-display: block;
+  src: url('/fonts/Antonio-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Antonio';
+  font-weight: 700;
+  font-display: block;
+  src: url('/fonts/Antonio-Bold.woff2') format('woff2');
+}
+
+/* DM Sans — body text, labels, units.
+ * OFL fallback for GT Walsheim.
+ * Regular (400) and Medium (500) weights.
+ */
+@font-face {
+  font-family: 'DM Sans';
+  font-weight: 400;
+  font-display: block;
+  src: url('/fonts/DMSans-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'DM Sans';
+  font-weight: 500;
+  font-display: block;
+  src: url('/fonts/DMSans-Medium.woff2') format('woff2');
+}
+
+/* JetBrains Mono — large metric numerals.
+ * OFL fallback for Roobert Mono.
+ * Copied verbatim from examples/pydfu/ui/public/fonts/ (PH19 established).
+ */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-weight: 400 700;
+  font-display: block;
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}
