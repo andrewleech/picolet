@@ -75,6 +75,10 @@ _DEFAULT_ALLOW_LICENCES: list[str] = [
     "0BSD",
     "ISC",
     "Python-2.0",
+    # SIL Open Font Licence — used by JetBrains Mono and IBM Plex Sans (PH19).
+    # OFL-1.1 is the canonical SPDX identifier; SIL-OFL-1.1 is not a registered
+    # SPDX identifier and is therefore not included.
+    "OFL-1.1",
 ]
 _DEFAULT_ALLOW_DYNAMIC: list[str] = [
     "LGPL-2.1-or-later",
