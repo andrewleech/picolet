@@ -190,3 +190,25 @@ source_url  = "https://github.com/adobe-fonts/source-sans"
 link_type   = "static"
 purl        = "pkg:github/adobe-fonts/source-sans@3.052R"
 notes       = "OFL-1.1 (SIL Open Font Licence). Used as body/UI font in the notes example UI. Variable woff2 (Upright, weight range 200-900) bundled in romfs at /rom/ui/fonts/source-sans-3.woff2."
+
+# ---------------------------------------------------------------------------
+# dashboard example fonts — bundled in romfs/ui/fonts/ (PH22)
+# ---------------------------------------------------------------------------
+
+[[component]]
+name        = "Antonio"
+version     = "22"
+licence     = "OFL-1.1"
+source_url  = "https://fonts.google.com/specimen/Antonio"
+link_type   = "static"
+purl        = "pkg:generic/google-fonts/Antonio@v22"
+notes       = "OFL-1.1 (SIL Open Font Licence). Used as condensed display font in the dashboard example UI (OFL fallback for GT America Condensed per spec aesthetic). Latin-subset woff2 files (Regular 400 + Bold 700 — same latin-subset file) bundled in romfs at /rom/ui/fonts/Antonio-Regular.woff2 and Antonio-Bold.woff2. Downloaded from fonts.gstatic.com."
+
+[[component]]
+name        = "DM Sans"
+version     = "17"
+licence     = "OFL-1.1"
+source_url  = "https://fonts.google.com/specimen/DM+Sans"
+link_type   = "static"
+purl        = "pkg:generic/google-fonts/DM+Sans@v17"
+notes       = "OFL-1.1 (SIL Open Font Licence). Used as body/label font in the dashboard example UI (OFL fallback for GT Walsheim per spec aesthetic). Latin-subset woff2 files (Regular 400 + Medium 500) bundled in romfs at /rom/ui/fonts/DMSans-Regular.woff2 and DMSans-Medium.woff2. Downloaded from fonts.gstatic.com."

@@ -1,0 +1,401 @@
+/* dashboard — Bloomberg-terminal aesthetic.
+ *
+ * Slate base (#0b0e12), ice-blue chart strokes (#7dd3fc), amber warning
+ * accents (#f59e0b). Condensed Antonio display type, JetBrains Mono for
+ * numerals, DM Sans for body. 12-column asymmetric grid.
+ *
+ * No external CSS framework. NFR-EX-3 satisfied. NFR-EX-AESTHETIC target:
+ * every pixel earns its place — data density over decoration.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Custom properties — palette + typography scale
+ * ---------------------------------------------------------------------------
+ */
+:root {
+  --bg-0:       #0b0e12;   /* body background — darkest */
+  --bg-1:       #101418;   /* widget background */
+  --bg-2:       #161b22;   /* widget border + secondary surface */
+  --ink:        #e5e7eb;   /* primary text */
+  --ink-soft:   #94a3b8;   /* labels / units / dim text */
+  --ink-dim:    #64748b;   /* very dim — section labels */
+  --chart:      #7dd3fc;   /* primary chart stroke — ice-blue */
+  --chart-2:    #c4b5fd;   /* secondary chart stroke — lavender */
+  --accent:     #f59e0b;   /* warning — amber (CPU > 85%, mem > 85%) */
+  --alarm:      #ef4444;   /* alarm — red (CPU > 95%, mem > 95%) */
+
+  --font-display:  'Antonio', sans-serif;
+  --font-mono:     'JetBrains Mono', monospace;
+  --font-body:     'DM Sans', system-ui, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+ * Global reset
+ * ---------------------------------------------------------------------------
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-radius: 0;   /* no rounded corners anywhere */
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg-0);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.4;
+  /* Atmospheric gradient mesh — three stacked radial gradients at ~5% opacity.
+   * Gives depth without distracting from the data. F14 in PH22 plan. */
+  background:
+    radial-gradient(ellipse at 20% 30%, rgba(125, 211, 252, 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 70%, rgba(245, 158, 11, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 55% 10%, rgba(196, 181, 253, 0.04) 0%, transparent 45%),
+    var(--bg-0);
+}
+
+/* ---------------------------------------------------------------------------
+ * Header strip — hostname / uptime / load-avg bar
+ * ---------------------------------------------------------------------------
+ */
+.top-strip {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--bg-2);
+  padding: 8px 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04);
+}
+
+.top-strip .hostname {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.top-strip .metric-group {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.top-strip .metric-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+
+.top-strip .metric-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------------------
+ * Dashboard grid — 12-column asymmetric layout
+ * ---------------------------------------------------------------------------
+ * Spec layout:
+ *   CPU chart:        col 1–8, row 1–2  (span 8, span 2)
+ *   Memory gauge:     col 9–12, row 1–2 (span 4, span 2)
+ *   Sparkline strip:  col 1–12, row 3   (span 12)
+ *   Network:          col 1–6, row 4    (span 6)
+ *   Disk I/O:         col 7–12, row 4   (span 6)
+ *   Process list:     col 1–12, row 5   (span 12, span 2)
+ */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: auto;
+  gap: 8px;
+  padding: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * Widget bezel — border + top highlight (F17 in PH22 plan)
+ * ---------------------------------------------------------------------------
+ */
+.widget {
+  border: 1px solid var(--bg-2);
+  /* 0 1px 0 0: x=0, y=1px (top edge highlight), blur=0, spread=0 */
+  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04);
+  background: var(--bg-1);
+  position: relative;
+  padding: 12px 14px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Widget label — Antonio uppercase, ink-dim */
+.widget-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  margin-bottom: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Grid slots — layout positions
+ * ---------------------------------------------------------------------------
+ */
+.grid-cpu {
+  grid-column: span 8;
+  grid-row: span 2;
+}
+
+.grid-mem {
+  grid-column: span 4;
+  grid-row: span 2;
+}
+
+.grid-sparklines {
+  grid-column: span 12;
+}
+
+.grid-net {
+  grid-column: span 6;
+}
+
+.grid-disk {
+  grid-column: span 6;
+}
+
+.grid-procs {
+  grid-column: span 12;
+  grid-row: span 2;
+}
+
+/* ---------------------------------------------------------------------------
+ * Large numeral display — 60px JetBrains Mono (tabular-nums slashed-zero)
+ * ---------------------------------------------------------------------------
+ */
+.big-num {
+  font-family: var(--font-mono);
+  font-size: 60px;
+  font-variant-numeric: tabular-nums slashed-zero;
+  line-height: 1;
+  color: var(--ink);
+  transition: color 200ms ease;
+}
+
+.big-num.warn {
+  color: var(--accent);
+}
+
+.big-num.alarm {
+  color: var(--alarm);
+}
+
+/* Unit label — 11px DM Sans uppercase */
+.unit-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+
+/* ---------------------------------------------------------------------------
+ * SVG chart elements
+ * ---------------------------------------------------------------------------
+ */
+.chart-svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+/* CSS transition on SVG path d attribute.
+ * Chrome 93+ and recent WebKit support this natively.
+ * On older WebKitGTK the transition is silently ignored; the path still
+ * updates correctly each frame. Acceptable per O1 in PH22 plan.
+ */
+path.chart-line {
+  transition: d 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+path.chart-area {
+  transition: d 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---------------------------------------------------------------------------
+ * Chart legend dots
+ * ---------------------------------------------------------------------------
+ */
+.legend {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.legend-dot {
+  width: 8px;
+  height: 2px;
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Sparkline strip
+ * ---------------------------------------------------------------------------
+ */
+.sparkline-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.sparkline-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.sparkline-core-label {
+  font-family: var(--font-body);
+  font-size: 9px;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ---------------------------------------------------------------------------
+ * Process list table
+ * ---------------------------------------------------------------------------
+ */
+.proc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-body);
+  font-size: 12px;
+}
+
+.proc-table th {
+  font-family: var(--font-display);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  font-weight: 400;
+  text-align: left;
+  padding: 2px 8px 6px 0;
+  border-bottom: 1px solid var(--bg-2);
+}
+
+.proc-table td {
+  padding: 4px 8px 4px 0;
+  color: var(--ink-soft);
+  border-bottom: 1px solid rgba(22, 27, 34, 0.6);
+}
+
+.proc-table td:first-child {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.proc-table td.cpu-col {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.proc-table td.cpu-col.high {
+  color: var(--accent);
+}
+
+.proc-row:hover td {
+  background: rgba(22, 27, 34, 0.8);
+}
+
+/* ---------------------------------------------------------------------------
+ * Error banner
+ * ---------------------------------------------------------------------------
+ */
+.error-banner {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--alarm);
+  color: var(--alarm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 12px;
+  margin: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Page-load staggered entrance animation
+ * ---------------------------------------------------------------------------
+ * header: 0ms, widgets cascade in at 60ms intervals.
+ * Uses animation-delay per element; .no-animation disables all.
+ */
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.top-strip {
+  animation: enter 300ms ease both;
+  animation-delay: 0ms;
+}
+
+.grid-cpu  { animation: enter 300ms ease both; animation-delay:  60ms; }
+.grid-mem  { animation: enter 300ms ease both; animation-delay: 120ms; }
+.grid-sparklines { animation: enter 300ms ease both; animation-delay: 180ms; }
+.grid-net  { animation: enter 300ms ease both; animation-delay: 240ms; }
+.grid-disk { animation: enter 300ms ease both; animation-delay: 300ms; }
+.grid-procs { animation: enter 300ms ease both; animation-delay: 360ms; }
+
+/* ---------------------------------------------------------------------------
+ * No-animation override for screenshot mode (NFR-EX-5)
+ * Applied to <html> by App.vue onMounted when window.__PICOLET_SCREENSHOT_MODE__
+ * is set. Kills all animations so screenshots are deterministic.
+ * ---------------------------------------------------------------------------
+ */
+.no-animation *,
+.no-animation *::before,
+.no-animation *::after {
+  animation-duration: 0ms !important;
+  transition-duration: 0ms !important;
+}
