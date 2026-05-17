@@ -7,12 +7,13 @@
 #   abort_flash()               -> None
 #   get_memory_layout(id)       -> list of segment dicts
 #
-# The real USB path uses libusb-1.0 via the runtime ffi module (Linux only).
+# The real USB path uses libusb-1.0 via the _usb and _pydfu modules (Linux only).
 # When PICOLET_PYDFU_MOCK=1 is set, a MockUSB instance replaces the real path.
 # When sys.platform == "win32" and not mocked, NotImplementedError is raised.
 #
 # DFU protocol reference: USB DFU spec v1.1, STM AN3156, STM UM0391 (DfuSe).
-# Algorithm adapted from pydfu-win/micropython/tools/pydfu.py (MIT).
+# Algorithm ported from pydfu-win/micropython/tools/pydfu_app/lib/pydfu.py (MIT).
+# USB shim ported from pydfu-win/micropython/tools/pydfu_app/lib/usb/core.py (MIT).
 #
 # O1: Windows WinUSB is deferred; raises NotImplementedError per FR-EX-7 note.
 # R6: zlib.crc32 probed at runtime; falls back to vendored _crc32.
@@ -62,36 +63,15 @@ if os.getenv("PICOLET_PYDFU_MOCK") == "1":
 
 
 # ---------------------------------------------------------------------------
-# libusb ffi bindings (Linux only)
+# libusb guard — used only to validate platform before _usb module loads
 # ---------------------------------------------------------------------------
 
-_lib = None        # libusb handle
-_ctx = None        # libusb context pointer
-
-# DFU interface index (per DFU spec)
-_DFU_INTERFACE = 0
-_TIMEOUT_MS = 4000
-
-# DFU request types / codes
-_REQTYPE_HOST_TO_DEV = 0x21
-_REQTYPE_DEV_TO_HOST = 0xA1
-_DFU_DETACH = 0
-_DFU_DNLOAD = 1
-_DFU_UPLOAD = 2
-_DFU_GETSTATUS = 3
-_DFU_CLRSTATUS = 4
-_DFU_GETSTATE = 5
-_DFU_ABORT = 6
-
-_DFU_STATE_DFU_IDLE = 0x02
-_DFU_STATE_DFU_DNLOAD_IDLE = 0x05
-_DFU_STATE_DFU_DNLOAD_BUSY = 0x04
-_DFU_STATE_DFU_MANIFEST = 0x07
+_lib = None  # set after first successful _ensure_lib call (compat sentinel)
 
 
 def _ensure_lib():
-    """Open libusb-1.0 via the runtime ffi module (Linux only)."""
-    global _lib, _ctx
+    """Raise NotImplementedError on Windows; ensure _usb module is available on Linux."""
+    global _lib
     if _lib is not None:
         return _lib
     if sys.platform == "win32":
@@ -99,32 +79,13 @@ def _ensure_lib():
             "WinUSB support is post-v1.1 roadmap; see FR-EX-7 in v1.1-spec.md"
         )
     try:
-        import ffi
-        _lib = ffi.open("libusb-1.0.so.0")
+        import _usb.core as _core
+        _lib = _core
+        return _lib
     except OSError as e:
         raise RuntimeError(
             "libusb-1.0 not found; install libusb-1.0-0: {}".format(e)
         )
-    # Declare minimal libusb symbol set needed for DFU.
-    _lib.func("i", "libusb_init", "p")
-    _lib.func("v", "libusb_exit", "p")
-    _lib.func("q", "libusb_get_device_list", "pp")
-    _lib.func("v", "libusb_free_device_list", "pi")
-    _lib.func("i", "libusb_get_device_descriptor", "pp")
-    _lib.func("i", "libusb_open", "pp")
-    _lib.func("v", "libusb_close", "p")
-    _lib.func("i", "libusb_claim_interface", "pi")
-    _lib.func("i", "libusb_release_interface", "pi")
-    _lib.func("b", "libusb_get_bus_number", "p")
-    _lib.func("b", "libusb_get_device_address", "p")
-    _lib.func("i", "libusb_control_transfer", "pbbHHpHI")
-    import ffi as _ffi
-    ctx_buf = _ffi.create_string_buffer(8)
-    rc = _lib.libusb_init(ctx_buf)
-    if rc != 0:
-        raise RuntimeError("libusb_init failed: {}".format(rc))
-    _ctx = ctx_buf
-    return _lib
 
 
 # ---------------------------------------------------------------------------
@@ -203,21 +164,30 @@ def list_dfu_devices():
         for d in raw:
             d.setdefault("id", "{}:{}".format(d["bus"], d["addr"]))
         return raw
-    lib = _ensure_lib()
-    # Real libusb enumeration: iterate devices, check DFU interface class.
-    # Uses struct layout for libusb_device_descriptor (18 bytes, little-endian).
-    import ffi as _ffi
-    devs_ptr = _ffi.create_string_buffer(8)
-    count = lib.libusb_get_device_list(_ctx, devs_ptr)
-    if count < 0:
-        raise RuntimeError("libusb_get_device_list failed: {}".format(count))
+    _ensure_lib()
+    import _pydfu.pydfu as _dfu
+    devices = _dfu.get_dfu_devices()
     result = []
-    # NOTE: accessing individual device pointers from the list requires
-    # pointer arithmetic on the void** array.  This is a best-effort
-    # implementation for the v1.1 deliverable; the mock path covers CI.
-    # Full pointer-arithmetic traversal would require sizeof(void*) = 8 on
-    # x64 and struct.unpack_from on the raw memory — left as R1 caveat.
-    lib.libusb_free_device_list(devs_ptr, 1)
+    for dev in devices:
+        # Try to read string descriptors; fall back to empty strings on failure.
+        try:
+            manufacturer = _dfu.get_string(dev, 1)
+        except Exception:
+            manufacturer = ""
+        try:
+            product = _dfu.get_string(dev, 2)
+        except Exception:
+            product = ""
+        d = {
+            "bus": dev.bus,
+            "addr": dev.address,
+            "vid": dev.idVendor,
+            "pid": dev.idProduct,
+            "manufacturer": manufacturer,
+            "product": product,
+        }
+        d["id"] = "{}:{}".format(d["bus"], d["addr"])
+        result.append(d)
     return result
 
 
@@ -225,14 +195,39 @@ def get_memory_layout(device_id):
     """Return memory layout segments for a device.
 
     Each segment dict: {"addr", "last_addr", "size", "num_pages", "page_size"}.
-    The real implementation would query the DFU interface string descriptor;
-    for v1.1 the mock path returns a representative STM32 layout.
+    Queries the DFU interface string descriptor on the real USB path.
     """
     if _mock is not None:
         return _mock.get_memory_layout(device_id)
-    # Real path: open device, read iInterface string, parse "@addr/pages..." format.
-    # Deferred to post-v1.1 when full libusb pointer traversal is implemented.
-    return []
+    _ensure_lib()
+    import _pydfu.pydfu as _dfu
+    import _usb.core as _usb_core
+    device = _find_device_by_id(device_id, _usb_core)
+    if device is None:
+        return []
+    return _dfu.get_memory_layout(device)
+
+
+def _find_device_by_id(device_id, usb_core):
+    """Return the Device object matching "<bus>:<addr>", or None."""
+    try:
+        bus_s, addr_s = device_id.split(":")
+        target_bus = int(bus_s)
+        target_addr = int(addr_s)
+    except (ValueError, AttributeError):
+        return None
+    import _pydfu.pydfu as _dfu
+
+    def match_id(dev):
+        return dev.bus == target_bus and dev.address == target_addr
+
+    all_devices = usb_core.find(find_all=True)
+    if not all_devices:
+        return None
+    for dev in all_devices:
+        if dev.bus == target_bus and dev.address == target_addr:
+            return dev
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -244,24 +239,28 @@ def flash_device(device_id, elements, progress_cb):
 
     O3: The real USB path performs blocking libusb_control_transfer calls.
     The asyncio event loop is blocked for the duration of each transfer
-    (~10–100 ms). This is acceptable for v1.1 (one device, no concurrent
+    (~10-100 ms). This is acceptable for v1.1 (one device, no concurrent
     commands during flash). Post-v1.1 mitigation: run_in_executor.
     """
     if _mock is not None:
         return _mock.flash_device(device_id, elements, progress_cb)
-    lib = _ensure_lib()
-    # Real path: open device by bus:addr, init DFU state machine,
-    # call write_elements loop with libusb_control_transfer for DNLOAD/GETSTATUS.
-    # Full real-device implementation deferred to post-v1.1 (R1, O3).
-    raise RuntimeError(
-        "Real USB flash not yet implemented in v1.1; "
-        "use PICOLET_PYDFU_MOCK=1 for testing."
-    )
+    _ensure_lib()
+    import _pydfu.pydfu as _dfu
+    import _usb.core as _usb_core
+    device = _find_device_by_id(device_id, _usb_core)
+    if device is None:
+        raise ValueError("DFU device not found: {}".format(device_id))
+    _dfu.init_device(device)
+    _dfu.write_elements(elements, mass_erase_used=False, progress=progress_cb)
+    _dfu.exit_dfu()
 
 
 def abort_flash():
     """Send DFU ABORT request."""
     if _mock is not None:
         return _mock.abort_flash()
-    # Real path: libusb_control_transfer ABORT to the open device handle.
-    pass
+    import _pydfu.pydfu as _dfu
+    try:
+        _dfu.abort_request()
+    except Exception:
+        pass
