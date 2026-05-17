@@ -1,0 +1,83 @@
+# .github/workflows/screenshots.yml
+#
+# Regenerate screenshots for all four example apps and assert no drift against
+# committed PNGs. Drift is a CI failure.
+#
+# Trigger:
+#   - push to dev or main that touches example source or scripts
+#   - any pull_request targeting dev or main
+#
+# No Xvfb required: generate_screenshots.py scripts use Playwright headless
+# Chromium and serve dist/ over a local HTTP server.
+
+name: Screenshot drift check
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'examples/*/ui/**'
+      - 'examples/*/src/**'
+      - 'examples/*/scripts/**'
+      - 'examples/*/vite.config.ts'
+      - 'examples/*/package.json'
+      - 'examples/*/package-lock.json'
+  pull_request:
+    branches: [dev, main]
+
+jobs:
+  screenshots:
+    name: Regenerate and check screenshot drift
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Playwright Chromium
+        run: uv run --with playwright playwright install chromium --with-deps
+
+      - name: Build and regenerate screenshots (pydfu)
+        run: |
+          npm --prefix examples/pydfu ci
+          npm --prefix examples/pydfu run build
+          uv run examples/pydfu/scripts/generate_screenshots.py
+
+      - name: Build and regenerate screenshots (notes)
+        run: |
+          npm --prefix examples/notes ci
+          npm --prefix examples/notes run build
+          uv run examples/notes/scripts/generate_screenshots.py
+
+      - name: Build and regenerate screenshots (config-editor)
+        run: |
+          npm --prefix examples/config-editor ci
+          npm --prefix examples/config-editor run build
+          uv run examples/config-editor/scripts/generate_screenshots.py
+
+      - name: Build and regenerate screenshots (dashboard)
+        run: |
+          npm --prefix examples/dashboard ci
+          npm --prefix examples/dashboard run build
+          uv run examples/dashboard/scripts/generate_screenshots.py
+
+      - name: Assert no screenshot drift
+        run: |
+          git diff --exit-code \
+            examples/pydfu/screenshots/ \
+            examples/notes/screenshots/ \
+            examples/config-editor/screenshots/ \
+            examples/dashboard/screenshots/ \
+          || {
+            echo "Screenshot drift detected."
+            echo "Run generate_screenshots.py locally and commit the result."
+            exit 1
+          }

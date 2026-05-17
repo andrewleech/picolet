@@ -22,7 +22,8 @@ on:
       - 'runtime-v*'
 
 permissions:
-  contents: write   # create releases + upload assets
+  contents: write       # create releases + upload assets
+  pull-requests: write  # screenshots-release job opens a human-review PR
 
 jobs:
 
@@ -232,3 +233,99 @@ jobs:
           mapfile -t FILES < <(find dist/ -type f | sort)
           echo "Uploading ${#FILES[@]} files to release $TAG"
           gh release upload "$TAG" "${FILES[@]}" --clobber
+
+  # ---------------------------------------------------------------------------
+  # screenshots-release — regenerate example screenshots at release time and
+  # open a human-review PR. Auto-merge is OFF; a reviewer must inspect the
+  # visual diff before merging.
+  # ---------------------------------------------------------------------------
+  screenshots-release:
+    name: "Regenerate screenshots for release"
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Playwright Chromium
+        run: uv run --with playwright playwright install chromium --with-deps
+
+      - name: Build and regenerate screenshots (pydfu)
+        run: |
+          npm --prefix examples/pydfu ci
+          npm --prefix examples/pydfu run build
+          uv run examples/pydfu/scripts/generate_screenshots.py
+
+      - name: Build and regenerate screenshots (notes)
+        run: |
+          npm --prefix examples/notes ci
+          npm --prefix examples/notes run build
+          uv run examples/notes/scripts/generate_screenshots.py
+
+      - name: Build and regenerate screenshots (config-editor)
+        run: |
+          npm --prefix examples/config-editor ci
+          npm --prefix examples/config-editor run build
+          uv run examples/config-editor/scripts/generate_screenshots.py
+
+      - name: Build and regenerate screenshots (dashboard)
+        run: |
+          npm --prefix examples/dashboard ci
+          npm --prefix examples/dashboard run build
+          uv run examples/dashboard/scripts/generate_screenshots.py
+
+      - name: Assert all screenshots directories are non-empty
+        run: |
+          for dir in examples/pydfu/screenshots examples/notes/screenshots \
+                     examples/config-editor/screenshots examples/dashboard/screenshots; do
+            count=$(find "$dir" -name "*.png" | wc -l)
+            if [[ "$count" -eq 0 ]]; then
+              echo "ERROR: no PNGs in $dir" >&2
+              exit 1
+            fi
+            echo "OK: $dir has $count PNG(s)"
+          done
+
+      - name: Commit and push updated screenshots to sidecar branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          BRANCH="screenshots-${TAG}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "$BRANCH"
+          git add examples/pydfu/screenshots/ \
+                  examples/notes/screenshots/ \
+                  examples/config-editor/screenshots/ \
+                  examples/dashboard/screenshots/
+          git commit --allow-empty -m "[release] Regenerate screenshots for ${TAG}"
+          git push origin "HEAD:${BRANCH}" --force
+
+      - name: Open human-review PR (auto-merge OFF)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          BRANCH="screenshots-${TAG}"
+          # gh pr create is idempotent against the same branch; --no-fill avoids
+          # pulling in commit messages as the body.
+          gh pr create \
+            --title "screenshots: regenerate for ${TAG}" \
+            --body "Auto-generated screenshot update for release ${TAG}. Review visual changes before merging." \
+            --base dev \
+            --head "${BRANCH}" \
+            || echo "PR already exists for ${BRANCH} — skipping create"
