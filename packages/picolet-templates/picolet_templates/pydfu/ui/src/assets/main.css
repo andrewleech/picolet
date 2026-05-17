@@ -13,7 +13,7 @@
   --led-warn:   #facc15;   /* amber status LED */
   --led-alarm:  #ef4444;   /* red status LED */
   --led-idle:   #2a2e34;   /* inactive LED (dark grey dot) */
-  --font-mono:  'JetBrains Mono', monospace;
+  --font-mono:  'Monaspace Neon', monospace;
   --font-body:  'IBM Plex Sans', system-ui, sans-serif;
 }
 

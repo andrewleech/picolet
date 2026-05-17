@@ -13,7 +13,7 @@
 #   H  FR-EX-6: all six screenshots present and valid PNG, each > 1 KB
 #   I  FR-EX-5: Playwright / AppHarness test suite passes (mock USB)
 #   J  NFR-EX-3: CSS ≤ 50 KB gzipped
-#   K  NFR-EX-AESTHETIC: JetBrains Mono font name present in binary strings
+#   K  NFR-EX-AESTHETIC: Monaspace Neon font name present in binary strings
 #   L  FR-EX-1: picolet init --template pydfu scaffolds a buildable app
 #
 # Usage:
@@ -210,17 +210,17 @@ else
 fi
 
 # --- Gate K: font name in binary strings ---
-echo "[K] NFR-EX-AESTHETIC: JetBrains Mono font present in binary"
+echo "[K] NFR-EX-AESTHETIC: Monaspace Neon font present in binary"
 if [ -f "$BINARY" ]; then
     # Use python3 raw bytes search to avoid strings tool space-splitting issues.
     if python3 -c "
 import sys
 data = open('$BINARY','rb').read()
-sys.exit(0 if b'JetBrains' in data else 1)
+sys.exit(0 if b'Monaspace Neon' in data else 1)
 " 2>/dev/null; then
-        _ok "JetBrains Mono found in binary (raw bytes)"
+        _ok "Monaspace Neon found in binary (raw bytes)"
     else
-        _fail "JetBrains Mono NOT found in binary"
+        _fail "Monaspace Neon NOT found in binary"
     fi
 else
     _skip "binary not found"

@@ -152,13 +152,13 @@ notes       = "Picolet-authored minimal header derived from the public Microsoft
 # ---------------------------------------------------------------------------
 
 [[component]]
-name        = "JetBrains Mono"
-version     = "2.304"
+name        = "Monaspace Neon"
+version     = "1.101"
 licence     = "OFL-1.1"
-source_url  = "https://github.com/JetBrains/JetBrainsMono"
+source_url  = "https://github.com/githubnext/monaspace"
 link_type   = "static"
-purl        = "pkg:github/JetBrains/JetBrainsMono@v2.304"
-notes       = "OFL-1.1 (SIL Open Font Licence). Used as display/monospace font in the pydfu example UI. Woff2 file bundled in romfs at /rom/ui/fonts/JetBrainsMono-Regular.woff2. No embedding restriction under OFL-1.1."
+purl        = "pkg:github/githubnext/monaspace@v1.101"
+notes       = "OFL-1.1 (SIL Open Font Licence). Used as display/monospace font in the pydfu example UI (square-tech variant of the Monaspace family; industrial-aesthetic replacement for JetBrains Mono per NFR-EX-AESTHETIC). Woff2 file to be bundled in romfs at /rom/ui/fonts/MonaspaceNeon-Regular.woff2. PENDING: woff2 binary not yet vendored — must be downloaded from https://github.com/githubnext/monaspace/releases before next release; browser falls back to platform monospace until vendored."
 
 [[component]]
 name        = "IBM Plex Sans"
