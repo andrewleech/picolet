@@ -65,11 +65,9 @@ class TestTcpPollConcept(unittest.TestCase):
 
     def test_connect_fails_when_no_listener(self):
         """No listener → connect returns False within the timeout."""
-        # Pick a port number unlikely to be in use; bind+close to find a free one.
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.bind(("127.0.0.1", 0))
-        port = srv.getsockname()[1]
-        srv.close()  # release it — nothing is listening
+        # Port 1 is privileged; a non-root connect always gets ECONNREFUSED
+        # immediately without the TOCTOU risk of bind-then-close on port 0.
+        port = 1
         # Give a very short timeout so the test stays fast.
         reachable = self._tcp_connect_succeeds(port, timeout=0.2)
         self.assertFalse(reachable, "expected connect to fail with no listener")
@@ -206,26 +204,46 @@ class TestInspectorPortRaceFix(unittest.TestCase):
         announced_port: list[int] = []
         done_evt = threading.Event()
 
-        def _reader():
-            # Scan both stdout and stderr (xvfb-run merges them).
-            import re
-            port_re = re.compile(r"picolet:test-port=(\d+)")
-            for pipe in (proc.stdout, proc.stderr):
-                if pipe is None:
-                    continue
-            # Read from both pipes in a merged fashion.
-            for pipe in filter(None, [proc.stderr, proc.stdout]):
-                for raw in pipe:
-                    line = raw.decode("utf-8", "replace").rstrip()
-                    m = port_re.search(line)
-                    if m:
-                        announced_port.append(int(m.group(1)))
-                        done_evt.set()
-                        return
-            done_evt.set()
+        import re as _re
+        _port_re = _re.compile(r"picolet:test-port=(\d+)")
 
-        t = threading.Thread(target=_reader, daemon=True)
-        t.start()
+        def _make_pipe_reader(pipe, is_port_source: bool):
+            """Return a reader function for one pipe.
+
+            Mirrors the two-thread pattern in AppHarness._wait_for_port so
+            both stdout and stderr are drained concurrently.  Under xvfb-run
+            the port announcement arrives on stdout; without xvfb-run it
+            arrives on stderr.  Reading both pipes in parallel handles either
+            case without the sequential-drain dead-loop of the old _reader().
+            """
+            def _reader():
+                try:
+                    for raw in pipe:
+                        line = raw.decode("utf-8", "replace").rstrip()
+                        if is_port_source:
+                            m = _port_re.search(line)
+                            if m:
+                                announced_port.append(int(m.group(1)))
+                                done_evt.set()
+                        if done_evt.is_set():
+                            # Drain remaining output to unblock the child.
+                            for _ in pipe:
+                                pass
+                            break
+                except Exception:
+                    pass
+                finally:
+                    done_evt.set()
+            return _reader
+
+        # Both pipes are always open (stdout=PIPE, stderr=PIPE above).
+        # xvfb-run routes the child's stderr to its own stdout, so the port
+        # line may arrive on either pipe — scan both as port sources.
+        threads = []
+        for pipe in filter(None, [proc.stdout, proc.stderr]):
+            th = threading.Thread(target=_make_pipe_reader(pipe, is_port_source=True), daemon=True)
+            th.start()
+            threads.append(th)
 
         try:
             found = done_evt.wait(timeout=self._SPAWN_TIMEOUT)

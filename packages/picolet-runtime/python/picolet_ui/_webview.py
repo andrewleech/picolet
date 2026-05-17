@@ -286,9 +286,12 @@ else:
 
         AF_INET    = 2
         SOCK_STREAM = 1
-        # EINPROGRESS / ECONNREFUSED — we expect these while the socket isn't
-        # bound yet; any other errno is also a "not ready" signal so we just
-        # retry on all errors.
+        # SOCK_NONBLOCK (Linux) — prevents connect() from stalling the thread
+        # in SYN_SENT while waiting for the remote to accept.  With O_NONBLOCK
+        # set, connect() returns EINPROGRESS immediately (or 0 on instant
+        # loopback success); we close the fd and pump GTK in the sleep below.
+        # This is Linux-specific but the whole function is Linux-only.
+        SOCK_NONBLOCK = 0x800  # O_NONBLOCK on Linux (also accepted as SOCK_* flag)
 
         # Open libc for socket syscalls.
         import ffi as _ffi
@@ -327,10 +330,12 @@ else:
             import utime
             _ticks_ms = utime.ticks_ms
             _ticks_diff = utime.ticks_diff
+            _ticks_add = utime.ticks_add
             def _sleep_ms(ms):
                 utime.sleep_ms(ms)
         except ImportError:
             import time as _time_mod
+            _ticks_add = None
             def _ticks_ms():
                 return int(_time_mod.monotonic() * 1000)
             def _ticks_diff(end, start):
@@ -338,10 +343,21 @@ else:
             def _sleep_ms(ms):
                 _time_mod.sleep(ms / 1000.0)
 
-        deadline_ms = _ticks_ms() + timeout_ms
+        # MicroPython's ticks_ms() wraps at ~30 bits; use ticks_add() to
+        # compute the deadline safely.  CPython path uses plain addition
+        # (monotonic() never wraps in practice).
+        if _ticks_add is not None:
+            deadline_ms = _ticks_add(_ticks_ms(), timeout_ms)
+        else:
+            deadline_ms = _ticks_ms() + timeout_ms
 
         while True:
-            fd = sock_f(AF_INET, SOCK_STREAM, 0)
+            # SOCK_NONBLOCK: connect() returns EINPROGRESS immediately on a
+            # not-yet-bound port rather than stalling the calling thread,
+            # which would prevent GTK from being pumped below.  A return
+            # value of 0 means the loopback connect completed synchronously
+            # (port is bound and listening).
+            fd = sock_f(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)
             if fd >= 0:
                 rc = connect_f(fd, addr_ptr, 16)
                 close_f(fd)
@@ -580,26 +596,40 @@ else:
                         "picolet_ui: PICOLET_TEST_MODE: inspector show failed: {}\n".format(exc)
                     )
 
-                # TCP-poll: wait until the inspector port accepts connections
-                # (or 5 s timeout).  This is the only reliable "port is bound"
-                # signal available — WebKitGTK has no synchronous callback for
-                # inspector server ready.
-                #
-                # We call connect()/close() in a loop, driving GTK events between
-                # attempts so WebKitGTK's GMain-based networking can progress.
-                _port_ready = _wait_for_inspector_port(
-                    self._test_port, _gtk_ffi,
-                    timeout_ms=5000, poll_ms=50,
-                    drive_gtk=_inspector_opened,
-                )
-                if not _port_ready:
+                # If the inspector symbols are absent (WebKitGTK < 4.0), the
+                # TCP poll will run without GTK pumping and is guaranteed to
+                # timeout — the socket never binds.  Skip the announcement
+                # entirely so AppHarness receives an honest timeout rather than
+                # a port that immediately refuses connections.
+                if not _inspector_opened:
                     sys.stderr.write(
-                        "picolet_ui: PICOLET_TEST_MODE: inspector port {} not ready "
-                        "after 5 s; announcing anyway\n".format(self._test_port)
+                        "picolet_ui: PICOLET_TEST_MODE: WebKit inspector unavailable "
+                        "(webkit_web_view_get_inspector or webkit_web_inspector_show "
+                        "not found); skipping picolet:test-port announcement\n"
                     )
+                    self._test_port = None
 
-                sys.stderr.write("picolet:test-port={}\n".format(self._test_port))
-                sys.stderr.flush()
+                if self._test_port is not None:
+                    # TCP-poll: wait until the inspector port accepts connections
+                    # (or 5 s timeout).  This is the only reliable "port is bound"
+                    # signal available — WebKitGTK has no synchronous callback for
+                    # inspector server ready.
+                    #
+                    # We call connect()/close() in a loop, driving GTK events between
+                    # attempts so WebKitGTK's GMain-based networking can progress.
+                    _port_ready = _wait_for_inspector_port(
+                        self._test_port, _gtk_ffi,
+                        timeout_ms=5000, poll_ms=50,
+                        drive_gtk=True,
+                    )
+                    if not _port_ready:
+                        sys.stderr.write(
+                            "picolet_ui: PICOLET_TEST_MODE: inspector port {} not ready "
+                            "after 5 s; announcing anyway\n".format(self._test_port)
+                        )
+
+                    sys.stderr.write("picolet:test-port={}\n".format(self._test_port))
+                    sys.stderr.flush()
 
             if root_uri is not None:
                 _gtk_ffi.webkit_web_view_load_uri(self._view, root_uri)
