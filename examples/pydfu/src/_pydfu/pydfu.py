@@ -19,15 +19,7 @@ import sys
 import _usb.core
 import _usb.util
 
-# CRC32 — probe runtime zlib, fall back to vendored _crc32.
-try:
-    import zlib as _zlib
-    if not hasattr(_zlib, "crc32"):
-        raise ImportError
-    def _crc32(data, value=0):
-        return _zlib.crc32(data, value)
-except (ImportError, AttributeError):
-    from _crc32 import crc32 as _crc32  # type: ignore[no-redef]
+from _dfu_file import compute_crc, read_dfu_file  # noqa: F401 — re-exported
 
 # USB request timeout (ms)
 __TIMEOUT = 4000
@@ -198,8 +190,8 @@ def get_status():
 def check_status(stage, expected):
     status = get_status()
     if status != expected:
-        print("DFU: %s failed (%s)" % (stage, __DFU_STATUS_STR.get(status, status)))
-        raise SystemExit(1)
+        state_str = __DFU_STATUS_STR.get(status, "0x{:02x}".format(status))
+        raise RuntimeError("DFU: {} failed (state={})".format(stage, state_str))
 
 
 def mass_erase():
@@ -306,21 +298,24 @@ def write_page(buf, xfer_offset):
 
 def exit_dfu():
     """Exit DFU mode, and start running the program."""
-    # Set jump address
-    set_address(0x08000000)
-
-    # Send DNLOAD with 0 length to exit DFU
-    __dev.ctrl_transfer(0x21, __DFU_DNLOAD, 0, __DFU_INTERFACE, None, __TIMEOUT)
-
     try:
+        # Set jump address
+        set_address(0x08000000)
+
+        # Send DNLOAD with 0 length to exit DFU
+        __dev.ctrl_transfer(0x21, __DFU_DNLOAD, 0, __DFU_INTERFACE, None, __TIMEOUT)
+
         # Execute last command
         if get_status() != __DFU_STATE_DFU_MANIFEST:
             print("Failed to reset device")
-
-        # Release device
-        _usb.util.dispose_resources(__dev)
-    except:
+    except Exception:
         pass
+    finally:
+        # Always release device, even if transfers above fail (e.g. mid-flash disconnect)
+        try:
+            _usb.util.dispose_resources(__dev)
+        except Exception:
+            pass
 
 
 def named(values, names):
@@ -328,96 +323,6 @@ def named(values, names):
     return dict(zip(names.split(), values))
 
 
-def consume(fmt, data, names):
-    """Parses the struct defined by `fmt` from `data`, stores the parsed fields
-    into a named tuple using `names`. Returns the named tuple, and the data
-    with the struct stripped off."""
-
-    size = struct.calcsize(fmt)
-    return named(struct.unpack(fmt, data[:size]), names), data[size:]
-
-
-def cstring(string):
-    """Extracts a null-terminated string from a byte array."""
-    return string.decode("utf-8").split("\0", 1)[0]
-
-
-def compute_crc(data):
-    """Computes the CRC32 value for the data passed in."""
-    return 0xFFFFFFFF & -_crc32(data) - 1
-
-
-def read_dfu_file(filename):
-    """Reads a DFU file, and parses the individual elements from the file.
-    Returns an array of elements. Each element is a dictionary with the
-    following keys:
-        num     - The element index.
-        address - The address that the element data should be written to.
-        size    - The size of the element data.
-        data    - The element data.
-    If an error occurs while parsing the file, then None is returned.
-    """
-
-    print("File: {}".format(filename))
-    with open(filename, "rb") as fin:
-        data = fin.read()
-    crc = compute_crc(data[:-4])
-    elements = []
-
-    # Decode the DFU Prefix
-    dfu_prefix, data = consume("<5sBIB", data, "signature version size targets")
-    print(
-        "    %(signature)s v%(version)d, image size: %(size)d, targets: %(targets)d" % dfu_prefix
-    )
-    for target_idx in range(dfu_prefix["targets"]):
-        # Decode the Image Prefix
-        img_prefix, data = consume(
-            "<6sBI255s2I", data, "signature altsetting named name size elements"
-        )
-        img_prefix["num"] = target_idx
-        if img_prefix["named"]:
-            img_prefix["name"] = cstring(img_prefix["name"])
-        else:
-            img_prefix["name"] = ""
-        print(
-            "    %(signature)s %(num)d, alt setting: %(altsetting)s, "
-            'name: "%(name)s", size: %(size)d, elements: %(elements)d' % img_prefix
-        )
-
-        target_size = img_prefix["size"]
-        target_data = data[:target_size]
-        data = data[target_size:]
-        for elem_idx in range(img_prefix["elements"]):
-            # Decode target prefix
-            elem_prefix, target_data = consume("<2I", target_data, "addr size")
-            elem_prefix["num"] = elem_idx
-            print("      %(num)d, address: 0x%(addr)08x, size: %(size)d" % elem_prefix)
-            elem_size = elem_prefix["size"]
-            elem_data = target_data[:elem_size]
-            target_data = target_data[elem_size:]
-            elem_prefix["data"] = elem_data
-            elements.append(elem_prefix)
-
-        if len(target_data):
-            print("target %d PARSE ERROR" % target_idx)
-
-    # Decode DFU Suffix
-    dfu_suffix = named(
-        struct.unpack("<4H3sBI", data[:16]), "device product vendor dfu ufd len crc"
-    )
-    print(
-        "    usb: %(vendor)04x:%(product)04x, device: 0x%(device)04x, "
-        "dfu: 0x%(dfu)04x, %(ufd)s, %(len)d, 0x%(crc)08x" % dfu_suffix
-    )
-    if crc != dfu_suffix["crc"]:
-        print("CRC ERROR: computed crc32 is 0x%08x" % crc)
-        return
-    data = data[16:]
-    if data:
-        print("PARSE ERROR")
-        return
-
-    return elements
 
 
 class FilterDFU(object):
@@ -487,8 +392,7 @@ def list_dfu_devices(*args, **kwargs):
     """Prints a list of devices detected in DFU mode."""
     devices = get_dfu_devices(*args, **kwargs)
     if not devices:
-        print("No DFU capable devices found")
-        raise SystemExit(1)
+        raise RuntimeError("No DFU capable devices found")
     for device in devices:
         print(
             "Bus {} Device {:03d}: ID {:04x}:{:04x}".format(
