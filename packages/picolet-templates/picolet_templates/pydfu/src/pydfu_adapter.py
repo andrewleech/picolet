@@ -16,29 +16,11 @@
 # USB shim ported from pydfu-win/micropython/tools/pydfu_app/lib/usb/core.py (MIT).
 #
 # O1: Windows WinUSB is deferred; raises NotImplementedError per FR-EX-7 note.
-# R6: zlib.crc32 probed at runtime; falls back to vendored _crc32.
 
 import os
-import struct
 import sys
 
-# ---------------------------------------------------------------------------
-# CRC32 — probe runtime, fall back to pure-Python vendor if unavailable
-# ---------------------------------------------------------------------------
-
-try:
-    import zlib as _zlib
-    if not hasattr(_zlib, "crc32"):
-        raise ImportError
-    def _crc32(data, value=0):
-        return _zlib.crc32(data, value)
-except (ImportError, AttributeError):
-    from _crc32 import crc32 as _crc32  # type: ignore[no-redef]
-
-
-def compute_crc(data):
-    """DfuSe-compatible CRC32: complement of CRC of all bytes before suffix."""
-    return 0xFFFFFFFF & -_crc32(data) - 1
+from _dfu_file import compute_crc, read_dfu_file  # noqa: F401 — re-exported for callers
 
 
 # ---------------------------------------------------------------------------
@@ -86,67 +68,6 @@ def _ensure_lib():
         raise RuntimeError(
             "libusb-1.0 not found; install libusb-1.0-0: {}".format(e)
         )
-
-
-# ---------------------------------------------------------------------------
-# DFU file parser — pure Python; adapted from pydfu.py (no PyUSB dependency)
-# ---------------------------------------------------------------------------
-
-def _named(values, names):
-    return dict(zip(names.split(), values))
-
-
-def _consume(fmt, data, names):
-    size = struct.calcsize(fmt)
-    return _named(struct.unpack(fmt, data[:size]), names), data[size:]
-
-
-def _cstring(bs):
-    return bs.decode("utf-8").split("\0", 1)[0]
-
-
-def read_dfu_file(path):
-    """Parse a DfuSe .dfu file; return list of element dicts.
-
-    Each element dict has keys: num (int), addr (int), size (int), data (bytes).
-    Raises ValueError on parse or CRC error.
-    """
-    with open(path, "rb") as f:
-        data = f.read()
-
-    crc = compute_crc(data[:-4])
-    elements = []
-
-    # DFU prefix: "DfuSe" signature, version, total size, target count
-    prefix, data = _consume("<5sBIB", data, "signature version size targets")
-    sig = prefix["signature"]
-    if sig != b"DfuSe":
-        raise ValueError("Not a DfuSe file (bad signature: {!r})".format(sig))
-
-    for _target_idx in range(prefix["targets"]):
-        img, data = _consume("<6sBI255s2I", data, "signature altsetting named name size elements")
-        if img["named"]:
-            img["name"] = _cstring(img["name"])
-        else:
-            img["name"] = ""
-        target_size = img["size"]
-        target_data = data[:target_size]
-        data = data[target_size:]
-        for elem_idx in range(img["elements"]):
-            ep, target_data = _consume("<2I", target_data, "addr size")
-            ep["num"] = elem_idx
-            elem_size = ep["size"]
-            ep["data"] = target_data[:elem_size]
-            target_data = target_data[elem_size:]
-            elements.append(ep)
-
-    # DFU suffix: device, product, vendor, dfu version, "UFD", len=16, crc32
-    suffix = _named(struct.unpack("<4H3sBI", data[:16]), "device product vendor dfu ufd len crc")
-    if crc != suffix["crc"]:
-        raise ValueError(
-            "CRC mismatch: computed 0x{:08x}, file 0x{:08x}".format(crc, suffix["crc"])
-        )
-    return elements
 
 
 # ---------------------------------------------------------------------------
@@ -209,19 +130,19 @@ def get_memory_layout(device_id):
 
 
 def _find_device_by_id(device_id, usb_core):
-    """Return the Device object matching "<bus>:<addr>", or None."""
+    """Return the DFU Device object matching "<bus>:<addr>", or None.
+
+    Only DFU-mode devices are enumerated (FilterDFU applied) to avoid
+    opening config descriptors on unrelated USB peripherals.
+    """
     try:
         bus_s, addr_s = device_id.split(":")
         target_bus = int(bus_s)
         target_addr = int(addr_s)
     except (ValueError, AttributeError):
         return None
-    import _pydfu.pydfu as _dfu
-
-    def match_id(dev):
-        return dev.bus == target_bus and dev.address == target_addr
-
-    all_devices = usb_core.find(find_all=True)
+    from _pydfu.pydfu import FilterDFU
+    all_devices = usb_core.find(find_all=True, custom_match=FilterDFU())
     if not all_devices:
         return None
     for dev in all_devices:
@@ -237,10 +158,8 @@ def _find_device_by_id(device_id, usb_core):
 def flash_device(device_id, elements, progress_cb):
     """Flash elements to the DFU device. Calls progress_cb(addr, done, total) per block.
 
-    O3: The real USB path performs blocking libusb_control_transfer calls.
-    The asyncio event loop is blocked for the duration of each transfer
-    (~10-100 ms). This is acceptable for v1.1 (one device, no concurrent
-    commands during flash). Post-v1.1 mitigation: run_in_executor.
+    Intended to be called from a thread executor (run_in_executor) so that the
+    asyncio event loop is not blocked during the USB control transfers.
     """
     if _mock is not None:
         return _mock.flash_device(device_id, elements, progress_cb)
