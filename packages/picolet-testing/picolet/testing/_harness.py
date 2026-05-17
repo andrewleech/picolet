@@ -63,6 +63,11 @@ class AppHarness:
         ...
         await h.stop()
 
+    Pass ``cwd`` to ``start()`` to set the working directory of the spawned
+    child process (useful when the binary resolves assets relative to cwd):
+
+        await h.start(cwd="/path/to/app")
+
     Attributes:
         page: Playwright Page (chromium) or WebKitPage duck (webkit) after
               start() completes.  None before start() or after stop().
@@ -80,6 +85,8 @@ class AppHarness:
         _port: int | None = None,
         # Internal: X display number used by Xvfb (for xwd-based screenshot).
         _xvfb_display: int | None = None,
+        # Optional working directory for the spawned child process.
+        _cwd: str | Path | None = None,
     ):
         self._binary = Path(binary)
         self._browser = (
@@ -92,6 +99,7 @@ class AppHarness:
         self._args = list(args)
         self._timeout = timeout
 
+        self._cwd: str | Path | None = _cwd
         self._proc: subprocess.Popen | None = _running_proc
         self._port: int | None = _port
         self._xvfb_display: int | None = _xvfb_display
@@ -112,14 +120,23 @@ class AppHarness:
     # Spawn + attach
     # -------------------------------------------------------------------------
 
-    async def start(self) -> "AppHarness":
+    async def start(self, cwd: str | Path | None = None) -> "AppHarness":
         """Spawn the child (unless pre-spawned), wait for the port, attach.
+
+        Args:
+            cwd: Optional working directory for the spawned child process.
+                 Passed through to ``subprocess.Popen(..., cwd=cwd)``.
+                 Defaults to ``None`` (inherit the current working directory).
+                 Has no effect when the harness was constructed with a
+                 pre-spawned ``_running_proc``.
 
         Returns self.  On return, ready_ms is set to the current wall-clock
         time (milliseconds since epoch).  spawn_ms is set only when this
         call spawned the process via _spawn(); it remains None when the
         harness was constructed with a pre-spawned _running_proc.
         """
+        if cwd is not None:
+            self._cwd = cwd
         if self._proc is None:
             self._proc = self._spawn()
 
@@ -200,6 +217,10 @@ class AppHarness:
     def _spawn(self) -> subprocess.Popen:
         """Spawn the binary with PICOLET_TEST_MODE=1.
 
+        Uses ``self._cwd`` as the working directory for the child process when
+        set (propagated from ``start(cwd=...)`` or the ``_cwd`` constructor
+        argument).  Defaults to inheriting the current working directory.
+
         On Linux without a DISPLAY, starts Xvfb on a dedicated display number
         and sets DISPLAY in the child's environment.  The Xvfb process is tracked
         so it can be terminated in stop().
@@ -260,12 +281,15 @@ class AppHarness:
             proc = subprocess.Popen(
                 cmd,
                 env=self._env,
+                cwd=self._cwd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
         else:
             popen_kwargs: dict = {"env": self._env, "stderr": subprocess.PIPE}
+            if self._cwd is not None:
+                popen_kwargs["cwd"] = self._cwd
             if self._uses_xvfb:
                 popen_kwargs["stdout"] = subprocess.PIPE
             proc = subprocess.Popen(cmd, **popen_kwargs)

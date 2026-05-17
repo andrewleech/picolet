@@ -131,29 +131,9 @@ async def _measure_test1_run(
         timeout=10.0,
         _xvfb_display=xvfb_display,
     )
-    # Override cwd for the child process via env; AppHarness does not accept
-    # a cwd kwarg, but the binary resolves its romfs relative to cwd.
-    # We patch the internal env to carry PICOLET_APP_DIR so callers know the
-    # working directory.  The actual cwd is set by subclassing Popen call
-    # below via a thin wrapper.
-
-    # AppHarness._spawn() does not accept a cwd argument, so we wrap Popen
-    # on the module to inject app_dir as cwd for the child process only.
-    import subprocess as _subprocess
-    _real_popen = _subprocess.Popen
-
-    def _popen_with_cwd(cmd, **kwargs):
-        # Only inject cwd for the app binary (first element matches binary path).
-        if cmd and str(cmd[0]) == str(binary):
-            kwargs.setdefault("cwd", str(app_dir))
-        return _real_popen(cmd, **kwargs)
-
-    import picolet.testing._harness as _harness_mod
-    _harness_mod.subprocess.Popen = _popen_with_cwd  # type: ignore[attr-defined]
     try:
-        await harness.start()
+        await harness.start(cwd=str(app_dir))
     finally:
-        _harness_mod.subprocess.Popen = _real_popen  # type: ignore[attr-defined]
         await harness.stop()
 
     if harness.spawn_ms is None or harness.ready_ms is None:
@@ -246,26 +226,7 @@ async def _measure_ex2_run(
         timeout=10.0,
         _xvfb_display=xvfb_display,
     )
-
-    import subprocess as _subprocess
-    _real_popen = _subprocess.Popen
-
-    child_pid: list[int] = []
-
-    def _popen_with_cwd(cmd, **kwargs):
-        if cmd and str(cmd[0]) == str(binary):
-            kwargs.setdefault("cwd", str(app_dir))
-        proc = _real_popen(cmd, **kwargs)
-        if cmd and str(cmd[0]) == str(binary):
-            child_pid.append(proc.pid)
-        return proc
-
-    import picolet.testing._harness as _harness_mod
-    _harness_mod.subprocess.Popen = _popen_with_cwd  # type: ignore[attr-defined]
-    try:
-        await harness.start()
-    finally:
-        _harness_mod.subprocess.Popen = _real_popen  # type: ignore[attr-defined]
+    await harness.start(cwd=str(app_dir))
 
     if harness.spawn_ms is None:
         await harness.stop()
@@ -273,17 +234,20 @@ async def _measure_ex2_run(
             f"NFR-EX-2: AppHarness did not set spawn_ms for {app_dir}"
         )
 
+    # Capture the child PID before any stop() call clears harness._proc.
+    child_pid: int | None = harness._proc.pid if harness._proc is not None else None
+
     # After the port is announced (window creation precedes the port bind in
     # the current runtime implementation), confirm the X window is visible.
     xdotool = shutil.which("xdotool")
-    if xdotool and child_pid:
+    if xdotool and child_pid is not None:
         try:
             # Filter by the child process's PID so only the app's own windows
             # satisfy the search (prevents matching the root window or other
             # processes that happen to be running on the display).
             subprocess.run(
                 [xdotool, "search", "--sync", "--onlyvisible",
-                 "--pid", str(child_pid[0]), ""],
+                 "--pid", str(child_pid), ""],
                 env=env,
                 timeout=5,
                 capture_output=True,
