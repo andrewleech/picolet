@@ -11,6 +11,6 @@ version = "0.1.0"
 entry = "src/main.py"
 
 [sbom]
-allow_licences = ["MIT", "OFL-1.1"]
+allow_licences = ["MIT", "OFL-1.1", "LGPL-2.1-or-later"]
 warn_unknown = true
 fail_unknown = false
