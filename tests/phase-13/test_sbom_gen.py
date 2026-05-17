@@ -9,6 +9,7 @@ Covers:
   - Allowlist enforcement: warn path (gate 6), fail path (gate 7).
   - emit_app_sbom: app SBOM is a superset of runtime SBOM components (gate 5).
   - serialNumber is a valid urn:uuid:<uuid4> (gate 9).
+  - metadata.component.hashes carries SHA-256 when artifact_path is supplied.
 """
 from __future__ import annotations
 
@@ -447,3 +448,63 @@ class TestEmitAppSbom:
             f"Expected warn SbomViolation for MicroPython collision. Got: {violations}"
         assert "runtime" in warn_v[0].reason.lower() or "collide" in warn_v[0].reason.lower(), \
             f"Violation reason should mention collision context: {warn_v[0].reason}"
+
+
+# ---------------------------------------------------------------------------
+# metadata.component hashes (CycloneDX 1.5 verifiability)
+# ---------------------------------------------------------------------------
+
+class TestMetadataComponentHashes:
+    """metadata.component.hashes must carry a SHA-256 entry when a binary is
+    passed; must be absent (or empty) when no artifact is supplied."""
+
+    def _write_fake_binary(self, path: Path, content: bytes = b"fake-binary-content") -> Path:
+        path.write_bytes(content)
+        return path
+
+    def test_runtime_sbom_has_sha256_when_artifact_provided(self):
+        import hashlib
+        tmp = Path(tempfile.mkdtemp())
+        artifact = self._write_fake_binary(tmp / "picolet-runtime-linux-x64-cli")
+        sbom_out = tmp / "out.cdx.json"
+        emit_runtime_sbom(sbom_out, "linux-x64", "cli", _REPO_ROOT, artifact_path=artifact)
+        doc = json.loads(sbom_out.read_text())
+        hashes = doc["metadata"]["component"].get("hashes", [])
+        assert len(hashes) == 1, f"Expected 1 hash entry, got: {hashes}"
+        assert hashes[0]["alg"] == "SHA-256"
+        content = hashes[0]["content"]
+        assert len(content) == 64, f"SHA-256 hex digest must be 64 chars, got {len(content)}"
+        assert re.fullmatch(r"[0-9a-f]{64}", content), f"Not valid hex: {content}"
+        expected = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        assert content == expected, "Hash content does not match artifact SHA-256"
+
+    def test_runtime_sbom_no_hashes_when_no_artifact(self):
+        tmp = Path(tempfile.mkdtemp())
+        sbom_out = tmp / "out.cdx.json"
+        emit_runtime_sbom(sbom_out, "linux-x64", "cli", _REPO_ROOT)
+        doc = json.loads(sbom_out.read_text())
+        assert "hashes" not in doc["metadata"]["component"], \
+            "metadata.component must not have hashes when no artifact path is given"
+
+    def test_app_sbom_has_sha256_when_artifact_provided(self):
+        import hashlib
+        tmp = Path(tempfile.mkdtemp())
+        artifact = self._write_fake_binary(tmp / "myapp")
+        sbom_out = tmp / "out.cdx.json"
+        app_data = {"app": {"name": "myapp", "version": "1.0.0"}}
+        emit_app_sbom(
+            output_path=sbom_out,
+            runtime_sbom_path=None,
+            app_data=app_data,
+            target="linux-x64",
+            variant="cli",
+            repo_root=_REPO_ROOT,
+            artifact_path=artifact,
+        )
+        doc = json.loads(sbom_out.read_text())
+        hashes = doc["metadata"]["component"].get("hashes", [])
+        assert len(hashes) == 1, f"Expected 1 hash entry, got: {hashes}"
+        assert hashes[0]["alg"] == "SHA-256"
+        content = hashes[0]["content"]
+        assert len(content) == 64
+        assert content == hashlib.sha256(artifact.read_bytes()).hexdigest()

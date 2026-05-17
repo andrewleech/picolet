@@ -340,6 +340,7 @@ def _do_build(args) -> int:
             target=target,
             variant=variant,
             repo_root=_find_repo_root(),
+            artifact_path=output_path,
         )
         _handle_sbom_violations(violations, data, args.verbose)
         if args.verbose:

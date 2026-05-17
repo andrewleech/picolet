@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import sys
 import tomllib
@@ -255,13 +256,35 @@ def _now_utc() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
 
+def _hash_file(path: Path) -> dict:
+    """Return a CycloneDX 1.5 hash entry for the file at *path*.
+
+    Returns ``{"alg": "SHA-256", "content": "<hex>"}`` using SHA-256.
+    """
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {"alg": "SHA-256", "content": digest}
+
+
 def _make_document(
     artifact_name: str,
     artifact_version: str,
     artifact_type: str,   # "application" | "library"
     cdx_components: list[dict],
+    artifact_path: "Path | None" = None,
 ) -> dict:
-    """Assemble a minimal valid CycloneDX 1.5 JSON document."""
+    """Assemble a minimal valid CycloneDX 1.5 JSON document.
+
+    When *artifact_path* is provided and the file exists, a SHA-256 hash is
+    attached to ``metadata.component.hashes`` so the SBOM is verifiable.
+    """
+    metadata_component: dict[str, Any] = {
+        "type": artifact_type,
+        "name": artifact_name,
+        "version": artifact_version,
+    }
+    if artifact_path is not None and artifact_path.is_file():
+        metadata_component["hashes"] = [_hash_file(artifact_path)]
+
     return {
         "bomFormat": CDX_BOM_FORMAT,
         "specVersion": CDX_SPEC_VERSION,
@@ -276,11 +299,7 @@ def _make_document(
                     "version": _PICOLET_CLI_VERSION,
                 }
             ],
-            "component": {
-                "type": artifact_type,
-                "name": artifact_name,
-                "version": artifact_version,
-            },
+            "component": metadata_component,
         },
         "components": cdx_components,
     }
@@ -315,11 +334,15 @@ def emit_runtime_sbom(
     target: str,
     variant: str,
     repo_root: Path,
+    artifact_path: "Path | None" = None,
 ) -> None:
     """Assemble and write a CycloneDX 1.5 SBOM for a runtime artifact.
 
     Reads runtime.toml, filters by (target, variant), injects mbm.toml PR
     list into the MicroPython component notes, and writes the document.
+
+    When *artifact_path* is provided and the file exists, a SHA-256 hash is
+    attached to ``metadata.component.hashes``.
     """
     all_components = load_runtime_toml(repo_root)
     filtered = filter_components(all_components, target, variant)
@@ -341,6 +364,7 @@ def emit_runtime_sbom(
         artifact_version=tag,
         artifact_type="library",
         cdx_components=cdx_components,
+        artifact_path=artifact_path,
     )
     _write_document(doc, output_path)
 
@@ -356,6 +380,7 @@ def emit_app_sbom(
     target: str,
     variant: str,
     repo_root: Path,
+    artifact_path: "Path | None" = None,
 ) -> list[SbomViolation]:
     """Merge runtime + app deps; enforce policy; write CycloneDX 1.5 SBOM.
 
@@ -374,6 +399,9 @@ def emit_app_sbom(
         Build target and runtime variant strings.
     repo_root:
         Absolute path to the repository root.
+    artifact_path:
+        Path to the built application binary.  When provided and the file
+        exists, a SHA-256 hash is attached to ``metadata.component.hashes``.
 
     Returns
     -------
@@ -447,6 +475,7 @@ def emit_app_sbom(
         artifact_version=app_version,
         artifact_type="application",
         cdx_components=merged,
+        artifact_path=artifact_path,
     )
     _write_document(doc, output_path)
 
@@ -591,11 +620,13 @@ def _cli_emit_runtime(args: argparse.Namespace) -> None:
     """Implement 'emit-runtime' subcommand."""
     output = Path(args.output)
     repo_root = Path(args.repo_root)
+    artifact_path = Path(args.artifact) if args.artifact else None
     emit_runtime_sbom(
         output_path=output,
         target=args.target,
         variant=args.variant,
         repo_root=repo_root,
+        artifact_path=artifact_path,
     )
     print(f"SBOM written: {output}", file=sys.stderr)
 
@@ -614,6 +645,8 @@ def main() -> None:
     p_rt.add_argument("--variant", required=True, help="e.g. cli")
     p_rt.add_argument("--repo-root", required=True, dest="repo_root",
                       help="absolute path to repo root")
+    p_rt.add_argument("--artifact", default=None,
+                      help="path to the built runtime binary (used to compute SHA-256 hash)")
     p_rt.set_defaults(func=_cli_emit_runtime)
 
     args = parser.parse_args()

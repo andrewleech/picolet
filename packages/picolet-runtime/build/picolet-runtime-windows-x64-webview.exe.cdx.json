@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:347a0021-ab75-4e71-a65a-00d0fdab6000",
+  "serialNumber": "urn:uuid:cc569dd5-fc16-4592-9d7c-280fa8ecd47a",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-17T06:06:04.603780Z",
+    "timestamp": "2026-05-17T13:35:10.344821Z",
     "tools": [
       {
         "vendor": "picolet",
@@ -15,7 +15,13 @@
     "component": {
       "type": "library",
       "name": "picolet-runtime-windows-x64-webview",
-      "version": "runtime-v0.1.0"
+      "version": "runtime-v0.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d9047dde5c40c00331a7ce8bee24081c0a7c4aebe2a934bc8a051ed9a1589970"
+        }
+      ]
     }
   },
   "components": [
@@ -179,9 +185,9 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime-jetbrains-mono-5",
-      "name": "JetBrains Mono",
-      "version": "2.304",
+      "bom-ref": "runtime-monaspace-neon-5",
+      "name": "Monaspace Neon",
+      "version": "1.101",
       "licenses": [
         {
           "license": {
@@ -192,17 +198,17 @@
       "externalReferences": [
         {
           "type": "website",
-          "url": "https://github.com/JetBrains/JetBrainsMono"
+          "url": "https://github.com/githubnext/monaspace"
         }
       ],
-      "purl": "pkg:github/JetBrains/JetBrainsMono@v2.304",
+      "purl": "pkg:github/githubnext/monaspace@v1.101",
       "properties": [
         {
           "name": "picolet:link_type",
           "value": "static"
         }
       ],
-      "description": "OFL-1.1 (SIL Open Font Licence). Used as display/monospace font in the pydfu example UI. Woff2 file bundled in romfs at /rom/ui/fonts/JetBrainsMono-Regular.woff2. No embedding restriction under OFL-1.1."
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as display/monospace font in the pydfu example UI (square-tech variant of the Monaspace family; industrial-aesthetic replacement for JetBrains Mono per NFR-EX-AESTHETIC). Woff2 files bundled in romfs at /rom/ui/fonts/MonaspaceNeon-Regular.woff2 and /rom/ui/fonts/MonaspaceNeon-Bold.woff2 (sourced from githubnext/monaspace v1.101)."
     },
     {
       "type": "library",

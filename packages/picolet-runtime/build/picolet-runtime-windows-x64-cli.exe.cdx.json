@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:bda35dba-ffc1-4231-98a5-8420189f749e",
+  "serialNumber": "urn:uuid:9ffb06f5-03b7-445b-bdea-944dd03eb9b3",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-17T06:14:24.613024Z",
+    "timestamp": "2026-05-17T13:35:10.129411Z",
     "tools": [
       {
         "vendor": "picolet",
@@ -15,7 +15,13 @@
     "component": {
       "type": "library",
       "name": "picolet-runtime-windows-x64-cli",
-      "version": "runtime-v0.1.0"
+      "version": "runtime-v0.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "173f515e489035a0e0f2b40ea1c1af3dcc97e26dc9448f9efd7f8122d59c2ee8"
+        }
+      ]
     }
   },
   "components": [
@@ -75,9 +81,9 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime-jetbrains-mono-2",
-      "name": "JetBrains Mono",
-      "version": "2.304",
+      "bom-ref": "runtime-monaspace-neon-2",
+      "name": "Monaspace Neon",
+      "version": "1.101",
       "licenses": [
         {
           "license": {
@@ -88,17 +94,17 @@
       "externalReferences": [
         {
           "type": "website",
-          "url": "https://github.com/JetBrains/JetBrainsMono"
+          "url": "https://github.com/githubnext/monaspace"
         }
       ],
-      "purl": "pkg:github/JetBrains/JetBrainsMono@v2.304",
+      "purl": "pkg:github/githubnext/monaspace@v1.101",
       "properties": [
         {
           "name": "picolet:link_type",
           "value": "static"
         }
       ],
-      "description": "OFL-1.1 (SIL Open Font Licence). Used as display/monospace font in the pydfu example UI. Woff2 file bundled in romfs at /rom/ui/fonts/JetBrainsMono-Regular.woff2. No embedding restriction under OFL-1.1."
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as display/monospace font in the pydfu example UI (square-tech variant of the Monaspace family; industrial-aesthetic replacement for JetBrains Mono per NFR-EX-AESTHETIC). Woff2 files bundled in romfs at /rom/ui/fonts/MonaspaceNeon-Regular.woff2 and /rom/ui/fonts/MonaspaceNeon-Bold.woff2 (sourced from githubnext/monaspace v1.101)."
     },
     {
       "type": "library",

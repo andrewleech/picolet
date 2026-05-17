@@ -1,21 +1,27 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:6221d704-b4f5-4706-b266-f6403684951c",
+  "serialNumber": "urn:uuid:b9f84e99-a7b5-4fba-a66d-b276b3d05699",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-16T10:00:47.165518Z",
+    "timestamp": "2026-05-17T13:35:10.240660Z",
     "tools": [
       {
         "vendor": "picolet",
         "name": "picolet-sbom-gen",
-        "version": "0.1.0"
+        "version": "0.0.0-dev"
       }
     ],
     "component": {
       "type": "library",
       "name": "picolet-runtime-windows-x64-lvgl",
-      "version": "runtime-v0.1.0"
+      "version": "runtime-v0.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7a4fbac526af632ce31360d97e91e8fc4e5161bf2b290b63d2147bbbcc8381db"
+        }
+      ]
     }
   },
   "components": [
@@ -169,6 +175,168 @@
         }
       ],
       "description": "Built from source inside dockcross/windows-static-x64-posix with -ffunction-sections and --gc-sections for dead-code elimination. Version pinned in build-runtime.sh SDL2_VERSION variable."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-monaspace-neon-5",
+      "name": "Monaspace Neon",
+      "version": "1.101",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/githubnext/monaspace"
+        }
+      ],
+      "purl": "pkg:github/githubnext/monaspace@v1.101",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as display/monospace font in the pydfu example UI (square-tech variant of the Monaspace family; industrial-aesthetic replacement for JetBrains Mono per NFR-EX-AESTHETIC). Woff2 files bundled in romfs at /rom/ui/fonts/MonaspaceNeon-Regular.woff2 and /rom/ui/fonts/MonaspaceNeon-Bold.woff2 (sourced from githubnext/monaspace v1.101)."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-ibm-plex-sans-6",
+      "name": "IBM Plex Sans",
+      "version": "6.4.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/IBM/plex"
+        }
+      ],
+      "purl": "pkg:github/IBM/plex@v6.4.0",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as body font in the pydfu example UI. Latin subset woff2 files (Regular + SemiBold) bundled in romfs at /rom/ui/fonts/. Sourced from @fontsource/ibm-plex-sans npm package."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-source-serif-4-7",
+      "name": "Source Serif 4",
+      "version": "4.005",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/adobe-fonts/source-serif"
+        }
+      ],
+      "purl": "pkg:github/adobe-fonts/source-serif@4.005R",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as display/heading font in the notes example UI. Variable woff2 files (Roman + Italic, weight range 200-900) bundled in romfs at /rom/ui/fonts/. Renamed from canonical axis-tag filenames to avoid Vite bracket-character issues (O4 in PH20 plan)."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-source-sans-3-8",
+      "name": "Source Sans 3",
+      "version": "3.052",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/adobe-fonts/source-sans"
+        }
+      ],
+      "purl": "pkg:github/adobe-fonts/source-sans@3.052R",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as body/UI font in the notes example UI. Variable woff2 (Upright, weight range 200-900) bundled in romfs at /rom/ui/fonts/source-sans-3.woff2."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-antonio-9",
+      "name": "Antonio",
+      "version": "22",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://fonts.google.com/specimen/Antonio"
+        }
+      ],
+      "purl": "pkg:generic/google-fonts/Antonio@v22",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as condensed display font in the dashboard example UI (OFL fallback for GT America Condensed per spec aesthetic). Variable font: a single latin-subset woff2 covers the full weight axis; Antonio-Bold.woff2 is byte-identical to Antonio-Regular.woff2 (Google Fonts serves one file for all weights). Both files bundled in romfs at /rom/ui/fonts/. Downloaded from fonts.gstatic.com."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-dm-sans-10",
+      "name": "DM Sans",
+      "version": "17",
+      "licenses": [
+        {
+          "license": {
+            "id": "OFL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://fonts.google.com/specimen/DM+Sans"
+        }
+      ],
+      "purl": "pkg:generic/google-fonts/DM+Sans@v17",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "static"
+        }
+      ],
+      "description": "OFL-1.1 (SIL Open Font Licence). Used as body/label font in the dashboard example UI (OFL fallback for GT Walsheim per spec aesthetic). Variable font: a single latin-subset woff2 covers the full weight axis; DMSans-Medium.woff2 is byte-identical to DMSans-Regular.woff2 (Google Fonts serves one file for all weights). Both files bundled in romfs at /rom/ui/fonts/. Downloaded from fonts.gstatic.com."
     }
   ]
 }

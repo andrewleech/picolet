@@ -431,7 +431,8 @@ build_linux_x64() {
         --output "$sbom_out" \
         --target "$TARGET" \
         --variant "$VARIANT" \
-        --repo-root "$REPO_ROOT"
+        --repo-root "$REPO_ROOT" \
+        --artifact "$artifact"
 }
 
 # ---------------------------------------------------------------------------
@@ -724,7 +725,8 @@ build_windows_x64() {
         --output "$sbom_out" \
         --target "$TARGET" \
         --variant "$VARIANT" \
-        --repo-root "$REPO_ROOT"
+        --repo-root "$REPO_ROOT" \
+        --artifact "$artifact"
 }
 
 # ---------------------------------------------------------------------------
