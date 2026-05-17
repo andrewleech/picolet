@@ -1,0 +1,20 @@
+[app]
+name = "config-editor"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "webview"
+root = "ui"
+index = "index.html"
+
+[ui.frontend]
+framework = "vue"
+build_cmd = "npm run build"
+dist_dir = "dist"
+dev_url = "http://localhost:5173/"
+
+[window]
+title = "Config Editor"
+size = [1200, 800]
+resizable = true

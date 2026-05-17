@@ -1,0 +1,12 @@
+/* config-editor — JetBrains Mono (OFL-1.1).
+ * Single font face: monospace throughout — no body/display split.
+ * Woff2 bundled in romfs at /rom/ui/fonts/; NFR-EX-4 satisfied.
+ * Font file copied from examples/pydfu/ui/public/fonts/ (already in SBOM).
+ */
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400 700;
+  font-display: block;
+}
