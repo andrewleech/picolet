@@ -82,24 +82,27 @@ async def flash(args):
         return {"ok": False, "error": "no elements in dfu file"}
 
     async def _run():
+        loop = asyncio.get_event_loop()
+
         def _progress(addr, done, total):
             pct = (done * 100) // total if total else 0
-            asyncio.get_event_loop().create_task(
+            loop.call_soon_threadsafe(
+                loop.create_task,
                 picolet.emit("dfu:progress", {
                     "addr": addr,
                     "done": done,
                     "total": total,
                     "pct": pct,
-                })
+                }),
             )
 
         try:
-            dfu.flash_device(device_id, elements, _progress)
-            picolet.emit("dfu:done", {"ok": True})
+            await loop.run_in_executor(None, dfu.flash_device, device_id, elements, _progress)
+            await picolet.emit("dfu:done", {"ok": True})
         except asyncio.CancelledError:
-            picolet.emit("dfu:error", {"message": "flash cancelled"})
+            await picolet.emit("dfu:error", {"message": "flash cancelled"})
         except Exception as e:
-            picolet.emit("dfu:error", {"message": str(e)})
+            await picolet.emit("dfu:error", {"message": str(e)})
 
     _flash_task = asyncio.create_task(_run())
     return {"ok": True, "status": "started"}
