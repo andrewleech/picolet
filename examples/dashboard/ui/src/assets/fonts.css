@@ -7,38 +7,28 @@
 
 /* Antonio — condensed display type for widget titles and header strip.
  * OFL fallback for GT America Condensed (spec aesthetic direction).
- * Both weights use the same Latin-subset woff2 file (single-axis variable).
+ * Variable font: a single woff2 covers the full weight axis (100–900).
+ * Antonio-Bold.woff2 is byte-identical to Antonio-Regular.woff2 because
+ * Google Fonts serves one variable file for both weight requests.
  */
 @font-face {
   font-family: 'Antonio';
-  font-weight: 400;
+  font-weight: 400 700;
   font-display: block;
   src: url('/fonts/Antonio-Regular.woff2') format('woff2');
 }
 
-@font-face {
-  font-family: 'Antonio';
-  font-weight: 700;
-  font-display: block;
-  src: url('/fonts/Antonio-Bold.woff2') format('woff2');
-}
-
 /* DM Sans — body text, labels, units.
  * OFL fallback for GT Walsheim.
- * Regular (400) and Medium (500) weights.
+ * Variable font: a single woff2 covers the full weight axis (100–900).
+ * DMSans-Medium.woff2 is byte-identical to DMSans-Regular.woff2 because
+ * Google Fonts serves one variable file for both weight requests.
  */
 @font-face {
   font-family: 'DM Sans';
-  font-weight: 400;
+  font-weight: 400 500;
   font-display: block;
   src: url('/fonts/DMSans-Regular.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'DM Sans';
-  font-weight: 500;
-  font-display: block;
-  src: url('/fonts/DMSans-Medium.woff2') format('woff2');
 }
 
 /* JetBrains Mono — large metric numerals.
