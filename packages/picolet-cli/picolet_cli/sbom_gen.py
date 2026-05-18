@@ -445,6 +445,11 @@ def upylib_components(
             version = "unknown"
             description = ""
             licence = "LicenseRef-Unknown"
+            sys.stderr.write(
+                f"warning: SBOM auto-discovery could not find manifest for"
+                f" micropython-lib module '{name}' under {repo_root};"
+                f" emitting as LicenseRef-Unknown\n"
+            )
 
         bom_ref = f"upylib-{name.lower().replace('-', '_')}-{offset + i}"
         cdx: dict[str, Any] = {
@@ -657,15 +662,21 @@ def _app_dep_components(
     components: list[dict] = []
     i = 0
 
+    # Guard: micropython-lib manifest resolution requires a repo_root.
+    # Detect the problematic combination early so the user gets a clear
+    # error rather than a silently incomplete SBOM.
+    if repo_root is None and any(
+        k == "micropython-lib" and isinstance(v, list) for k, v in deps.items()
+    ):
+        raise ValueError(
+            "SBOM auto-discovery for micropython-lib modules requires repo_root; got None"
+        )
+
     for name, version in deps.items():
         # Special case: micropython-lib = ["asyncio", "json", ...]
         if name == "micropython-lib" and isinstance(version, list):
             module_names = [str(m) for m in version]
-            if repo_root is not None:
-                upy_comps = upylib_components(module_names, repo_root, offset + i)
-            else:
-                # No repo_root: emit stubs with unknown version/licence.
-                upy_comps = upylib_components(module_names, Path("."), offset + i)
+            upy_comps = upylib_components(module_names, repo_root, offset + i)
             components.extend(upy_comps)
             i += len(module_names)
             continue

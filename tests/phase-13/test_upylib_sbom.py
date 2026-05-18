@@ -285,3 +285,34 @@ class TestEmitAppSbomUpylib:
         fnmatch_comp = next(c for c in doc["components"] if c["name"] == "fnmatch")
         props = {p["name"]: p["value"] for p in fnmatch_comp.get("properties", [])}
         assert props.get("picolet:source") == "micropython-lib"
+
+
+# ---------------------------------------------------------------------------
+# A8 follow-up — warning path and repo_root=None guard
+# ---------------------------------------------------------------------------
+
+class TestUpylibWarningAndGuard:
+    """A8 follow-up: unknown module warns; repo_root=None with micropython-lib raises."""
+
+    def test_unknown_module_warns_to_stderr(self, capsys):
+        """upylib_components emits a warning to stderr for a module with no manifest."""
+        comps = upylib_components(["__no_such_module_xyzzy__"], _REPO_ROOT, offset=0)
+        captured = capsys.readouterr()
+        assert "warning:" in captured.err, (
+            "expected a 'warning:' line on stderr for an unresolvable module"
+        )
+        assert "__no_such_module_xyzzy__" in captured.err
+        assert "LicenseRef-Unknown" in captured.err
+        # Component is still emitted (downstream policy enforcement handles it).
+        assert len(comps) == 1
+        assert comps[0]["version"] == "unknown"
+
+    def test_repo_root_none_with_upylib_raises(self):
+        """_app_dep_components raises ValueError when repo_root is None and micropython-lib is declared."""
+        from picolet_cli.sbom_gen import _app_dep_components
+        app_data = {
+            "app": {"name": "test", "version": "0.1.0", "entry": "src/main.py"},
+            "dependencies": {"micropython-lib": ["fnmatch"]},
+        }
+        with pytest.raises(ValueError, match="requires repo_root"):
+            _app_dep_components(app_data, offset=0, repo_root=None)
