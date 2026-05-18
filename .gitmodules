@@ -1,6 +1,6 @@
 [submodule "packages/picolet-runtime/micropython"]
 	path = packages/picolet-runtime/micropython
 	url = https://github.com/andrewleech/micropython.git
-[submodule "packages/picolet-runtime/overlay/lib/lv_binding_micropython"]
-	path = packages/picolet-runtime/overlay/lib/lv_binding_micropython
+[submodule "packages/picolet-runtime/lib/lv_binding_micropython"]
+	path = packages/picolet-runtime/lib/lv_binding_micropython
 	url = https://github.com/lvgl/lv_binding_micropython.git
