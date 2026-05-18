@@ -105,7 +105,15 @@ def run(args) -> None:
         child = None
 
     def _kill_vite() -> None:
-        """Terminate the Vite process group (D3: POSIX killpg for cascade)."""
+        """Terminate the Vite process group (D3).
+
+        POSIX: send SIGTERM to the process group (killpg) so ESBuild/rollup
+        children also die.  On timeout escalate to SIGKILL.
+
+        Windows: send CTRL_BREAK_EVENT to the process group (created with
+        CREATE_NEW_PROCESS_GROUP) so Vite's worker children also receive the
+        event.  On timeout fall back to TerminateProcess.
+        """
         nonlocal vite_proc
         if vite_proc is None:
             return
@@ -116,8 +124,13 @@ def run(args) -> None:
             print("dev: stopping Vite …", file=sys.stderr)
         try:
             if sys.platform == "win32":
-                # Windows: best-effort; process groups work differently.
-                vite_proc.terminate()
+                # Send Ctrl+Break to the process group created with
+                # CREATE_NEW_PROCESS_GROUP so all Vite worker processes
+                # (ESBuild, Rollup) receive the signal (D3, A7).
+                try:
+                    os.kill(vite_proc.pid, signal.CTRL_BREAK_EVENT)
+                except (OSError, ProcessLookupError):
+                    pass
             else:
                 # POSIX: kill the entire process group so ESBuild/rollup
                 # children also die (D3).
@@ -178,12 +191,25 @@ def run(args) -> None:
     # binary launches (FR-VUE-2).
     if dev_url is not None:
         vite_env = {**os.environ, "FORCE_COLOR": "1"}
-        vite_proc = subprocess.Popen(
-            ["npm", "run", "dev"],
-            cwd=str(app_root),
-            env=vite_env,
-            start_new_session=True,   # D3: own process group for clean teardown
-        )
+        if sys.platform == "win32":
+            # Windows: CREATE_NEW_PROCESS_GROUP gives Vite its own console
+            # process group so CTRL_BREAK_EVENT propagates to all children
+            # (ESBuild, Rollup).  start_new_session has no equivalent effect
+            # on Windows (D3, A7).
+            vite_proc = subprocess.Popen(
+                ["npm", "run", "dev"],
+                cwd=str(app_root),
+                env=vite_env,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+        else:
+            # POSIX: own process group via start_new_session (D3).
+            vite_proc = subprocess.Popen(
+                ["npm", "run", "dev"],
+                cwd=str(app_root),
+                env=vite_env,
+                start_new_session=True,
+            )
         print(
             f"dev: Vite dev server spawned (PID {vite_proc.pid}), "
             f"loading from {dev_url}",
