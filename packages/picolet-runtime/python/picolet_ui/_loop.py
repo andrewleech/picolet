@@ -158,31 +158,6 @@ def _default_webview_pump():
     return _gtk_pump
 
 
-def _worker_thread_pump_stub():
-    """Worker-thread fallback (Option B) — gated behind PICOLET_WV_THREADED=1.
-
-    PH07 ships only the gated-error message.  Implementation is
-    deferred until gate 16 reveals starvation in the same-thread pump.
-    """
-    raise NotImplementedError(
-        "picolet_ui: PICOLET_WV_THREADED=1 selects the worker-thread GTK "
-        "pump (Option B), which is not implemented in PH07.  Unset the "
-        "env var to use the default same-thread pump (Option C, 5 ms tick), "
-        "or implement Option B in a follow-up phase.  See the [PH07] "
-        "Decision commit body for rationale."
-    )
-
-
-def _maybe_take_threaded_branch():
-    """Honour PICOLET_WV_THREADED=1.  Returns silently otherwise."""
-    try:
-        flag = os.environ.get("PICOLET_WV_THREADED")
-    except (AttributeError, NotImplementedError):
-        # MicroPython os.environ may be incomplete on some ports.
-        flag = None
-    if flag == "1":
-        _worker_thread_pump_stub()
-
 
 async def _run_with_pump(transport, main, dispatcher_run, pump=None):
     """Race the dispatcher + pump.  Cancel both when either is done.
@@ -230,6 +205,5 @@ def run(transport, main=None, pump=None):
     """
     if not _HAVE_ASYNCIO:
         raise RuntimeError("picolet_ui.run requires asyncio")
-    _maybe_take_threaded_branch()
     from picolet._dispatcher import _run_with_main
     return asyncio.run(_run_with_pump(transport, main, _run_with_main, pump))

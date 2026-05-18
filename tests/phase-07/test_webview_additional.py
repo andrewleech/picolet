@@ -1,12 +1,14 @@
 """CPython unit tests: pump responsiveness, toml parser, transport queue,
-threaded stub, and NFR-5 objdump check.
+and NFR-5 objdump check.
 
 Gates covered:
   Gate 16 — pump+event design under 50 back-to-back postMessages (< 25 ms each)
   F1  — _toml.loads parses [window] correctly for the runtime's config reader
   F2  — multiple postMessage round-trips preserve message order (queue)
-  F3  — PICOLET_WV_THREADED=1 raises NotImplementedError cleanly
   F4  — concurrent rapid postMessage deliveries arrive in order at recv()
+
+Note: F3 (PICOLET_WV_THREADED=1 stub) was removed in [PH16] — gate 16 passed
+without starvation; the worker-thread option is no longer supported.
 
 Run with:
     cd /home/anl/picolet
@@ -272,57 +274,6 @@ class TransportQueueOrderingTest(unittest.TestCase):
 
         count = asyncio.run(runner())
         self.assertEqual(count, 3)
-
-
-# ---------------------------------------------------------------------------
-# F3: Worker-thread option raises NotImplementedError
-# ---------------------------------------------------------------------------
-
-class ThreadedStubTest(unittest.TestCase):
-    """PICOLET_WV_THREADED=1 raises NotImplementedError; other values are no-ops."""
-
-    def test_threaded_env_raises_not_implemented_error(self):
-        from picolet_ui._loop import _worker_thread_pump_stub, _maybe_take_threaded_branch
-        with self.assertRaises(NotImplementedError) as ctx:
-            _worker_thread_pump_stub()
-        msg = str(ctx.exception)
-        self.assertIn("PICOLET_WV_THREADED=1", msg)
-        self.assertIn("Option B", msg)
-
-    def test_maybe_take_threaded_branch_raises_when_env_set(self):
-        from picolet_ui._loop import _maybe_take_threaded_branch
-        original = os.environ.get("PICOLET_WV_THREADED")
-        try:
-            os.environ["PICOLET_WV_THREADED"] = "1"
-            with self.assertRaises(NotImplementedError):
-                _maybe_take_threaded_branch()
-        finally:
-            if original is None:
-                os.environ.pop("PICOLET_WV_THREADED", None)
-            else:
-                os.environ["PICOLET_WV_THREADED"] = original
-
-    def test_maybe_take_threaded_branch_no_op_when_env_absent(self):
-        from picolet_ui._loop import _maybe_take_threaded_branch
-        original = os.environ.pop("PICOLET_WV_THREADED", None)
-        try:
-            # Must not raise
-            _maybe_take_threaded_branch()
-        finally:
-            if original is not None:
-                os.environ["PICOLET_WV_THREADED"] = original
-
-    def test_maybe_take_threaded_branch_no_op_when_env_zero(self):
-        from picolet_ui._loop import _maybe_take_threaded_branch
-        original = os.environ.get("PICOLET_WV_THREADED")
-        try:
-            os.environ["PICOLET_WV_THREADED"] = "0"
-            _maybe_take_threaded_branch()  # must not raise
-        finally:
-            if original is None:
-                os.environ.pop("PICOLET_WV_THREADED", None)
-            else:
-                os.environ["PICOLET_WV_THREADED"] = original
 
 
 # ---------------------------------------------------------------------------

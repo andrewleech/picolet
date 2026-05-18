@@ -377,31 +377,8 @@ else
     pass "$NAME"
 fi
 
-# F3: PICOLET_WV_THREADED=1 raises NotImplementedError.
-# NOTE: MicroPython's os module does not expose os.environ on this port,
-# so the env-var check silently falls back to same-thread pump in the frozen
-# runtime.  The NotImplementedError path is exercisable via CPython (where
-# os.environ.get exists), which is the correct test surface for the stub.
-NAME="F3 threaded-stub-raises-not-implemented"
-if ! command -v python3 >/dev/null 2>&1; then
-    skip "$NAME" "python3 not on PATH"
-else
-    THREADED_OUT="$(env PICOLET_WV_THREADED=1 python3 -c "
-import sys
-sys.path.insert(0, '${REPO_ROOT}/packages/picolet-runtime/python')
-from picolet_ui._loop import _maybe_take_threaded_branch
-try:
-    _maybe_take_threaded_branch()
-    print('no exception')
-except NotImplementedError as e:
-    print('NotImplementedError')
-" 2>&1)"
-    if echo "$THREADED_OUT" | grep -q "NotImplementedError"; then
-        pass "$NAME"
-    else
-        fail "$NAME" "expected NotImplementedError via CPython; got: $(printf '%q' "$THREADED_OUT")"
-    fi
-fi
+# F3: removed — PICOLET_WV_THREADED worker-thread stub deleted in [PH16].
+# Gate 16 passed without starvation; the option is no longer supported.
 
 # F4: unit test suite for this phase (both test files) passes.
 NAME="F4 unit-tests-pass"
