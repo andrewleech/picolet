@@ -1193,6 +1193,66 @@ class TransportClosedBeforeReplyTests(unittest.TestCase):
         self.assertIn("transport closed", str(exc))
 
 
+class TransportAbcTests(unittest.TestCase):
+    """A4 follow-up — Transport ABC enforcement on CPython.
+
+    On MicroPython the abc module is a no-op stub so instantiation of
+    incomplete subclasses does not raise TypeError at construction time;
+    those cases are skipped here.
+    """
+
+    _is_micropython = sys.implementation.name == "micropython"
+
+    def test_transport_cannot_be_instantiated_directly(self):
+        """Transport() itself must raise TypeError on CPython."""
+        from picolet._transport import Transport
+        if self._is_micropython:
+            self.skipTest("abc is a no-op on MicroPython; enforcement is duck-typed")
+        with self.assertRaises(TypeError):
+            Transport()
+
+    def test_subclass_missing_recv_raises(self):
+        """Subclass that omits recv must raise TypeError at instantiation on CPython."""
+        from picolet._transport import Transport
+        if self._is_micropython:
+            self.skipTest("abc is a no-op on MicroPython; enforcement is duck-typed")
+
+        class SendOnly(Transport):
+            async def send(self, msg):
+                pass
+
+        with self.assertRaises(TypeError):
+            SendOnly()
+
+    def test_subclass_missing_send_raises(self):
+        """Subclass that omits send must raise TypeError at instantiation on CPython."""
+        from picolet._transport import Transport
+        if self._is_micropython:
+            self.skipTest("abc is a no-op on MicroPython; enforcement is duck-typed")
+
+        class RecvOnly(Transport):
+            async def recv(self):
+                return None
+
+        with self.assertRaises(TypeError):
+            RecvOnly()
+
+    def test_fully_implemented_subclass_works(self):
+        """Subclass implementing both recv and send must be instantiable."""
+        from picolet._transport import Transport
+
+        class FullTransport(Transport):
+            async def recv(self):
+                return None
+
+            async def send(self, msg):
+                pass
+
+        # Must not raise on either CPython or MicroPython.
+        t = FullTransport()
+        self.assertIsInstance(t, Transport)
+
+
 class OversizedMessageTests(unittest.TestCase):
     """S4 — inbound message size cap on StdioTransport._recv_blocking.
 
@@ -1338,6 +1398,8 @@ def _suite():
         TransportClosedBeforeReplyTests,
         # S4 message size cap
         OversizedMessageTests,
+        # A4 follow-up — Transport ABC enforcement
+        TransportAbcTests,
     ):
         suite.addTests(loader.loadTestsFromTestCase(cls))
     return suite
