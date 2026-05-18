@@ -120,7 +120,9 @@ case "${TARGET}/${VARIANT}" in
         # PH24: native macOS x64 cli variant.  Builds on macos-13 CI runner.
         ;;
     macos-x64/webview)
-        # PH25/PH26: WKWebView variant — not yet implemented.
+        # PH25: WKWebView variant for macOS x64.  Builds on macos-13 CI runner.
+        # mpconfigvariant.mk adds picolet_webview_mac.c and the Apple framework
+        # linker flags when uname -s == Darwin.
         ;;
     macos-x64/lvgl)
         # PH27: SDL2/LVGL variant — not yet implemented.
@@ -129,7 +131,9 @@ case "${TARGET}/${VARIANT}" in
         # PH24: native macOS arm64 cli variant.  Builds on macos-14 CI runner.
         ;;
     macos-arm64/webview)
-        # PH25/PH26: WKWebView variant — not yet implemented.
+        # PH25: WKWebView variant for macOS arm64.  Builds on macos-14 CI runner.
+        # mpconfigvariant.mk adds picolet_webview_mac.c and the Apple framework
+        # linker flags when uname -s == Darwin.
         ;;
     macos-arm64/lvgl)
         # PH27: SDL2/LVGL variant — not yet implemented.
