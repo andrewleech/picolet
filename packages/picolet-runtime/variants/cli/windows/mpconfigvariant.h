@@ -25,6 +25,6 @@
  */
 
 // Per-variant config for the picolet cli runtime (windows-x64).
-// The shared macro set is in ../mpconfigvariant_picolet_common.h.
+// The shared macro set is in ../../common/windows/mpconfigvariant_picolet_common.h.
 // This variant has no overrides beyond the common set.
-#include "../mpconfigvariant_picolet_common.h"
+#include "../../common/windows/mpconfigvariant_picolet_common.h"

@@ -28,6 +28,6 @@
 // libffi (MICROPY_PY_FFI) is on for both variants and is required here
 // for the WebKitGTK 4.1 bindings under packages/picolet-runtime/python/picolet_ui.
 // Webview variant is Linux-only; Windows webview lands in PH10 via WebView2.
-// The shared macro set is in ../mpconfigvariant_picolet_common.h.
+// The shared macro set is in ../../common/unix/mpconfigvariant_picolet_common.h.
 // This variant has no overrides beyond the common set.
-#include "../mpconfigvariant_picolet_common.h"
+#include "../../common/unix/mpconfigvariant_picolet_common.h"

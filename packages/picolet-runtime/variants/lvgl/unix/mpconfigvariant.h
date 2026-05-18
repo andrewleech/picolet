@@ -27,8 +27,8 @@
 // Per-variant config for the picolet lvgl runtime (linux-x64, PH11).
 // The lvgl renderer enters via USER_C_MODULES rather than ffi.
 // LVGL variant is Linux-only in PH11; Windows LVGL lands in PH12.
-// The shared macro set is in ../mpconfigvariant_picolet_common.h.
-#include "../mpconfigvariant_picolet_common.h"
+// The shared macro set is in ../../common/unix/mpconfigvariant_picolet_common.h.
+#include "../../common/unix/mpconfigvariant_picolet_common.h"
 
 // LVGL binding needs the scheduler to call mp_sched_schedule from C
 // without holding the GIL (it doesn't hold one in MicroPython).  This

@@ -1,11 +1,11 @@
 # Lean variant for the picolet lvgl runtime (windows-x64, PH12).
 #
-# Forked from overlay/ports/unix/variants/picolet-lvgl/mpconfigvariant.mk.
+# Forked from variants/lvgl/unix/mpconfigvariant.mk.
 # Deltas from the Linux version:
 #   - MICROPY_STANDALONE is not set (Windows Makefile handles libffi via deplibs).
 #   - FROZEN_MANIFEST points at manifest_lvgl_windows.py.
 #   - SDL2 cflags and ldflags are injected directly (MXE static path).
-#   - LV_CONF_PATH reuses the Linux lv_conf.h (content is platform-agnostic).
+#   - LV_CONF_PATH reuses the unix lv_conf.h (content is platform-agnostic).
 
 MXE_ROOT := /usr/src/mxe/usr/x86_64-w64-mingw32.static.posix
 
@@ -22,15 +22,15 @@ MICROPY_SSL_AXTLS = 0
 # picolet_ui (the same Python surface as the Linux lvgl variant).
 FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_lvgl_windows.py
 
-# USER_C_MODULES points at the parent directory of the overlay submodule
-# (overlay/lib).  MicroPython's py.mk walks subdirectories looking for
+# USER_C_MODULES points at the parent directory of lv_binding_micropython.
+# MicroPython's py.mk walks subdirectories looking for
 # $(USER_C_MODULES)/*/micropython.mk; the binding's micropython.mk lives
 # at lv_binding_micropython/micropython.mk under that root.
-USER_C_MODULES = $(PICOLET_RUNTIME_ROOT)/overlay/lib
+USER_C_MODULES = $(PICOLET_RUNTIME_ROOT)/lib
 
 # Override lv_binding_micropython's default lv_conf.h with the picolet
-# overlay copy (content is platform-agnostic pure C preprocessor directives).
-LV_CONF_PATH = $(PICOLET_RUNTIME_ROOT)/overlay/ports/unix/variants/picolet-lvgl/lv_conf.h
+# hand-tuned copy (content is platform-agnostic pure C preprocessor directives).
+LV_CONF_PATH = $(PICOLET_RUNTIME_ROOT)/variants/lvgl/unix/lv_conf.h
 
 # Tell lv_conf.h to enable LV_USE_SDL (guarded on MICROPY_SDL there).
 # This bypasses the binding's pkg-config SDL2 detection which is only
@@ -68,7 +68,7 @@ LIB += -lsetupapi -luuid -ladvapi32 -lshell32
 # Also include the SDL2 headers so the CPP can resolve <SDL2/SDL.h>
 # during preprocessing (gen_mpy.py only needs type information, not
 # the actual SDL symbols — those come at link time from libSDL2.a).
-LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/overlay/lib/lv_binding_micropython/lvgl/src/drivers/lv_drivers.h \
+LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/lib/lv_binding_micropython/lvgl/src/drivers/lv_drivers.h \
             -DMICROPY_SDL=1 \
             -I$(MXE_ROOT)/include
 
@@ -95,6 +95,6 @@ LDFLAGS += -Wl,--gc-sections
 #CFLAGS_EXTRA += -flto
 #LDFLAGS += -flto
 
-# romfs_trailer.c has been consolidated to shared/romfs_trailer.c (A4/S6/Q15).
-# The Windows port Makefile appends it to SRC_C explicitly after the SRC_C =
-# block; no variant-level SRC_C += is needed or possible here.
+# romfs_trailer.c is in variants/common/ (out-of-tree).
+# The Windows port Makefile appends it to SRC_C after the SRC_C = block;
+# that path reference is updated in the Makefile separately.

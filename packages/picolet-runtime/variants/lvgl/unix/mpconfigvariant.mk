@@ -2,11 +2,11 @@
 #
 # Forked from picolet-webview/mpconfigvariant.mk.  Three deltas:
 #   - FROZEN_MANIFEST points at manifest_lvgl.py
-#   - USER_C_MODULES points at the lv_binding_micropython overlay
-#     submodule so the LVGL widget library + bindings build as a
-#     USER_C_MODULE.
+#   - USER_C_MODULES points at the lv_binding_micropython submodule
+#     (packages/picolet-runtime/lib/lv_binding_micropython) so the LVGL
+#     widget library + bindings build as a USER_C_MODULE.
 #   - LV_CONF_PATH points at the hand-tuned lv_conf.h colocated with
-#     this file (overlay/ports/unix/variants/picolet-lvgl/lv_conf.h).
+#     this file (variants/lvgl/unix/lv_conf.h).
 #
 # libffi (MICROPY_PY_FFI=1) is kept on for symmetry with the webview
 # variant.  picolet_ui's shared _loop / _toml machinery uses it; lvgl
@@ -27,22 +27,20 @@ MICROPY_SSL_AXTLS = 0
 # _loop with _lvgl_pump).
 FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_lvgl.py
 
-# USER_C_MODULES points at the parent directory of the overlay
-# submodule (overlay/lib).  MicroPython's py.mk walks subdirectories
-# looking for $(USER_C_MODULES)/*/micropython.mk; the binding's
-# micropython.mk lives at lv_binding_micropython/micropython.mk under
-# that root.  The binding consumes USERMOD_DIR (set to its own
-# directory by py.mk's foreach), finds the lvgl submodule under
-# $(USERMOD_DIR)/lvgl, runs gen_mpy.py at make-time to produce
-# lv_mpy.c, and links the result into the runtime binary.
-USER_C_MODULES = $(PICOLET_RUNTIME_ROOT)/overlay/lib
+# USER_C_MODULES points at the parent directory of lv_binding_micropython.
+# MicroPython's py.mk walks subdirectories looking for
+# $(USER_C_MODULES)/*/micropython.mk; the binding's micropython.mk lives at
+# lv_binding_micropython/micropython.mk under that root.  The binding
+# consumes USERMOD_DIR (set to its own directory by py.mk's foreach), finds
+# the lvgl submodule under $(USERMOD_DIR)/lvgl, runs gen_mpy.py at make-time
+# to produce lv_mpy.c, and links the result into the runtime binary.
+USER_C_MODULES = $(PICOLET_RUNTIME_ROOT)/lib
 
-# Override lv_binding_micropython's default lv_conf.h with our hand-
-# tuned overlay copy.  micropython.mk reads $(LV_CONF_PATH) and emits
-# -DLV_CONF_PATH="<file>" into the compiler invocation.  Without this
-# override the build picks up the binding's default lv_conf.h (which
-# enables most widgets and blows NFR-3).
-LV_CONF_PATH = $(PICOLET_RUNTIME_ROOT)/overlay/ports/unix/variants/picolet-lvgl/lv_conf.h
+# Override lv_binding_micropython's default lv_conf.h with our hand-tuned
+# copy.  micropython.mk reads $(LV_CONF_PATH) and emits -DLV_CONF_PATH="<file>"
+# into the compiler invocation.  Without this override the build picks up the
+# binding's default lv_conf.h (which enables most widgets and blows NFR-3).
+LV_CONF_PATH = $(PICOLET_RUNTIME_ROOT)/variants/lvgl/unix/lv_conf.h
 
 # Force the binding's CPP preprocessing step (which feeds gen_mpy.py)
 # to also include lv_drivers.h so SDL window/input functions land in
@@ -65,7 +63,7 @@ LV_CONF_PATH = $(PICOLET_RUNTIME_ROOT)/overlay/ports/unix/variants/picolet-lvgl/
 # doesn't reach it directly — instead we extend CFLAGS_USERMOD via
 # a deferred assignment hook by setting LV_CFLAGS which the binding
 # explicitly forwards (CFLAGS_USERMOD += $(LV_CFLAGS)).
-LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/overlay/lib/lv_binding_micropython/lvgl/src/drivers/lv_drivers.h
+LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/lib/lv_binding_micropython/lvgl/src/drivers/lv_drivers.h
 
 # SDL2 flags — platform-specific resolution.
 #
@@ -98,17 +96,15 @@ endif
 # (The binding's micropython.mk already includes equivalent logic;
 # this comment documents the path for readers.)
 
-# romfs_trailer.c lives in the shared overlay directory (shared/romfs_trailer.c
-# after the overlay copy step).  The unix port's $(wildcard $(VARIANT_DIR)/*.c)
-# no longer picks it up, so we add it explicitly here.
-SRC_C += shared/romfs_trailer.c
-INC += -I$(TOP)/shared
+# romfs_trailer.c lives in variants/common/ (out-of-tree).
+SRC_C += $(PICOLET_RUNTIME_ROOT)/variants/common/romfs_trailer.c
+INC += -I$(PICOLET_RUNTIME_ROOT)/variants/common
 
 # PH17 — PNG encoder for picolet._test.snapshot() (FR-TEST-2).
 # picolet_lvgl_png.c uses dlopen to load libz.so.1 at runtime; no static
 # link of zlib is needed (satisfies NFR-5).
-SRC_C += $(PICOLET_RUNTIME_ROOT)/overlay/modules/picolet_lvgl_test/picolet_lvgl_png.c
-INC += -I$(PICOLET_RUNTIME_ROOT)/overlay/modules/picolet_lvgl_test
+SRC_C += $(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_lvgl_test/picolet_lvgl_png.c
+INC += -I$(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_lvgl_test
 # Export the picolet_lvgl_png_* symbols so libffi.ffi.open(None) can resolve them.
 # LDFLAGS_EXTRA survives py.mk's LDFLAGS_USERMOD := reset (variant mk is
 # loaded before py.mk's foreach loop which resets LDFLAGS_USERMOD to empty).

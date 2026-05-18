@@ -29,6 +29,6 @@
 // the bundled WebView2Loader.dll (added by `picolet build` into the app romfs), and
 // the picolet_webview2 C overlay statically linked into this variant.
 // NFR-2 ceiling is 2 MiB (not 1 MiB as for cli).
-// The shared macro set is in ../mpconfigvariant_picolet_common.h.
+// The shared macro set is in ../../common/windows/mpconfigvariant_picolet_common.h.
 // This variant has no macro overrides beyond the common set.
-#include "../mpconfigvariant_picolet_common.h"
+#include "../../common/windows/mpconfigvariant_picolet_common.h"

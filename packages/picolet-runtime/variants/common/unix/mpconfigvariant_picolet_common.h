@@ -68,8 +68,10 @@
 #define MICROPY_GC_SPLIT_HEAP_ADD           (1)
 
 // --- Pull in the unix-port common variant config ------------------------
+// Use angle-bracket include so GCC resolves via -I$(TOP) (micropython root)
+// rather than relative to this file's out-of-tree location.
 
-#include "../mpconfigvariant_common.h"
+#include <ports/unix/variants/mpconfigvariant_common.h>
 
 // --- Override macros set unconditionally by mpconfigvariant_common.h ----
 // The common header uses plain #define (no #ifndef) for these, so we must

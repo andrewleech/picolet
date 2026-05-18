@@ -18,11 +18,9 @@ MICROPY_SSL_AXTLS = 0
 # and picolet_ui (PH07 WebKitGTK bindings on Linux; PH25 WKWebView on macOS).
 FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_webview_unix.py
 
-# romfs_trailer.c lives in the shared overlay directory (shared/romfs_trailer.c
-# after the overlay copy step).  The unix port's $(wildcard $(VARIANT_DIR)/*.c)
-# no longer picks it up, so we add it explicitly here.
-SRC_C += shared/romfs_trailer.c
-INC += -I$(TOP)/shared
+# romfs_trailer.c lives in variants/common/ (out-of-tree).
+SRC_C += $(PICOLET_RUNTIME_ROOT)/variants/common/romfs_trailer.c
+INC += -I$(PICOLET_RUNTIME_ROOT)/variants/common
 
 # ---------------------------------------------------------------------------
 # Platform-specific source files and linker flags (PH25)
@@ -37,11 +35,13 @@ INC += -I$(TOP)/shared
 # On Linux, the existing WebKitGTK 4.1 path applies; no additional source
 # or link flags are needed here (the GTK libraries are loaded dynamically
 # at runtime via ffi.open in _gtk_ffi.py).
+#
+# picolet_webview_mac.c is in VARIANT_DIR and picked up by the port's
+# $(wildcard $(VARIANT_DIR)/*.c) — no explicit SRC_C += needed.
 # ---------------------------------------------------------------------------
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-SRC_C += picolet_webview_mac.c
 CFLAGS_EXTRA += -fvisibility=hidden
 LDFLAGS_EXTRA += -Wl,-export_dynamic
 LDFLAGS_EXTRA += -framework Cocoa -framework WebKit -framework Foundation

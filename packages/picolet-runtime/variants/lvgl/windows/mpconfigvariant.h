@@ -25,8 +25,8 @@
  */
 
 // Per-variant config for the picolet lvgl runtime (windows-x64, PH12).
-// The shared macro set is in ../mpconfigvariant_picolet_common.h.
-#include "../mpconfigvariant_picolet_common.h"
+// The shared macro set is in ../../common/windows/mpconfigvariant_picolet_common.h.
+#include "../../common/windows/mpconfigvariant_picolet_common.h"
 
 // LVGL binding needs the scheduler to call mp_sched_schedule from C
 // without holding the GIL.  This is on by default in
