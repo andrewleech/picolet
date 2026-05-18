@@ -17,47 +17,18 @@ import asyncio
 import os
 import sys
 
+from picolet.romfs_extract import extract_dir
 
 # ---------------------------------------------------------------------------
 # Windows DLL extraction — MUST run before any module that imports _usb.core,
 # because core.py calls ffi.open at module load time and Windows LoadLibrary
 # cannot read from the MicroPython romfs VFS.
+# picolet.romfs_extract handles the platform check and idempotency; it is a
+# no-op on non-Windows.
 # ---------------------------------------------------------------------------
 
-def _extract_native_libs():
-    """On Windows, copy libusb-1.0.dll out of romfs into a real-filesystem
-    temp directory so LoadLibrary can find it.  Returns the directory path
-    or None on non-Windows / no-op cases.
-    """
-    if sys.platform != "win32":
-        return None
-    dll_name = "libusb-1.0.dll"
-    romfs_dll = "/rom/src/_usb/" + dll_name
-    try:
-        os.stat(romfs_dll)
-    except OSError:
-        return None  # not in romfs (maybe system install present)
-    temp_base = os.getenv("TEMP") or os.getenv("TMP") or "C:\\Windows\\Temp"
-    extract_dir = temp_base + "\\picolet_pydfu"
-    try:
-        os.mkdir(extract_dir)
-    except OSError:
-        pass
-    dest = extract_dir + "\\" + dll_name
-    try:
-        os.stat(dest)
-    except OSError:
-        with open(romfs_dll, "rb") as src, open(dest, "wb") as dst:
-            while True:
-                chunk = src.read(4096)
-                if not chunk:
-                    break
-                dst.write(chunk)
-    return extract_dir
-
-
-_native_lib_dir = _extract_native_libs()
-if _native_lib_dir:
+_native_lib_dir = extract_dir("/rom/src/_usb", subdir="picolet_pydfu")
+if _native_lib_dir != "/rom/src/_usb":  # i.e. we're on Windows and extracted
     import _usb
     _usb._native_lib_dir = _native_lib_dir
 

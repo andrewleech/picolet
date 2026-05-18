@@ -1,11 +1,12 @@
 """
-PH19 — smoke test for _extract_native_libs in pydfu main.py.
+PH19 — verify pydfu main.py uses picolet.romfs_extract instead of the old
+local _extract_native_libs() function.
 
-Verifies:
-  - The function exists and is callable.
-  - On non-Windows (Linux), returns None without raising.
-  - The import order in main.py places the extraction and _usb attribute
-    assignment before any pydfu_adapter import.
+Tests:
+  - The old _extract_native_libs function is gone from main.py.
+  - main.py imports extract_dir from picolet.romfs_extract.
+  - The extract_dir call and the _usb._native_lib_dir assignment both
+    precede 'import pydfu_adapter' (import-order invariant).
 """
 from __future__ import annotations
 
@@ -14,13 +15,18 @@ import sys
 import unittest
 from pathlib import Path
 
-MAIN_PY = Path(__file__).parent.parent.parent / "examples" / "pydfu" / "src" / "main.py"
+_REPO_ROOT = Path(__file__).parent.parent.parent
+_PICOLET_PYTHON = _REPO_ROOT / "packages" / "picolet-runtime" / "python"
+if str(_PICOLET_PYTHON) not in sys.path:
+    sys.path.insert(0, str(_PICOLET_PYTHON))
+
+MAIN_PY = _REPO_ROOT / "examples" / "pydfu" / "src" / "main.py"
 
 
-class TestExtractNativeLibsExists(unittest.TestCase):
+class TestPydfuUsesSharedExtract(unittest.TestCase):
 
-    def test_function_defined_in_main(self):
-        """_extract_native_libs must be defined at module top in main.py."""
+    def test_old_function_removed(self):
+        """_extract_native_libs must no longer be defined in main.py."""
         src = MAIN_PY.read_text()
         tree = ast.parse(src)
         func_names = [
@@ -28,64 +34,47 @@ class TestExtractNativeLibsExists(unittest.TestCase):
             for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef)
         ]
-        self.assertIn(
+        self.assertNotIn(
             "_extract_native_libs",
             func_names,
-            "_extract_native_libs function not found in main.py",
+            "_extract_native_libs function should have been removed from main.py",
         )
 
-    def test_noop_on_non_windows(self):
-        """On Linux the function must return None without side effects."""
-        if sys.platform == "win32":
-            self.skipTest("non-Windows only")
-
-        # Execute only the function definition by compiling the source and
-        # pulling the function object out without running module-level code.
+    def test_imports_extract_dir_from_romfs_extract(self):
+        """main.py must import extract_dir from picolet.romfs_extract."""
         src = MAIN_PY.read_text()
         tree = ast.parse(src)
 
-        # Extract just the function definition node.
-        func_def = None
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and node.name == "_extract_native_libs":
-                func_def = node
-                break
-        self.assertIsNotNone(func_def, "_extract_native_libs FunctionDef not found")
-
-        # Compile and exec only that function definition; inject the stdlib
-        # names the function uses so it runs without importing main.py fully.
-        import os as _os
-        module = ast.Module(body=[func_def], type_ignores=[])
-        code = compile(module, str(MAIN_PY), "exec")
-        ns: dict = {"sys": sys, "os": _os}
-        exec(code, ns)  # noqa: S102
-
-        fn = ns["_extract_native_libs"]
-        result = fn()
-        self.assertIsNone(result, "expected None on non-Windows, got {!r}".format(result))
+        found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module == "picolet.romfs_extract":
+                    names = [alias.name for alias in node.names]
+                    if "extract_dir" in names:
+                        found = True
+                        break
+        self.assertTrue(
+            found,
+            "main.py must contain 'from picolet.romfs_extract import extract_dir'",
+        )
 
     def test_import_order_extract_before_pydfu_adapter(self):
-        """The _extract_native_libs call and _usb attr assignment must appear
-        before 'import pydfu_adapter' in main.py (by source line number)."""
+        """The extract_dir call and _usb attr assignment must appear before
+        'import pydfu_adapter' (by source line number)."""
         src = MAIN_PY.read_text()
         tree = ast.parse(src)
 
-        extract_call_line = None
+        extract_dir_import_line = None
         usb_attr_line = None
         pydfu_adapter_line = None
 
         for node in ast.walk(tree):
-            # _native_lib_dir = _extract_native_libs()
+            # from picolet.romfs_extract import extract_dir
             if (
-                isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id == "_native_lib_dir"
-                and isinstance(node.value, ast.Call)
-                and isinstance(node.value.func, ast.Name)
-                and node.value.func.id == "_extract_native_libs"
+                isinstance(node, ast.ImportFrom)
+                and node.module == "picolet.romfs_extract"
             ):
-                extract_call_line = node.lineno
+                extract_dir_import_line = node.lineno
 
             # _usb._native_lib_dir = _native_lib_dir
             if (
@@ -104,15 +93,24 @@ class TestExtractNativeLibsExists(unittest.TestCase):
                     if alias.name == "pydfu_adapter":
                         pydfu_adapter_line = node.lineno
 
-        self.assertIsNotNone(extract_call_line, "_native_lib_dir = _extract_native_libs() call not found")
-        self.assertIsNotNone(usb_attr_line, "_usb._native_lib_dir assignment not found")
-        self.assertIsNotNone(pydfu_adapter_line, "import pydfu_adapter not found")
+        self.assertIsNotNone(
+            extract_dir_import_line,
+            "'from picolet.romfs_extract import extract_dir' not found in main.py",
+        )
+        self.assertIsNotNone(
+            usb_attr_line,
+            "_usb._native_lib_dir assignment not found in main.py",
+        )
+        self.assertIsNotNone(
+            pydfu_adapter_line,
+            "'import pydfu_adapter' not found in main.py",
+        )
 
         self.assertLess(
-            extract_call_line,
+            extract_dir_import_line,
             pydfu_adapter_line,
-            "_extract_native_libs() call (line {}) must precede 'import pydfu_adapter' (line {})".format(
-                extract_call_line, pydfu_adapter_line
+            "romfs_extract import (line {}) must precede 'import pydfu_adapter' (line {})".format(
+                extract_dir_import_line, pydfu_adapter_line
             ),
         )
         self.assertLess(
@@ -121,6 +119,20 @@ class TestExtractNativeLibsExists(unittest.TestCase):
             "_usb._native_lib_dir assignment (line {}) must precede 'import pydfu_adapter' (line {})".format(
                 usb_attr_line, pydfu_adapter_line
             ),
+        )
+
+    def test_noop_on_non_windows(self):
+        """On Linux, extract_dir('/rom/src/_usb') returns the input unchanged."""
+        if sys.platform == "win32":
+            self.skipTest("non-Windows only")
+
+        # romfs_extract checks sys.platform at call time, not at import time.
+        import picolet.romfs_extract as rext
+        result = rext.extract_dir("/rom/src/_usb", subdir="picolet_pydfu")
+        self.assertEqual(
+            result,
+            "/rom/src/_usb",
+            "extract_dir must return input unchanged on non-Windows",
         )
 
 

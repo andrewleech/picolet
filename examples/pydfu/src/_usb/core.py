@@ -79,10 +79,13 @@ libusb_interface_descriptor = {
 # Linux: system libusb-1.0.so.0.
 # Windows: extracted DLL from romfs (set by main.py before this import),
 #          falling back to system PATH if not extracted.
+# The extraction is performed by picolet.romfs_extract.extract_dir() in
+# main.py, which copies the DLL to %TEMP%\picolet_pydfu\ and sets
+# _usb._native_lib_dir before any module that transitively imports this
+# one is loaded.
 if sys.platform == "win32":
-    # Prefer the path set by the host app's romfs extraction step (main.py
-    # extracts the DLL to %TEMP%\picolet_pydfu\ and sets _usb._native_lib_dir
-    # before importing any module that transitively imports this one).
+    # Prefer the path set by the host app's romfs extraction step (via
+    # picolet.romfs_extract — see main.py).
     import _usb as _usb_pkg
     _extracted_dir = getattr(_usb_pkg, "_native_lib_dir", None)
     if _extracted_dir:
