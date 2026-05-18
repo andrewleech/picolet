@@ -31,6 +31,21 @@ import os
 import sys
 import json
 
+# MicroPython ships a minimal abc stub (python-stdlib/abc/abc.py) where
+# abstractmethod is a no-op decorator and ABCMeta provides no enforcement.
+# Using abc here still benefits CPython callers (e.g. unit-test runners),
+# which get a TypeError at instantiation when an abstract method is not
+# overridden.  On MicroPython the duck-type contract is unchanged.
+try:
+    from abc import ABC, abstractmethod
+except ImportError:
+    # Fallback for environments where abc is not available at all.
+    class ABC:  # type: ignore[no-redef]
+        pass
+
+    def abstractmethod(f):  # type: ignore[no-redef]
+        return f
+
 # ---------------------------------------------------------------------------
 # Inbound message size cap (S4).
 #
@@ -134,11 +149,13 @@ _IS_MICROPYTHON = sys.implementation.name == "micropython"
 # ---------------------------------------------------------------------------
 
 
-class Transport:
-    """Documentation-only base class for transports.
+class Transport(ABC):
+    """Abstract base class for transports.
 
-    Implementations need only provide ``recv``, ``send``, and ``close``
-    as async methods.  Subclassing is not required.
+    Subclasses must implement ``recv`` and ``send``.  On CPython,
+    instantiating a subclass that omits either raises ``TypeError`` at
+    construction time.  On MicroPython the ``abc`` module is a stub so
+    the duck-type contract is enforced at first call instead.
 
     Concurrency contract:
         - ``send`` may be called from multiple tasks concurrently.  The
@@ -150,9 +167,11 @@ class Transport:
           implementation must hold an ``asyncio.Lock``.
     """
 
+    @abstractmethod
     async def recv(self):
         raise NotImplementedError
 
+    @abstractmethod
     async def send(self, msg):
         raise NotImplementedError
 
