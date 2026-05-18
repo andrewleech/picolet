@@ -3,6 +3,9 @@ name = "{{name}}"
 version = "0.1.0"
 entry = "src/main.py"
 
+[build]
+targets = ["linux-x64", "windows-x64"]
+
 [ui]
 renderer = "webview"
 root = "ui"
@@ -18,3 +21,9 @@ dev_url = "http://localhost:5173/"
 title = "{{name}}"
 size = [1200, 800]
 resizable = true
+
+[romfs]
+# Include the _usb package directory verbatim so the vendored libusb-1.0.dll
+# is bundled in the romfs alongside the _usb Python modules.  On Windows the
+# runtime loads the DLL from the same directory as core.py (via __file__).
+include = ["src/_usb"]
