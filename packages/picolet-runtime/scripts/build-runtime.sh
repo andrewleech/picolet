@@ -151,6 +151,14 @@ VARIANT_NAME="picolet-${VARIANT}"          # e.g. picolet-cli
 BUILD_DIR="$PKG_ROOT/build"
 UNIX_PORT="$SUBMODULE/ports/unix"
 
+# PICOLET_RUNTIME: absolute path to packages/picolet-runtime/ — passed to make
+# as PICOLET_RUNTIME_ROOT so variant .mk files can reference out-of-tree paths.
+PICOLET_RUNTIME="$(realpath "$PKG_ROOT")"
+
+# Out-of-tree variant dirs (new layout: variants/<variant>/<port>/).
+VARIANT_DIR_UNIX="$PICOLET_RUNTIME/variants/$VARIANT/unix"
+VARIANT_DIR_WINDOWS="$PICOLET_RUNTIME/variants/$VARIANT/windows"
+
 # ---------------------------------------------------------------------------
 # linux-x64 build container setup
 #
@@ -352,12 +360,7 @@ build_linux_x64() {
         echo "  integration branch not found; running rebuild-integration.sh"
         "$SCRIPT_DIR/rebuild-integration.sh"
     else
-        if [[ ! -d "$UNIX_PORT/variants/${VARIANT_NAME}" ]]; then
-            echo "  overlay not applied; running rebuild-integration.sh"
-            "$SCRIPT_DIR/rebuild-integration.sh"
-        else
-            echo "  integration branch warm; skipping rebuild"
-        fi
+        echo "  integration branch warm; skipping rebuild"
     fi
 
     git -C "$SUBMODULE" checkout integration --quiet
@@ -375,14 +378,13 @@ build_linux_x64() {
         exit 1
     fi
 
-    # PH11: lvgl variant pulls lv_binding_micropython (+ its nested
-    # lvgl/lvgl and pycparser submodules) under overlay/lib/.  Init
-    # them here so the USER_C_MODULES path is populated before make.
+    # lvgl variant: init lv_binding_micropython (now at lib/, not overlay/lib/).
     if [[ "$VARIANT" == "lvgl" ]]; then
-        local lvbm_dir="$PKG_ROOT/overlay/lib/lv_binding_micropython"
+        local lvbm_dir="$PKG_ROOT/lib/lv_binding_micropython"
         echo "  ensuring lv_binding_micropython nested submodules"
         if [[ ! -d "$lvbm_dir/lvgl/src" ]] || [[ ! -d "$lvbm_dir/pycparser/pycparser" ]]; then
-            git -C "$lvbm_dir" submodule update --init --recursive --quiet
+            git -C "$REPO_ROOT" submodule update --init --recursive \
+                packages/picolet-runtime/lib/lv_binding_micropython --quiet
         fi
         if [[ ! -d "$lvbm_dir/lvgl/src" ]]; then
             echo "error: lvgl source tree not present after submodule update" >&2
@@ -395,7 +397,8 @@ build_linux_x64() {
 
     echo "[4/8] Fetching port submodules (libffi)"
     make -C "$UNIX_PORT" -j submodules \
-        VARIANT="${VARIANT_NAME}" \
+        VARIANT_DIR="$VARIANT_DIR_UNIX" \
+        BUILD="build-${VARIANT_NAME}" \
         MICROPY_STANDALONE=1
 
     # Warm-cache mitigation: when ffi.h and libffi.a already exist from a prior
@@ -437,16 +440,18 @@ build_linux_x64() {
     else
         docker_linux "$UNIX_PORT" make \
             -j \
-            VARIANT="${VARIANT_NAME}" \
+            VARIANT_DIR="$VARIANT_DIR_UNIX" \
+            BUILD="build-${VARIANT_NAME}" \
             MICROPY_STANDALONE=1 \
-            PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+            PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
             deplibs
     fi
     docker_linux "$UNIX_PORT" make \
         -j \
-        VARIANT="${VARIANT_NAME}" \
+        VARIANT_DIR="$VARIANT_DIR_UNIX" \
+        BUILD="build-${VARIANT_NAME}" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
-        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")"
+        PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME"
 
     echo "[7/8] Stripping and installing artifact"
     local built_binary="$variant_build/micropython"
@@ -510,12 +515,7 @@ build_macos() {
         echo "  integration branch not found; running rebuild-integration.sh"
         "$SCRIPT_DIR/rebuild-integration.sh"
     else
-        if [[ ! -d "$UNIX_PORT/variants/${VARIANT_NAME}" ]]; then
-            echo "  overlay not applied; running rebuild-integration.sh"
-            "$SCRIPT_DIR/rebuild-integration.sh"
-        else
-            echo "  integration branch warm; skipping rebuild"
-        fi
+        echo "  integration branch warm; skipping rebuild"
     fi
 
     git -C "$SUBMODULE" checkout integration --quiet
@@ -533,13 +533,14 @@ build_macos() {
         exit 1
     fi
 
-    # PH27: lvgl variant — init lv_binding_micropython and locate brew SDL2.
+    # lvgl variant — init lv_binding_micropython (now at lib/) and locate brew SDL2.
     local SDL2_INCLUDE_DIR="" SDL2_LIB_DIR=""
     if [[ "$VARIANT" == "lvgl" ]]; then
-        local lvbm_dir="$PKG_ROOT/overlay/lib/lv_binding_micropython"
+        local lvbm_dir="$PKG_ROOT/lib/lv_binding_micropython"
         echo "  ensuring lv_binding_micropython nested submodules"
         if [[ ! -d "$lvbm_dir/lvgl/src" ]] || [[ ! -d "$lvbm_dir/pycparser/pycparser" ]]; then
-            git -C "$lvbm_dir" submodule update --init --recursive --quiet
+            git -C "$REPO_ROOT" submodule update --init --recursive \
+                packages/picolet-runtime/lib/lv_binding_micropython --quiet
         fi
         if [[ ! -d "$lvbm_dir/lvgl/src" ]]; then
             echo "error: lvgl source tree not present after submodule update" >&2
@@ -568,7 +569,8 @@ build_macos() {
 
     echo "[4/8] Fetching port submodules (libffi)"
     make -C "$UNIX_PORT" -j submodules \
-        VARIANT="${VARIANT_NAME}" \
+        VARIANT_DIR="$VARIANT_DIR_UNIX" \
+        BUILD="build-${VARIANT_NAME}" \
         MICROPY_STANDALONE=1
 
     # Warm-cache mitigation: same logic as the Linux path.
@@ -614,17 +616,19 @@ build_macos() {
     else
         make -C "$UNIX_PORT" \
             -j \
-            VARIANT="${VARIANT_NAME}" \
+            VARIANT_DIR="$VARIANT_DIR_UNIX" \
+            BUILD="build-${VARIANT_NAME}" \
             MICROPY_STANDALONE=1 \
-            PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+            PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
             "${EXTRA_MAKE_VARS[@]}" \
             deplibs
     fi
     make -C "$UNIX_PORT" \
         -j \
-        VARIANT="${VARIANT_NAME}" \
+        VARIANT_DIR="$VARIANT_DIR_UNIX" \
+        BUILD="build-${VARIANT_NAME}" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
-        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+        PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
         "${EXTRA_MAKE_VARS[@]}"
 
     echo "[7/8] Stripping and installing artifact"
@@ -683,12 +687,7 @@ build_windows_x64() {
         echo "  integration branch not found; running rebuild-integration.sh"
         "$SCRIPT_DIR/rebuild-integration.sh"
     else
-        if [[ ! -d "$windows_port/variants/${VARIANT_NAME}" ]]; then
-            echo "  Windows overlay not applied; running rebuild-integration.sh"
-            "$SCRIPT_DIR/rebuild-integration.sh"
-        else
-            echo "  integration branch warm; skipping rebuild"
-        fi
+        echo "  integration branch warm; skipping rebuild"
     fi
 
     git -C "$SUBMODULE" checkout integration --quiet
@@ -706,14 +705,13 @@ build_windows_x64() {
         exit 1
     fi
 
-    # PH12: lvgl variant pulls lv_binding_micropython (+ its nested
-    # lvgl/lvgl and pycparser submodules) under overlay/lib/.  Init
-    # them here so the USER_C_MODULES path is populated before make.
+    # lvgl variant: init lv_binding_micropython (now at lib/, not overlay/lib/).
     if [[ "$VARIANT" == "lvgl" ]]; then
-        local lvbm_dir="$PKG_ROOT/overlay/lib/lv_binding_micropython"
+        local lvbm_dir="$PKG_ROOT/lib/lv_binding_micropython"
         echo "  ensuring lv_binding_micropython nested submodules"
         if [[ ! -d "$lvbm_dir/lvgl/src" ]] || [[ ! -d "$lvbm_dir/pycparser/pycparser" ]]; then
-            git -C "$lvbm_dir" submodule update --init --recursive --quiet
+            git -C "$REPO_ROOT" submodule update --init --recursive \
+                packages/picolet-runtime/lib/lv_binding_micropython --quiet
         fi
         if [[ ! -d "$lvbm_dir/lvgl/src" ]]; then
             echo "error: lvgl source tree not present after submodule update" >&2
@@ -857,7 +855,9 @@ build_windows_x64() {
     # The Windows Makefile's deplibs target adds lib/libffi to GIT_SUBMODULES
     # when MICROPY_PY_FFI=1 (set in the variant .mk).  We run `submodules` on
     # the host (pure git op, no compiler needed).
-    make -C "$windows_port" -j submodules VARIANT="${VARIANT_NAME}"
+    make -C "$windows_port" -j submodules \
+        VARIANT_DIR="$VARIANT_DIR_WINDOWS" \
+        BUILD="build-${VARIANT_NAME}"
 
     # Warm-cache mitigation for libffi: when ffi.h and libffi.a already exist
     # from a prior successful deplibs build, touch all relevant timestamps so
@@ -904,9 +904,10 @@ build_windows_x64() {
     else
         docker_windows "$windows_port" make \
             -j \
-            VARIANT="${VARIANT_NAME}" \
+            VARIANT_DIR="$VARIANT_DIR_WINDOWS" \
+            BUILD="build-${VARIANT_NAME}" \
             CROSS_COMPILE="$CROSS" \
-            PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+            PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
             "${EXTRA_MAKE_VARS[@]}" \
             deplibs
     fi
@@ -914,10 +915,11 @@ build_windows_x64() {
     echo "[6b/8] Building windows port variant=${VARIANT_NAME} inside dockcross"
     docker_windows "$windows_port" make \
         -j \
-        VARIANT="${VARIANT_NAME}" \
+        VARIANT_DIR="$VARIANT_DIR_WINDOWS" \
+        BUILD="build-${VARIANT_NAME}" \
         CROSS_COMPILE="$CROSS" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
-        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+        PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
         "${EXTRA_MAKE_VARS[@]}"
 
     echo "[7/8] Stripping and installing artifact"
