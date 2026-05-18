@@ -26,7 +26,7 @@ Covers:
   - main.css: border-radius: 0 is present in the global reset.
   - main.css: does NOT reference Inter, Roboto, or Arial font families.
   - main.css: .btn class has border-radius: 0.
-  - fonts: MonaspaceNeon-Regular.woff2 exists (or absent pending vendor, test skips gracefully).
+  - fonts: MonaspaceNeon-Regular.woff2 exists and is a valid non-empty woff2 file.
   - fonts: IBMPlexSans-Regular.woff2 exists.
   - fonts: IBMPlexSans-SemiBold.woff2 exists.
   - fonts: all woff2 files have woff2 magic bytes (0x774F4632).
@@ -346,18 +346,10 @@ class TestFontFiles(unittest.TestCase):
         return _FONTS_DIR / name
 
     def test_monaspace_neon_woff2_exists(self):
-        """MonaspaceNeon-Regular.woff2 must be present once vendored.
-
-        Skips gracefully when the file is absent (woff2 not yet vendored —
-        see runtime.toml PENDING note; CSS already references the correct path).
-        """
+        """MonaspaceNeon-Regular.woff2 must be present and non-empty."""
         f = self._font_path("MonaspaceNeon-Regular.woff2")
-        if not f.exists():
-            self.skipTest(
-                "MonaspaceNeon-Regular.woff2 not yet vendored in ui/public/fonts/ "
-                "(pending download from https://github.com/githubnext/monaspace/releases)"
-            )
-        self.assertTrue(f.exists())
+        self.assertTrue(f.exists(), f"MonaspaceNeon-Regular.woff2 not found: {f}")
+        self.assertGreater(f.stat().st_size, 0, "MonaspaceNeon-Regular.woff2 is empty")
 
     def test_ibm_plex_sans_regular_woff2_exists(self):
         self.assertTrue(
@@ -373,8 +365,7 @@ class TestFontFiles(unittest.TestCase):
 
     def test_monaspace_neon_has_woff2_magic(self):
         f = self._font_path("MonaspaceNeon-Regular.woff2")
-        if not f.exists():
-            self.skipTest("font file absent — pending vendor")
+        self.assertTrue(f.exists(), f"MonaspaceNeon-Regular.woff2 not found: {f}")
         self.assertEqual(f.read_bytes()[:4], _WOFF2_MAGIC)
 
     def test_ibm_plex_sans_regular_has_woff2_magic(self):
@@ -392,8 +383,7 @@ class TestFontFiles(unittest.TestCase):
     def test_monaspace_neon_size_reasonable(self):
         """woff2 should be at least 10 KB (not a placeholder)."""
         f = self._font_path("MonaspaceNeon-Regular.woff2")
-        if not f.exists():
-            self.skipTest("font file absent — pending vendor")
+        self.assertTrue(f.exists(), f"MonaspaceNeon-Regular.woff2 not found: {f}")
         self.assertGreater(f.stat().st_size, 10 * 1024)
 
 
