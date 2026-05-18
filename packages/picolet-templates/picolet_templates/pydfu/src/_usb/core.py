@@ -2,9 +2,10 @@
 # MIT license; Copyright (c) 2021-2024 Damien P. George
 #
 # Ported from pydfu-win/micropython/tools/pydfu_app/lib/usb/core.py.
-# Adaptation: Linux-only; uses libusb-1.0.so.0 (system package).
-# Windows raises NotImplementedError per FR-EX-7 (v1.1 scope).
+# Supports Linux (system libusb-1.0.so.0) and Windows (vendored
+# libusb-1.0.dll co-located with this module in the romfs).
 
+import os
 import sys
 import ffi
 import uctypes
@@ -74,13 +75,28 @@ libusb_interface_descriptor = {
     "extra_length": (_align_word(9) + 2 * UINTPTR_SIZE) | uctypes.INT,
 }
 
-# Linux only — system libusb-1.0.
+# Platform-aware library loading.
+# Linux: system libusb-1.0.so.0.
+# Windows: vendored libusb-1.0.dll co-located with this module in romfs.
 if sys.platform == "win32":
-    raise NotImplementedError(
-        "WinUSB support is post-v1.1 roadmap; see FR-EX-7 in v1.1-spec.md"
-    )
-
-libusb = ffi.open("libusb-1.0.so.0")
+    # Locate the DLL: try the directory containing this module first
+    # (romfs layout: /rom/src/_usb/libusb-1.0.dll), then fall back to
+    # system PATH so a host installation also works.
+    try:
+        _module_dir = os.path.dirname(__file__)
+    except (NameError, AttributeError):
+        _module_dir = ""
+    if _module_dir:
+        _dll_candidate = _module_dir + "/libusb-1.0.dll"
+    else:
+        _dll_candidate = "libusb-1.0.dll"
+    if _module_dir and os.path.exists(_dll_candidate):
+        _dll_path = _dll_candidate
+    else:
+        _dll_path = "libusb-1.0.dll"  # rely on system PATH
+    libusb = ffi.open(_dll_path)
+else:
+    libusb = ffi.open("libusb-1.0.so.0")
 
 libusb_init = libusb.func("i", "libusb_init", "p")
 libusb_exit = libusb.func("v", "libusb_exit", "p")
