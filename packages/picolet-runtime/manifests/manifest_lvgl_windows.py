@@ -15,6 +15,8 @@ add_library("python-ecosys", "$(MPY_LIB_DIR)/python-ecosys")
 include("$(MPY_DIR)/extmod/asyncio")
 
 require("os-path")
+require("pathlib")
+require("__future__")
 
 freeze("../python", "picolet")
 freeze("../python", "picolet_ui")

@@ -26,6 +26,8 @@ add_library("python-ecosys", "$(MPY_LIB_DIR)/python-ecosys")
 include("$(MPY_DIR)/extmod/asyncio")
 
 require("os-path")   # os.path module; consumed by user code routinely.
+require("pathlib")   # pathlib.Path; used by example apps (notes, config-editor).
+require("__future__")  # no-op shim; mpy-cross compiles from __future__ to bytecode.
 
 # picolet IPC dispatcher (PH06+).  freeze() with a base path and a
 # script="picolet" walks ../python/picolet/*.py and freezes them as the

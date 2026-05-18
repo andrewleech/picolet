@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:db870985-4dc8-4d6f-a64d-891826768d24",
+  "serialNumber": "urn:uuid:1cdc2216-12f4-4402-878c-5d78adbf6149",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-17T13:35:09.704542Z",
+    "timestamp": "2026-05-18T01:44:34.225618Z",
     "tools": [
       {
         "vendor": "picolet",
@@ -19,7 +19,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "364c3b518e3aba545333ef0afbc34323b9889923e2e2bfa0efb2b44d43bc8af6"
+          "content": "3e2f2c23b6de9f868c4d67418741ab4dbca44581348d02760cd2d7993bd3fc48"
         }
       ]
     }
@@ -81,7 +81,38 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime-monaspace-neon-2",
+      "bom-ref": "runtime-libusb-1-0-2",
+      "name": "libusb-1.0",
+      "version": "1.0.27",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/libusb/libusb"
+        }
+      ],
+      "purl": "pkg:deb/ubuntu/libusb-1.0-0@1.0.27-1",
+      "properties": [
+        {
+          "name": "picolet:link_type",
+          "value": "dynamic"
+        },
+        {
+          "name": "picolet:targets",
+          "value": "linux-x64"
+        }
+      ],
+      "description": "LGPL-2.1-or-later; loaded dynamically via ffi.open('libusb-1.0.so.0') at runtime by the pydfu example app. Version tracks the Ubuntu package libusb-1.0-0 (2:1.0.27-1), not the libusb API series. The Picolet runtime binary does not statically incorporate any LGPL object code. Relinking is possible by replacing the system libusb-1.0-0 package. NFR-5 is satisfied."
+    },
+    {
+      "type": "library",
+      "bom-ref": "runtime-monaspace-neon-3",
       "name": "Monaspace Neon",
       "version": "1.101",
       "licenses": [
@@ -108,7 +139,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime-ibm-plex-sans-3",
+      "bom-ref": "runtime-ibm-plex-sans-4",
       "name": "IBM Plex Sans",
       "version": "6.4.0",
       "licenses": [
@@ -135,7 +166,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime-source-serif-4-4",
+      "bom-ref": "runtime-source-serif-4-5",
       "name": "Source Serif 4",
       "version": "4.005",
       "licenses": [
@@ -162,7 +193,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime-source-sans-3-5",
+      "bom-ref": "runtime-source-sans-3-6",
       "name": "Source Sans 3",
       "version": "3.052",
       "licenses": [
@@ -189,7 +220,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime-antonio-6",
+      "bom-ref": "runtime-antonio-7",
       "name": "Antonio",
       "version": "22",
       "licenses": [
@@ -216,7 +247,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "runtime-dm-sans-7",
+      "bom-ref": "runtime-dm-sans-8",
       "name": "DM Sans",
       "version": "17",
       "licenses": [
