@@ -100,6 +100,16 @@ targets     = ["windows-x64"]
 purl        = "pkg:github/libsdl-org/SDL@release-2.26.2"
 notes       = "Built from source inside dockcross/windows-static-x64-posix with -ffunction-sections and --gc-sections for dead-code elimination. Version pinned in build-runtime.sh SDL2_VERSION variable."
 
+[[component]]
+name        = "SDL2"
+version     = "2.x.x (brew)"
+licence     = "Zlib"
+source_url  = "https://www.libsdl.org/"
+link_type   = "dynamic"
+variants    = ["lvgl"]
+targets     = ["macos-x64", "macos-arm64"]
+notes       = "Installed via 'brew install sdl2'. SDL2 Cocoa backend provides the macOS window and event loop. Headers resolved from brew --prefix sdl2; dylib loaded dynamically at runtime. NFR-MAC-4 accepts dynamic SDL2 on macOS (equivalent to system libSDL2.so on Linux)."
+
 # ---------------------------------------------------------------------------
 # WebView components (variants = ["webview"])
 # ---------------------------------------------------------------------------

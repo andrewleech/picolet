@@ -533,6 +533,36 @@ build_macos() {
         exit 1
     fi
 
+    # PH27: lvgl variant — init lv_binding_micropython and locate brew SDL2.
+    local SDL2_INCLUDE_DIR="" SDL2_LIB_DIR=""
+    if [[ "$VARIANT" == "lvgl" ]]; then
+        local lvbm_dir="$PKG_ROOT/overlay/lib/lv_binding_micropython"
+        echo "  ensuring lv_binding_micropython nested submodules"
+        if [[ ! -d "$lvbm_dir/lvgl/src" ]] || [[ ! -d "$lvbm_dir/pycparser/pycparser" ]]; then
+            git -C "$lvbm_dir" submodule update --init --recursive --quiet
+        fi
+        if [[ ! -d "$lvbm_dir/lvgl/src" ]]; then
+            echo "error: lvgl source tree not present after submodule update" >&2
+            exit 1
+        fi
+
+        # Locate SDL2 via brew.  brew --prefix sdl2 returns the formula prefix:
+        #   Intel:  /usr/local/opt/sdl2
+        #   ARM64:  /opt/homebrew/opt/sdl2
+        echo "  locating SDL2 via Homebrew"
+        if ! command -v brew >/dev/null 2>&1; then
+            echo "error: brew not found; install Homebrew and run: brew install sdl2" >&2
+            exit 1
+        fi
+        SDL2_PREFIX="$(brew --prefix sdl2 2>/dev/null)" || {
+            echo "error: sdl2 not installed; run: brew install sdl2" >&2
+            exit 1
+        }
+        SDL2_INCLUDE_DIR="${SDL2_PREFIX}/include"
+        SDL2_LIB_DIR="${SDL2_PREFIX}/lib"
+        echo "  SDL2 prefix: $SDL2_PREFIX"
+    fi
+
     echo "[3/8] Building mpy-cross (native macOS host binary)"
     make -C "$SUBMODULE/mpy-cross" -j
 
@@ -569,6 +599,16 @@ build_macos() {
     build_romfs_image "$BUILD_DIR" "$UNIX_PORT"
 
     echo "[6/8] Building unix port variant=${VARIANT_NAME} (native macOS)"
+
+    # Build extra Make variables for lvgl variant (SDL2 paths).
+    local EXTRA_MAKE_VARS=()
+    if [[ "$VARIANT" == "lvgl" && -n "$SDL2_INCLUDE_DIR" ]]; then
+        EXTRA_MAKE_VARS+=(
+            "SDL2_INCLUDE_DIR=${SDL2_INCLUDE_DIR}"
+            "SDL2_LIB_DIR=${SDL2_LIB_DIR}"
+        )
+    fi
+
     if [[ -f "$libffi_ffi_h" ]]; then
         echo "  deplibs: ffi.h cached; skipping deplibs"
     else
@@ -577,13 +617,15 @@ build_macos() {
             VARIANT="${VARIANT_NAME}" \
             MICROPY_STANDALONE=1 \
             PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+            "${EXTRA_MAKE_VARS[@]}" \
             deplibs
     fi
     make -C "$UNIX_PORT" \
         -j \
         VARIANT="${VARIANT_NAME}" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
-        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")"
+        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+        "${EXTRA_MAKE_VARS[@]}"
 
     echo "[7/8] Stripping and installing artifact"
     local built_binary="$variant_build/micropython"

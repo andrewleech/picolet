@@ -67,6 +67,28 @@ LV_CONF_PATH = $(PICOLET_RUNTIME_ROOT)/overlay/ports/unix/variants/picolet-lvgl/
 # explicitly forwards (CFLAGS_USERMOD += $(LV_CFLAGS)).
 LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/overlay/lib/lv_binding_micropython/lvgl/src/drivers/lv_drivers.h
 
+# SDL2 flags — platform-specific resolution.
+#
+# On Linux, the binding's micropython.mk auto-detects SDL2 via pkg-config
+# when CURDIR is "unix".  On Darwin, pkg-config may not be in PATH or the
+# SDL2 .pc file may not be registered; use the paths supplied by
+# build-runtime.sh via SDL2_INCLUDE_DIR / SDL2_LIB_DIR Make variables
+# (set from `brew --prefix sdl2`).
+#
+# UNAME_S is set by the unix port's top-level Makefile; on Darwin it is
+# "Darwin".  Falling back to pkg-config when SDL2_INCLUDE_DIR is unset
+# preserves the existing Linux behaviour.
+
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+ifneq ($(SDL2_INCLUDE_DIR),)
+LV_CFLAGS += -I$(SDL2_INCLUDE_DIR)/SDL2
+LDFLAGS_EXTRA += -L$(SDL2_LIB_DIR) -lSDL2
+LDFLAGS_EXTRA += -framework Cocoa -framework Metal -framework AudioUnit
+endif
+endif
+
 # Drop SDL2 build flags into CFLAGS_USERMOD / LDFLAGS_USERMOD.  We do
 # this here rather than rely on the binding's pkg-config detection
 # because the binding's micropython.mk runs the pkg-config probe only
