@@ -34,6 +34,7 @@ int32_t picolet_wv2_set_bounds(void *c, int32_t w, int32_t h) { (void)c; (void)w
 int32_t picolet_wv2_close_controller(void *c) { (void)c; return -1; }
 int32_t picolet_wv2_add_script_to_execute_on_document_created(void *c, const char *j, int32_t t) { (void)c; (void)j; (void)t; return -1; }
 int32_t picolet_wv2_navigate_to_string(void *c, const char *h) { (void)c; (void)h; return -1; }
+int32_t picolet_wv2_navigate(void *c, const wchar_t *u) { (void)c; (void)u; return -1; }
 int32_t picolet_wv2_execute_script(void *c, const char *j) { (void)c; (void)j; return -1; }
 int32_t picolet_wv2_register_inbound_handler(void *c) { (void)c; return -1; }
 char *picolet_wv2_poll_inbound(void) { return 0; }
@@ -868,6 +869,27 @@ int32_t picolet_wv2_navigate_to_string(void *controller, const char *html_utf8) 
     }
     HRESULT hr = view->lpVtbl->NavigateToString(view, htmlW);
     free(htmlW);
+    set_last(hr);
+    return (int32_t)hr;
+}
+
+/* ----------------------------------------------------------------------
+ * Navigate — navigate the WebView2 to a URL.
+ *
+ * PH10 (A6 fix): exposes ICoreWebView2->Navigate so the Python side can
+ * load a real URL directly instead of using a meta-refresh HTML redirect.
+ * Used by picolet dev when PICOLET_DEV_URL is set (Windows path).
+ * url is a NUL-terminated UTF-16 string.
+ * ---------------------------------------------------------------------- */
+
+int32_t picolet_wv2_navigate(void *controller, const wchar_t *url) {
+    if (controller == NULL || url == NULL) {
+        set_last(E_INVALIDARG);
+        return (int32_t)E_INVALIDARG;
+    }
+    ICoreWebView2 *view = get_view(controller);
+    if (view == NULL) { return (int32_t)g_last_error; }
+    HRESULT hr = view->lpVtbl->Navigate(view, url);
     set_last(hr);
     return (int32_t)hr;
 }

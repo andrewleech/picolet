@@ -94,6 +94,11 @@ int32_t picolet_wv2_add_script_to_execute_on_document_created(
  * Fire-and-forget; no completion callback. */
 int32_t picolet_wv2_navigate_to_string(void *controller, const char *html_utf8);
 
+/* Navigate: navigate the WebView2 to a URL (UTF-16 string).
+ * Calls ICoreWebView2->Navigate directly.  Fire-and-forget.
+ * Used by picolet dev on Windows when PICOLET_DEV_URL is set. */
+int32_t picolet_wv2_navigate(void *controller, const wchar_t *url);
+
 /* ExecuteScript: run `js_utf8` in the page.  We don't need the result;
  * pass a do-nothing completion handler. */
 int32_t picolet_wv2_execute_script(void *controller, const char *js_utf8);

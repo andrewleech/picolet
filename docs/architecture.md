@@ -357,8 +357,9 @@ runtime's initial URL to the Vite dev server. When `[ui.frontend].framework
 The runtime (`picolet_ui._app.Application.__init__`) reads `PICOLET_DEV_URL` at
 startup. If set, it skips the romfs `picolet://` load and calls
 `webkit_web_view_load_uri(view, dev_url)` directly (Linux). On Windows it
-falls back to a `NavigateToString` meta-refresh redirect (R3 limitation —
-no `picolet_wv2_navigate` C export yet; a proper `Navigate` call is deferred).
+calls `picolet_wv2_navigate(controller, url)` which invokes
+`ICoreWebView2->Navigate` directly (R3 resolved — meta-refresh redirect
+removed).
 
 `PICOLET_DEV_URL` is **never set in production builds**. The released binary
 launched directly or via `picolet run` has no such environment variable and

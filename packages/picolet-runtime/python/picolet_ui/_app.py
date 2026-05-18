@@ -226,17 +226,11 @@ class Application:
         if sys.platform == "win32":
             # WebView2 cannot resolve file:///rom/ paths — read the HTML
             # via the VFS and hand it to NavigateToString.  When a dev URL
-            # is set, inject a redirect page so the WebView2 navigates to
-            # the Vite dev server (R3: no picolet_wv2_navigate export yet;
-            # redirect HTML is the best-effort Windows dev path).
+            # is set, call picolet_wv2_navigate directly (ICoreWebView2->Navigate)
+            # so the WebView2 loads the Vite dev server URL without a redirect.
             self.webview = Webview(self.window, transport=self.transport)
             if _dev_url:
-                redirect_html = (
-                    "<!doctype html><html><head>"
-                    "<meta http-equiv='refresh' content='0; url={}'>"
-                    "</head><body></body></html>".format(_dev_url)
-                )
-                self.webview.navigate_to_string(redirect_html)
+                self.webview.navigate(_dev_url)
             else:
                 cfg = _load_ui_config()
                 rom_doc = "/rom/" + cfg["root"] + "/" + cfg["index"]

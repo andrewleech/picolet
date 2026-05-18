@@ -229,6 +229,22 @@ if sys.platform == "win32":
                     "(HRESULT 0x{:08x})\n".format(rc & 0xFFFFFFFF)
                 )
 
+        def navigate(self, url):
+            """Navigate the WebView2 to a URL via ICoreWebView2->Navigate.
+
+            url is a Python str; encoded to UTF-16-LE + NUL terminator
+            and passed as a void* pointer to picolet_wv2_navigate.
+            """
+            from . import _win_ffi
+            # NUL-terminated UTF-16-LE byte buffer for the wchar_t* argument.
+            url_bytes = url.encode("utf-16-le") + b"\x00\x00"
+            rc = _win_ffi.picolet_wv2_navigate(self._controller, url_bytes)
+            if rc != 0:
+                sys.stderr.write(
+                    "picolet_ui: Navigate failed "
+                    "(HRESULT 0x{:08x})\n".format(rc & 0xFFFFFFFF)
+                )
+
         def eval_js(self, js):
             """Run JS in the page.  Async-completion is ignored."""
             from . import _win_ffi

@@ -106,6 +106,10 @@ picolet_wv2_navigate_to_string = self_exe.func(
     "i", "picolet_wv2_navigate_to_string", "ps"
 )
 
+# int32_t picolet_wv2_navigate(void *controller, const wchar_t *url)
+# url is a pointer to a UTF-16-LE buffer (pass buf from url.encode("utf-16-le")).
+picolet_wv2_navigate = self_exe.func("i", "picolet_wv2_navigate", "pp")
+
 # int32_t picolet_wv2_execute_script(void *controller, const char *js_utf8)
 picolet_wv2_execute_script = self_exe.func(
     "i", "picolet_wv2_execute_script", "ps"
