@@ -116,6 +116,36 @@ purl        = "pkg:deb/ubuntu/libwebkit2gtk-4.1-0"
 notes       = "LGPL-2.1-or-later; loaded dynamically — the Picolet runtime binary does not statically incorporate any LGPL object code. Relinking is possible by replacing the system WebKitGTK package. NFR-5 is satisfied."
 
 [[component]]
+name        = "WebKit.framework (Apple system framework)"
+version     = "bundled-with-macos"
+licence     = "LicenseRef-Apple-System-Framework"
+source_url  = "https://developer.apple.com/documentation/webkit"
+link_type   = "dynamic"
+variants    = ["webview"]
+targets     = ["macos-x64", "macos-arm64"]
+notes       = "Apple system framework; not redistributed. Reached via -framework WebKit at link time; all ObjC calls go through objc_msgSend (libobjc.A.dylib) at runtime — no static ObjC++ object code is incorporated. Redistribution permitted under the Apple Developer Programme licence."
+
+[[component]]
+name        = "Cocoa / AppKit (Apple system framework)"
+version     = "bundled-with-macos"
+licence     = "LicenseRef-Apple-System-Framework"
+source_url  = "https://developer.apple.com/documentation/appkit"
+link_type   = "dynamic"
+variants    = ["webview"]
+targets     = ["macos-x64", "macos-arm64"]
+notes       = "Apple system framework; not redistributed. Linked as -framework Cocoa for NSApplication, NSWindow, NSView. All calls go through objc_msgSend at runtime. Redistribution permitted under the Apple Developer Programme licence."
+
+[[component]]
+name        = "Foundation (Apple system framework)"
+version     = "bundled-with-macos"
+licence     = "LicenseRef-Apple-System-Framework"
+source_url  = "https://developer.apple.com/documentation/foundation"
+link_type   = "dynamic"
+variants    = ["webview"]
+targets     = ["macos-x64", "macos-arm64"]
+notes       = "Apple system framework; not redistributed. Linked as -framework Foundation for NSString, NSData, NSURL, NSDictionary helpers used in picolet_webview_mac.c. Redistribution permitted under the Apple Developer Programme licence."
+
+[[component]]
 name        = "Microsoft.Web.WebView2"
 version     = "1.0.2210.55"
 licence     = "LicenseRef-MS-WebView2-Fixed"
