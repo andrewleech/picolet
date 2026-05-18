@@ -285,50 +285,8 @@ static int do_str(const char *str) {
 }
 #endif // MICROPY_ENABLE_COMPILER
 
-#if !MICROPY_FROZEN_MAIN_MODULE
-static void print_help(char **argv) {
-    printf(
-        "usage: %s [<opts>] [-X <implopt>] [-c <command> | -m <module> | <filename>]\n"
-        "Options:\n"
-        "--version : show version information\n"
-        "-h : print this help message\n"
-        "-i : enable inspection via REPL after running command/module/file\n"
-        #if MICROPY_DEBUG_PRINTERS
-        "-v : verbose (trace various operations); can be multiple\n"
-        #endif
-        "-O[N] : apply bytecode optimizations of level N\n"
-        "\n"
-        "Implementation specific options (-X):\n", argv[0]
-        );
-    int impl_opts_cnt = 0;
-    printf(
-        "  compile-only                 -- parse and compile only\n"
-        #if MICROPY_EMIT_NATIVE
-        "  emit={bytecode,native,viper} -- set the default code emitter\n"
-        #else
-        "  emit=bytecode                -- set the default code emitter\n"
-        #endif
-        );
-    impl_opts_cnt++;
-    #if MICROPY_ENABLE_GC
-    printf(
-        "  heapsize=<n>[w][K|M] -- set the heap size for the GC (default %ld)\n"
-        , heap_size);
-    impl_opts_cnt++;
-    #endif
-    #if defined(__APPLE__)
-    printf("  realtime -- set thread priority to realtime\n");
-    impl_opts_cnt++;
-    #endif
-
-    if (impl_opts_cnt == 0) {
-        printf("  (none)\n");
-    }
-}
-#endif
-
 static int invalid_args(void) {
-    fprintf(stderr, "Invalid command line arguments. Use -h option for help.\n");
+    fprintf(stderr, "Invalid command line arguments.\n");
     return 1;
 }
 
@@ -339,12 +297,6 @@ static void pre_process_options(int argc, char **argv) {
             if (strcmp(argv[a], "-c") == 0 || strcmp(argv[a], "-m") == 0) {
                 break; // Everything after this is a command/module and arguments for it
             }
-            #if !MICROPY_FROZEN_MAIN_MODULE
-            if (strcmp(argv[a], "-h") == 0) {
-                print_help(argv);
-                exit(0);
-            }
-            #endif
             if (strcmp(argv[a], "--version") == 0) {
                 printf(MICROPY_BANNER_NAME_AND_VERSION "; " MICROPY_BANNER_MACHINE "\n");
                 exit(0);
@@ -661,14 +613,10 @@ MP_NOINLINE int main_(int argc, char **argv) {
     #endif
 
     if (run_main) {
-        // Check if any argument would bypass main
-        // -c and -m always bypass; -h bypasses only for romfs main (not frozen)
+        // Check if any argument would bypass main; -c and -m always bypass
         for (int a = 1; a < argc; a++) {
             if (argv[a][0] == '-') {
                 if (strcmp(argv[a], "-c") == 0 || strcmp(argv[a], "-m") == 0) {
-                    run_main = false;
-                    break;
-                } else if (!main_is_frozen && strcmp(argv[a], "-h") == 0) {
                     run_main = false;
                     break;
                 } else if (strcmp(argv[a], "-X") == 0) {
