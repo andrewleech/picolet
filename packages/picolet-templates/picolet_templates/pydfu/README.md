@@ -4,15 +4,24 @@ DFU firmware flasher example app built with Picolet.
 
 ## USB backend
 
-On Linux the app uses the system libusb-1.0 library (`libusb-1.0-0`) to enumerate
-and flash DFU-mode USB devices. Install it with:
+### Linux
+
+The app uses the system libusb-1.0 library (`libusb-1.0-0`). Install it with:
 
 ```
 sudo apt install libusb-1.0-0
 ```
 
-On Windows, real-USB support is not implemented in v1.1. Attempting to enumerate
-or flash a device on Windows raises `NotImplementedError` (FR-EX-7).
+The `ffi` module opens `libusb-1.0.so.0` at runtime.
+
+### Windows
+
+A vendored `libusb-1.0.dll` (x64, LGPL-2.1-or-later, v1.0.26) is bundled in the
+app romfs at `/rom/src/_usb/libusb-1.0.dll`. No separate installation is needed.
+The `ffi` module opens the DLL from its co-location with the `_usb` module.
+
+The same libusb API is used on both platforms — the DFU protocol implementation
+is identical. No WinUSB driver is required; libusb handles driver selection.
 
 ## Mock mode
 
@@ -21,7 +30,8 @@ mock. The mock simulates one STM32 DFU device (VID 0x0483, PID 0xDF11) and a
 synthetic flash operation. All tests and screenshot generation use the mock.
 
 ```
-PICOLET_PYDFU_MOCK=1 ./target/linux-x64/pydfu
+PICOLET_PYDFU_MOCK=1 ./target/linux-x64/pydfu          # Linux
+PICOLET_PYDFU_MOCK=1 ./target/windows-x64/pydfu.exe    # Windows (or WSL interop)
 ```
 
 Set `PICOLET_PYDFU_MOCK_EMPTY=1` (with `PICOLET_PYDFU_MOCK=1`) to simulate no devices
@@ -40,6 +50,7 @@ src/
       core.py        — Device/Configuration/Interface classes + find()
       control.py     — get_descriptor helper
       util.py        — claim_interface, get_string, dispose_resources
+      libusb-1.0.dll — vendored Windows x64 DLL (LGPL-2.1-or-later, v1.0.26)
   _pydfu/            — DFU protocol implementation
       __init__.py
       pydfu.py       — enumerate, init, write_elements, exit_dfu
@@ -54,10 +65,12 @@ carry the OpenMV MIT licence. See the copyright header at the top of each file.
 ```
 cd examples/pydfu
 npm install
-picolet build
+picolet build                        # linux-x64 (host auto-detected)
+picolet build --target windows-x64   # cross-compile via dockcross
 ```
 
-The binary is written to `target/linux-x64/pydfu`.
+The binary is written to `target/<target>/pydfu` (Linux) or
+`target/windows-x64/pydfu.exe` (Windows).
 
 ## Tests
 
