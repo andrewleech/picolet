@@ -1,6 +1,8 @@
 # metrics_reader.py — /proc-based system metrics collector.
 #
-# Linux-only. Raises NotImplementedError at import time on non-Linux.
+# Linux-only: collect() raises NotImplementedError on non-Linux at call time.
+# The module itself imports cleanly on any platform so that tooling (linters,
+# SBOM generators, test collectors) can import it without errors.
 # All /proc reads are wrapped in try/except; any individual failure
 # substitutes a sensible zero/null default so the frontend receives a
 # structurally complete tick every time.
@@ -14,15 +16,8 @@
 #
 # FR-EX-4.
 
-import sys
-
-if sys.platform != "linux":
-    raise NotImplementedError(
-        "dashboard metrics require Linux (/proc); "
-        "running on {} is not supported".format(sys.platform)
-    )
-
 import os
+import sys
 import time
 
 # ---------------------------------------------------------------------------
@@ -413,7 +408,15 @@ def collect(prev):
       - tick is the event payload dict, or None on the first call
         (first call establishes the baseline; no valid delta yet).
       - next_prev is the state to pass as prev on the next call.
+
+    Raises NotImplementedError on non-Linux (/proc is not available).
     """
+    if sys.platform != "linux":
+        raise NotImplementedError(
+            "dashboard metrics require Linux (/proc); "
+            "running on {} is not supported".format(sys.platform)
+        )
+
     now = time.time()
     prev_ts = prev.get("ts", now)
     elapsed = now - prev_ts
