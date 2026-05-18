@@ -92,6 +92,15 @@ def build_args_namespace(target, verbose, **overrides) -> argparse.Namespace:
     return argparse.Namespace(**defaults)
 
 
+_BUILD_EPILOG = """\
+Examples:
+  picolet build
+  picolet build --target windows-x64
+  picolet build --target linux-x64 --verbose
+  picolet build --from-source        # build runtime locally (requires Docker)
+"""
+
+
 def add_parser(subparsers) -> None:
     """Register the build subcommand with the given subparsers object."""
     p = subparsers.add_parser(
@@ -99,8 +108,12 @@ def add_parser(subparsers) -> None:
         help="build a picolet app into a single executable",
         description=(
             "Compile the current app's Python sources, build a romfs image, "
-            "and append it to the pre-built runtime to produce a single binary."
+            "and append it to the pre-built runtime to produce a single binary.\n\n"
+            "Run from the app directory (the one containing picolet.toml). "
+            "The output binary is written to target/<target>/<app-name>[.exe]."
         ),
+        epilog=_BUILD_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--target",

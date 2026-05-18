@@ -43,16 +43,37 @@ import threading
 from pathlib import Path
 
 
+_TEST_DESCRIPTION = """\
+Spawn the app with PICOLET_TEST_MODE=1, wait for the inspector port announcement
+on stderr, then drive it in one of three modes:
+
+  bare (no flags):       connect, print connection info, then exit
+  --screenshot PATH:     capture a PNG screenshot to PATH, then exit
+  --run SCRIPT_PY:       execute SCRIPT_PY with `harness` bound to AppHarness
+
+The BINARY argument is optional; if omitted, the binary is resolved from
+picolet.toml the same way `picolet run` does.
+"""
+
+_TEST_EPILOG = """\
+Examples:
+  picolet test
+  picolet test --screenshot home.png
+  picolet test --screenshot home.png ./target/linux-x64/my-app
+  picolet test --run tests/test_flow.py
+  picolet test --run tests/test_flow.py -- --some-arg-for-the-binary
+  picolet test --browser webkit --timeout 30 --verbose
+"""
+
+
 def add_parser(subparsers) -> None:
     """Register the test subcommand."""
     p = subparsers.add_parser(
         "test",
         help="launch app in test mode and drive it via the debug port",
-        description=(
-            "Spawn the app with PICOLET_TEST_MODE=1, wait for the inspector "
-            "port announcement on stderr, then optionally screenshot or run "
-            "a test script.  See picolet test --help for full usage."
-        ),
+        description=_TEST_DESCRIPTION,
+        epilog=_TEST_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--target",

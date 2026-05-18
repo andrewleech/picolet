@@ -31,13 +31,31 @@ except Exception:
     VERSION = "0.2.0-dev"
 
 
+_TOP_DESCRIPTION = """\
+Picolet builds single-binary MicroPython apps with optional webview or LVGL GUI.
+Each app is scaffolded from a template, compiled to .mpy bytecode, and packed
+with a pre-built runtime into one self-contained executable.
+
+Quick start:
+  picolet init my-app --template hello-vue
+  cd my-app
+  picolet dev
+"""
+
+_TOP_EPILOG = """\
+Run `picolet <command> --help` for command-specific options and examples.
+"""
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="picolet",
-        description="The Picolet framework CLI.",
+        description=_TOP_DESCRIPTION,
+        epilog=_TOP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--version",
+        "--version", "-V",
         action="version",
         version=f"picolet {VERSION}",
     )
@@ -58,7 +76,32 @@ def _build_parser() -> argparse.ArgumentParser:
     dev_cmd.add_parser(subparsers)
     test_cmd.add_parser(subparsers)
 
+    # 'picolet help <subcommand>' as an alias for 'picolet <subcommand> --help'.
+    help_parser = subparsers.add_parser(
+        "help",
+        help="show help for a subcommand",
+    )
+    help_parser.add_argument(
+        "topic",
+        nargs="?",
+        default=None,
+        metavar="<command>",
+        help="subcommand to show help for",
+    )
+    help_parser.set_defaults(func=_help_cmd)
+
     return parser
+
+
+def _help_cmd(args) -> None:
+    """Handle `picolet help [<subcommand>]`."""
+    if args.topic:
+        # Re-parse with --help appended so argparse prints the subcommand help.
+        sys.argv = ["picolet", args.topic, "--help"]
+        _build_parser().parse_args()
+    else:
+        _build_parser().print_help()
+        sys.exit(0)
 
 
 def main() -> None:

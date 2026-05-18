@@ -11,15 +11,26 @@ from pathlib import Path
 from picolet_cli.validator import validate_toml
 
 
+_VALIDATE_EPILOG = """\
+Examples:
+  picolet validate
+  picolet validate path/to/picolet.toml
+"""
+
+
 def add_parser(subparsers) -> None:
     """Register the validate subcommand with the given subparsers object."""
+    import argparse
     p = subparsers.add_parser(
         "validate",
         help="validate a picolet.toml against the schema",
         description=(
-            "Parse and validate a picolet.toml file. "
-            "Exits 0 if valid, 1 if errors are found."
+            "Parse and validate a picolet.toml file against the Picolet schema.\n"
+            "Exits 0 if valid, 1 if errors are found.  Warnings are printed to\n"
+            "stderr but do not affect the exit code."
         ),
+        epilog=_VALIDATE_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "file",

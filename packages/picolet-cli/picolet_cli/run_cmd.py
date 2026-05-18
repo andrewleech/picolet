@@ -22,6 +22,18 @@ from picolet_cli import build_cmd
 from picolet_cli._paths import resolve_app, sources_newer_than
 
 
+_RUN_EPILOG = """\
+Examples:
+  picolet run
+  picolet run --no-build
+  picolet run -- --port 8080
+  picolet run --verbose -- --some-arg-for-the-binary
+
+The literal `--` separator is required to pass arguments to the binary so
+they are not consumed by picolet itself.
+"""
+
+
 def add_parser(subparsers) -> None:
     """Register the run subcommand with the given subparsers object."""
     p = subparsers.add_parser(
@@ -29,8 +41,13 @@ def add_parser(subparsers) -> None:
         help="build (if needed) and execute the app binary",
         description=(
             "Check whether the binary is up-to-date, rebuild if not, "
-            "then execute it.  Arguments after -- are forwarded to the binary."
+            "then execute it.\n\n"
+            "To pass arguments to the binary, place them after a literal `--` "
+            "separator so picolet does not interpret them as its own options.\n"
+            "Example: picolet run -- --port 8080"
         ),
+        epilog=_RUN_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--target",

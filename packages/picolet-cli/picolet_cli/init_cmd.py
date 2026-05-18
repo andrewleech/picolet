@@ -14,6 +14,7 @@ Template resolution order:
 """
 from __future__ import annotations
 
+import argparse
 import re
 import shutil
 import sys
@@ -29,12 +30,37 @@ _KNOWN_TEMPLATES: frozenset[str] = frozenset({"hello-cli", "hello-webview", "hel
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_-]*$")
 
 
+_INIT_DESCRIPTION = """\
+Create a new Picolet app directory from a starter template.
+
+Available templates:
+  hello-cli        Minimal command-line app (no GUI)
+  hello-webview    Webview window with a plain HTML/JS page
+  hello-lvgl       LVGL display with a simple widget layout
+  hello-vue        Webview window with a Vue 3 frontend (requires Node)
+  pydfu            DFU firmware flashing tool (webview UI)
+  notes            Persistent notes app (webview UI)
+  config-editor    TOML config editor (webview UI)
+  dashboard        Live metrics dashboard (webview UI)
+"""
+
+_INIT_EPILOG = """\
+Examples:
+  picolet init my-app
+  picolet init my-app --template hello-vue
+  picolet init pydfu-tool --template pydfu
+  picolet init --list-templates
+"""
+
+
 def add_parser(subparsers) -> None:
     """Register the init subcommand with the given subparsers object."""
     p = subparsers.add_parser(
         "init",
         help="scaffold a new app from a template",
-        description="Create a new picolet app directory from a starter template.",
+        description=_INIT_DESCRIPTION,
+        epilog=_INIT_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "name",
@@ -44,11 +70,7 @@ def add_parser(subparsers) -> None:
     p.add_argument(
         "--template",
         default="hello-cli",
-        help=(
-            'template to use (default: hello-cli; available: '
-            '"hello-cli", "hello-webview", "hello-lvgl", "hello-vue", '
-            '"pydfu", "notes", "config-editor", "dashboard")'
-        ),
+        help="template to use (default: hello-cli); see description above for full list",
     )
     p.add_argument(
         "--output-dir",

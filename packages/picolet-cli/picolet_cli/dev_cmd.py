@@ -38,15 +38,28 @@ _DEBOUNCE_DELAY = 0.5
 _SIGTERM_GRACE = 3.0
 
 
+_DEV_EPILOG = """\
+Examples:
+  picolet dev
+  picolet dev --verbose
+  picolet dev --target linux-x64
+"""
+
+
 def add_parser(subparsers) -> None:
     """Register the dev subcommand with the given subparsers object."""
+    import argparse as _argparse
     p = subparsers.add_parser(
         "dev",
         help="watch for changes and rebuild + relaunch the app",
         description=(
             "Watch src/, ui/, and picolet.toml for changes.  On change, "
-            "rebuild the app and relaunch it.  Press CTRL-C to stop."
+            "rebuild the app and relaunch it.  Press CTRL-C to stop.\n\n"
+            "Run from the app directory (the one containing picolet.toml). "
+            "Uses polling at 500 ms intervals; no external dependencies required."
         ),
+        epilog=_DEV_EPILOG,
+        formatter_class=_argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--target",
