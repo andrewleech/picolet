@@ -65,6 +65,35 @@ window module. Smallest binary.
 **Consequence**: Three runtime variants per platform (webview, lvgl, cli),
 not two.
 
+### D5a — Resource resolution strategy (A6, wheel distribution)
+
+`picolet-cli` ships as an installable wheel. Package data that is needed at
+runtime is accessed via `importlib.resources.files("picolet_cli")`, not by
+walking up from `__file__` to a repo root.
+
+**RUNTIME_TAG** — the default runtime version tag — is shipped as
+`picolet_cli/RUNTIME_TAG` inside the wheel. `_read_runtime_tag_sidecar()` reads
+it via `importlib.resources.files` first, with a repo-walk fallback for
+bare-source-tree execution (no `pip install -e`).
+
+**mpy-cross** — not bundled in the wheel (option c, audit finding A6). The
+binary is platform-specific and its version must match the runtime's bytecode
+format exactly. `locate_mpy_cross()` resolves it in this order:
+
+1. `mpy-cross` on PATH — the standard mechanism for wheel installs
+   (`pip install mpy-cross`, system package, or manual placement).
+2. In-tree build output under `packages/picolet-runtime/micropython/mpy-cross/
+   build/mpy-cross` — development convenience after running `build-runtime.sh`.
+
+**build-runtime.sh and in-tree build/** — repo-local operations only. The
+`--from-source` flag requires a source checkout and Docker; it is not
+meaningful from a wheel install and uses `_repo_root()` (the file-walk helper)
+directly. This is intentional and documented.
+
+**Consequence**: `pip install picolet-cli` followed by `picolet build` works
+without a source checkout, provided `mpy-cross` is on PATH and a runtime
+artifact is available (via cache or network download).
+
 ### D5 — Raw binary in v1, packaging on roadmap
 
 `picolet build` produces a single executable in `target/<target>/`. Native

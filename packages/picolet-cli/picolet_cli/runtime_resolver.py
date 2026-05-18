@@ -30,6 +30,7 @@ do not add auth logic without confirming rate-limit evidence first.
 from __future__ import annotations
 
 import hashlib
+import importlib.resources
 import os
 import shutil
 import subprocess
@@ -94,22 +95,36 @@ class _Config:
 # ---------------------------------------------------------------------------
 # Repo-root resolution
 #
-# TODO(A6): the repo-walk pattern here is a development convenience.  When
-# the CLI ships as an installable wheel the resolver must locate mpy-cross,
-# build-runtime.sh, the in-tree build/ directory, and the RUNTIME_TAG sidecar
-# via importlib.resources.files("picolet_runtime") (or similar) instead of
-# walking three parents up from __file__.  That is a packaging refactor —
-# layout for the wheel, a picolet_runtime data package, sdist/MANIFEST changes —
-# and is deliberately left for a follow-up phase.  The single _repo_root()
-# helper below is the chokepoint to update when that work lands.
+# _repo_root() is a *development convenience* that locates the monorepo
+# checkout by walking up from __file__.  It is used only for operations that
+# are inherently source-checkout-specific:
+#
+#   • --from-source: invokes packages/picolet-runtime/scripts/build-runtime.sh,
+#     which requires Docker and the full source tree — not meaningful from a
+#     wheel install.
+#   • In-tree fallback: packages/picolet-runtime/build/<artifact> — only
+#     present after a local build-runtime.sh run.
+#   • locate_mpy_cross(): resolves the mpy-cross binary built by
+#     build-runtime.sh.  When installed from a wheel, mpy-cross must be on
+#     PATH (see locate_mpy_cross() docstring and docs/architecture.md §A6).
+#
+# The RUNTIME_TAG sidecar is the one piece of data that is needed for every
+# normal `picolet build` invocation and that broke in wheel installs.  It is
+# now shipped inside the picolet_cli package at picolet_cli/RUNTIME_TAG and
+# resolved first via importlib.resources.files("picolet_cli"); the repo-walk
+# below acts as a fallback for development workflows where the package may
+# not be installed (e.g. running directly from the source tree with PYTHONPATH).
 # ---------------------------------------------------------------------------
 
 def _repo_root() -> Path:
-    """Walk up from this file to find the repo root.
+    """Return the monorepo root for dev-only operations.
 
     This file lives at packages/picolet-cli/picolet_cli/runtime_resolver.py.
-    The repo root is three levels up.  See the TODO(A6) note above for the
-    packaging story.
+    The repo root is three levels up.
+
+    This path is only valid when running from a source checkout.  Callers that
+    need it in wheel installs must handle the case where the path does not
+    contain the expected layout (packages/picolet-runtime/…).
     """
     return Path(__file__).parent.parent.parent.parent
 
@@ -117,8 +132,16 @@ def _repo_root() -> Path:
 # Back-compat alias.  Existing tests (and external callers) patch
 # ``rr._find_repo_root`` via mock.patch.object; keep the name so they
 # continue to work while internal code uses _repo_root() directly.
+# DeprecationWarning: use _resource_for("picolet_cli", ...) for package data;
+#   use _repo_root() directly for source-checkout-only operations.
 def _find_repo_root() -> Path:
-    """Deprecated alias for :func:`_repo_root`.  See A6 TODO."""
+    """Deprecated alias for :func:`_repo_root`.
+
+    .. deprecated::
+        Use :func:`importlib.resources.files` for package data lookup
+        (see A6 fix in runtime_resolver.py).  This alias is retained so
+        existing tests that patch ``rr._find_repo_root`` continue to work.
+    """
     return _repo_root()
 
 
@@ -159,11 +182,39 @@ def _validate_url_scheme(url: str) -> None:
 
 
 def _read_runtime_tag_sidecar() -> str:
-    """Read packages/picolet-runtime/RUNTIME_TAG; return stripped content."""
+    """Return the RUNTIME_TAG string.
+
+    Resolution order (first match wins):
+
+    1. ``importlib.resources.files("picolet_cli") / "RUNTIME_TAG"`` — the tag
+       file shipped inside the picolet-cli wheel.  Works from both a wheel
+       install and an editable install (A6 fix).
+    2. ``<repo-root>/packages/picolet-runtime/RUNTIME_TAG`` — repo-walk
+       fallback for development workflows where the package is executed
+       directly from source without installation (e.g. ``python -m picolet_cli``
+       with PYTHONPATH set but no ``pip install -e``).
+    3. Hard-coded last-resort default when neither source is available.
+    """
+    # Step 1: package resource (works from wheel and editable install).
+    try:
+        tag_text = (
+            importlib.resources.files("picolet_cli")
+            .joinpath("RUNTIME_TAG")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        if tag_text:
+            return tag_text
+    except (ModuleNotFoundError, FileNotFoundError, TypeError):
+        pass
+
+    # Step 2: repo-walk fallback (development only).
     tag_file = _repo_root() / "packages" / "picolet-runtime" / "RUNTIME_TAG"
     if tag_file.is_file():
         return tag_file.read_text().strip()
-    return "runtime-v0.1.0"   # last-resort default if sidecar absent
+
+    # Step 3: last-resort default.
+    return "runtime-v0.1.0"
 
 
 def _cache_root() -> Path:
@@ -699,17 +750,39 @@ def resolve_runtime(
 
 
 def locate_mpy_cross() -> Path:
-    """Return the absolute path to the in-tree mpy-cross binary.
+    """Return the absolute path to the mpy-cross binary.
 
-    The binary is built by build-runtime.sh step [3/8] inside the
-    ubuntu:22.04 container and runs on the host because the host glibc
-    is newer.
+    Resolution order (first match wins):
 
-    PH05 does not distribute mpy-cross as a cached artifact. If the
-    in-tree binary is absent and --from-source was not used, the build
-    will error here. Use `picolet build --from-source` to build mpy-cross
-    alongside the runtime (future phase: mpy-cross distribution).
+    1. ``mpy-cross`` on PATH — the expected mechanism for wheel installs.
+       Users are expected to have ``mpy-cross`` available (e.g. installed
+       via ``pip install mpy-cross``, from a system package, or placed on
+       PATH manually).  This is option (c) from audit finding A6: mpy-cross
+       is not bundled inside the picolet-cli wheel; it is expected on PATH.
+
+    2. In-tree build output — ``packages/picolet-runtime/micropython/mpy-cross/
+       build/mpy-cross`` relative to the repo root.  This path is only valid
+       in a source checkout after running build-runtime.sh.  It acts as a
+       development convenience so contributors do not need a separate
+       ``mpy-cross`` install.
+
+    When neither is available the error message explains both remedies.
+
+    Design note (A6): mpy-cross is *not* shipped inside the picolet-cli wheel.
+    The binary is platform-specific and its version must match the runtime's
+    bytecode format version exactly.  Shipping it inside the wheel would
+    require a per-platform wheel matrix and force a wheel rebuild whenever
+    the MicroPython bytecode format version changes.  PATH resolution is the
+    cleanest contract: the user controls which mpy-cross is installed, and
+    the version check in build_cmd._verify_mpy_cross_version() guards against
+    mismatches.
     """
+    # Step 1: PATH lookup (wheel-install-friendly).
+    on_path = shutil.which("mpy-cross")
+    if on_path:
+        return Path(on_path).resolve()
+
+    # Step 2: in-tree build output (source-checkout dev convenience).
     mpy_cross = (
         _repo_root()
         / "packages"
@@ -719,11 +792,13 @@ def locate_mpy_cross() -> Path:
         / "build"
         / "mpy-cross"
     )
-    if not mpy_cross.is_file():
-        raise RuntimeNotFound(
-            f"mpy-cross not found: {mpy_cross}\n"
-            f"  Build it with: picolet build --from-source\n"
-            f"  Or directly:   ./packages/picolet-runtime/scripts/build-runtime.sh "
-            f"--target linux-x64 --variant cli"
-        )
-    return mpy_cross.resolve()
+    if mpy_cross.is_file():
+        return mpy_cross.resolve()
+
+    raise RuntimeNotFound(
+        f"mpy-cross not found on PATH or at {mpy_cross}\n"
+        f"  Option 1 (wheel install): pip install mpy-cross\n"
+        f"  Option 2 (source checkout): picolet build --from-source\n"
+        f"  Or directly: ./packages/picolet-runtime/scripts/build-runtime.sh "
+        f"--target linux-x64 --variant cli"
+    )
