@@ -1,8 +1,9 @@
 # picolet_ui._window — top-level window wrapper.
 #
-# Cross-platform: the GTK 3 backend (PH07) and the Win32 backend (PH10)
-# share one public surface.  Selection is by sys.platform at import
-# time — the runtime variant only ships the relevant FFI module.
+# Cross-platform: the GTK 3 backend (PH07), Win32 backend (PH10), and the
+# NSWindow backend (PH25, macOS) share one public surface.  Selection is
+# by sys.platform at import time — the runtime variant only ships the
+# relevant FFI module.
 #
 # Linux (sys.platform == 'linux'):
 #   GTK 3 top-level window.  PH07 introduced this; PH11's LVGL renderer
@@ -15,7 +16,11 @@
 #   WindowProc callback (which handles WM_SIZE / WM_DESTROY) so Python
 #   sees one HWND-shaped pointer.
 #
-# Reading [window] from /rom/picolet.toml is identical on both platforms
+# macOS (sys.platform == 'darwin'):
+#   NSWindow created via the picolet_webview_mac C overlay.  The overlay
+#   uses objc_msgSend (no .m files) and returns an opaque NSWindow*.
+#
+# Reading [window] from /rom/picolet.toml is identical on all platforms
 # (same TOML subset, same defaults).
 
 import sys
@@ -57,7 +62,83 @@ def load_window_config(rom_path="/rom/picolet.toml"):
     return cfg
 
 
-if sys.platform == "win32":
+if sys.platform == "darwin":
+
+    # -----------------------------------------------------------------
+    # macOS backend (NSWindow via picolet_webview_mac C overlay, PH25)
+    # -----------------------------------------------------------------
+
+    # Module-level flag: picolet_wkwv_init must be called exactly once.
+    _mac_initialised = False
+
+
+    def _ensure_mac_initialised():
+        global _mac_initialised
+        if _mac_initialised:
+            return
+        from . import _mac_ffi
+        rc = _mac_ffi.picolet_wkwv_init()
+        if rc != 0:
+            raise RuntimeError("picolet_ui: picolet_wkwv_init failed")
+        _mac_initialised = True
+
+
+    class Window:
+        """NSWindow created via the picolet_webview_mac C overlay."""
+
+        def __init__(self, title=None, size=None, resizable=None, config=None):
+            from . import _mac_ffi
+            cfg = config if config is not None else load_window_config()
+            self.title = title if title is not None else cfg["title"]
+            self.size = list(size) if size is not None else list(cfg["size"])
+            self.resizable = (
+                resizable if resizable is not None else cfg["resizable"]
+            )
+            _ensure_mac_initialised()
+            win = _mac_ffi.picolet_wkwv_create_window(
+                self.title.encode("utf-8"),
+                int(self.size[0]), int(self.size[1]),
+            )
+            if not win:
+                raise RuntimeError(
+                    "picolet_ui: picolet_wkwv_create_window returned NULL"
+                )
+            self._win = win
+            sys.stderr.write(
+                "window: title={} size={}x{} resizable={}\n".format(
+                    self.title, self.size[0], self.size[1], self.resizable
+                )
+            )
+
+        def show(self):
+            from . import _mac_ffi
+            _mac_ffi.picolet_wkwv_show_window(self._win, 1)
+
+        def hide(self):
+            from . import _mac_ffi
+            _mac_ffi.picolet_wkwv_show_window(self._win, 0)
+
+        def close(self):
+            if self._win is None:
+                return
+            from . import _mac_ffi
+            _mac_ffi.picolet_wkwv_destroy_window(self._win)
+            self._win = None
+
+        @property
+        def handle(self):
+            return self._win
+
+        @property
+        def width(self):
+            return int(self.size[0])
+
+        @property
+        def height(self):
+            return int(self.size[1])
+
+
+elif sys.platform == "win32":
 
     # -----------------------------------------------------------------
     # Windows backend

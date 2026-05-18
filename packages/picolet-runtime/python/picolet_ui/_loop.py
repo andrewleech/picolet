@@ -113,6 +113,56 @@ async def _win_pump(transport=None):
         raise
 
 
+async def _mac_pump(transport=None):
+    """Drain inbound ring + pump the Cocoa run loop (macOS, PH25).
+
+    Mirrors _win_pump but calls the WKWebView C overlay.  The C overlay's
+    ring buffer is populated by the WKScriptMessageHandler ObjC class
+    (created at runtime via objc_allocateClassPair) when JS calls
+    window.webkit.messageHandlers.picolet.postMessage(json).
+
+    picolet_wkwv_pump_messages drives CFRunLoopRunInMode for up to
+    PUMP_INTERVAL_S seconds per tick, which is the macOS equivalent of
+    gtk_main_iteration_do.  This keeps the Cocoa run loop alive so that
+    WKWebView's navigation callbacks, JS evaluation completions, and
+    WKURLSchemeHandler deliveries can fire.
+
+    Cancelled when the dispatcher task exits.
+    """
+    from . import _mac_ffi
+    try:
+        while True:
+            # 1. Drain the inbound ring from the WKScriptMessageHandler.
+            for _ in range(64):  # per-tick cap to keep asyncio responsive
+                ptr = _mac_ffi.picolet_wkwv_poll_inbound()
+                if not ptr:
+                    break
+                try:
+                    s = _mac_ffi.ffi_string(ptr)
+                finally:
+                    _mac_ffi.picolet_wkwv_free_inbound(ptr)
+                if transport is not None:
+                    try:
+                        transport._deliver_raw(s)
+                    except BaseException as e:
+                        sys.stderr.write(
+                            "picolet_ui: _deliver_raw raised: {}\n".format(e)
+                        )
+
+            # 2. Pump the Cocoa run loop.  WKWebView completion handlers fire
+            # from inside CFRunLoopRunInMode on the main thread.
+            try:
+                _mac_ffi.picolet_wkwv_pump_messages(PUMP_INTERVAL_S)
+            except BaseException as e:
+                sys.stderr.write(
+                    "picolet_ui: picolet_wkwv_pump_messages raised: {}\n".format(e)
+                )
+
+            await asyncio.sleep(PUMP_INTERVAL_S)
+    except asyncio.CancelledError:
+        raise
+
+
 async def _lvgl_pump():
     """Advance LVGL's tick counter and drain its task queue.
 
@@ -155,6 +205,8 @@ def _default_webview_pump():
     """
     if sys.platform == "win32":
         return _win_pump
+    if sys.platform == "darwin":
+        return _mac_pump
     return _gtk_pump
 
 
@@ -177,9 +229,9 @@ async def _run_with_pump(transport, main, dispatcher_run, pump=None):
     """
     if pump is None:
         pump = _default_webview_pump()
-    # The Win32 pump expects the transport so it can drain the
+    # The Win32 and macOS pumps expect the transport so they can drain the
     # inbound ring; the GTK pump does not need an argument.
-    if pump is _win_pump:
+    if pump is _win_pump or pump is _mac_pump:
         pump_task = asyncio.create_task(pump(transport))
     else:
         pump_task = asyncio.create_task(pump())

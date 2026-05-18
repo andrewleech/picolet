@@ -242,6 +242,40 @@ class Application:
                     )
                     raise
                 self.webview.navigate_to_string(html)
+        elif sys.platform == "darwin":
+            # WKWebView on macOS (PH25).  The Webview constructor registers
+            # the picolet:// scheme handler and the JS→Python message handler
+            # before creating the WKWebView (WKWebViewConfiguration is fixed
+            # at init time).  Sub-resources are served through the C
+            # overlay's WKURLSchemeHandler, which reads from /rom/<path>
+            # through the same MicroPython VFS as the Linux path.
+            #
+            # When PICOLET_DEV_URL is set, navigate to the dev server URL
+            # instead of loading from the romfs.
+            if _dev_url:
+                self.webview = Webview(
+                    self.window, root_uri=None, transport=self.transport
+                )
+                self.webview.load_url(_dev_url)
+            elif root_uri is not None:
+                self.webview = Webview(
+                    self.window, root_uri=root_uri, transport=self.transport
+                )
+            else:
+                cfg = _load_ui_config()
+                rom_doc = "/rom/" + cfg["root"] + "/" + cfg["index"]
+                try:
+                    html = _read_rom_html(rom_doc)
+                except OSError as e:
+                    sys.stderr.write(
+                        "picolet_ui: failed to read {}: {}\n".format(rom_doc, e)
+                    )
+                    raise
+                base_uri = "picolet:///" + cfg["root"] + "/"
+                self.webview = Webview(
+                    self.window, root_uri=None, transport=self.transport
+                )
+                self.webview.load_html(html, base_uri)
         else:
             # WebKit on Linux: /rom is an in-process VFS overlay, not
             # visible to the kernel.  Read the index.html through Python

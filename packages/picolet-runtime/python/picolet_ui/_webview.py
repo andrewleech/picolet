@@ -1,9 +1,9 @@
 # picolet_ui._webview — webview wrapper + WebviewTransport.
 #
-# Cross-platform: the WebKitGTK 4.1 backend (PH07) and the WebView2
-# backend (PH10) share one public surface.  Selection is by sys.platform
-# at import time — the runtime variant only ships the relevant FFI
-# module.
+# Cross-platform: the WebKitGTK 4.1 backend (PH07), the WebView2 backend
+# (PH10), and the WKWebView backend (PH25) share one public surface.
+# Selection is by sys.platform at import time — the runtime variant only
+# ships the relevant FFI module.
 #
 # Linux (sys.platform == 'linux'):
 #   Embeds a WebKitWebView inside a picolet_ui.Window, loads a file://
@@ -18,6 +18,14 @@
 #   (drained per pump tick by _loop._win_pump); outbound Python->JS
 #   through eval_js (ExecuteScript via the C overlay).
 #
+# macOS (sys.platform == 'darwin'):
+#   Hosts a WKWebView inside an NSWindow via the picolet_webview_mac C
+#   overlay (all ObjC calls go through objc_msgSend — no .m files).
+#   Inbound JS->Python flows through the C overlay's ring buffer (drained
+#   per pump tick by _loop._mac_pump); outbound Python->JS through eval_js
+#   (picolet_wkwv_evaluate_js).  The picolet:// URL scheme is served by the C
+#   overlay's WKURLSchemeHandler (registered before webview creation).
+#
 # Shared:
 #   - Bridge JS (PH08) is injected at document-start.  The bundle is
 #     read from /rom/picolet/picolet-bridge.js.
@@ -25,9 +33,9 @@
 #     it talks to whichever Webview backend via the uniform .eval_js
 #     method.
 #
-# JS-side wire (both platforms):
+# JS-side wire (all platforms):
 #   Inbound:  postMessage(JSON.stringify(msg))
-#             (window.webkit.messageHandlers.picolet on WebKit;
+#             (window.webkit.messageHandlers.picolet on WebKit/WKWebView;
 #              chrome.webview on WebView2)
 #   Outbound: window.__picolet_recv(jsonString)
 
@@ -270,6 +278,216 @@ if sys.platform == "win32":
             from . import _win_ffi
             _win_ffi.picolet_wv2_close_controller(self._controller)
             self._controller = None
+
+elif sys.platform == "darwin":
+
+    # -----------------------------------------------------------------
+    # WKWebView backend (macOS, PH25)
+    # -----------------------------------------------------------------
+    #
+    # The picolet_webview_mac C overlay (picolet_webview_mac.c) exposes a flat
+    # C API accessed through _mac_ffi.py.  All ObjC calls inside the C
+    # overlay go through objc_msgSend — no .m files or static ObjC++
+    # linkage.
+    #
+    # Lifecycle:
+    #   picolet_wkwv_init            — initialise NSApplication (once)
+    #   picolet_wkwv_register_*     — register handlers BEFORE create_webview
+    #   picolet_wkwv_create_window  — allocate NSWindow
+    #   picolet_wkwv_create_webview — allocate WKWebView + attach to window
+    #   picolet_wkwv_load_html /    — load content
+    #     picolet_wkwv_load_url
+    #   picolet_wkwv_pump_messages  — drain Cocoa run loop (called per tick
+    #                               by _loop._mac_pump)
+    #
+    # Inbound JS→Python: WKScriptMessageHandler pushes into a C ring
+    # buffer; _mac_pump drains it and calls transport._deliver_raw().
+    #
+    # picolet:// scheme: registered via picolet_wkwv_register_scheme_handler
+    # before create_webview; the C overlay calls the Python closure for
+    # each request; the closure reads from /rom/<path> and calls
+    # picolet_wkwv_scheme_respond or picolet_wkwv_scheme_error.
+    #
+    # libffi closures used here must be kept alive at module scope.
+
+    _mac_scheme_callback = None   # keep the scheme libffi closure alive
+
+    class Webview:
+        """A WKWebView embedded in an NSWindow via the macOS C overlay."""
+
+        def __init__(self, window, root_uri=None, transport=None):
+            from . import _mac_ffi
+            import ffi as _ffi
+            self._mac_ffi = _mac_ffi
+            self._window = window
+
+            # PH25 — PICOLET_TEST_MODE: enable WK inspector and pick a port.
+            import os
+            self._test_port = None
+            if os.getenv("PICOLET_TEST_MODE") == "1":
+                port = _mac_ffi.picolet_wkwv_pick_test_port()
+                if port > 0:
+                    rc = _mac_ffi.picolet_wkwv_enable_inspector(port)
+                    if rc >= 0:
+                        self._test_port = port
+                    else:
+                        sys.stderr.write(
+                            "picolet_ui: PICOLET_TEST_MODE: "
+                            "picolet_wkwv_enable_inspector failed\n"
+                        )
+                else:
+                    sys.stderr.write(
+                        "picolet_ui: PICOLET_TEST_MODE: "
+                        "picolet_wkwv_pick_test_port() failed\n"
+                    )
+
+            # Register the JS→Python message handler BEFORE create_webview.
+            rc = _mac_ffi.picolet_wkwv_register_message_handler()
+            if rc != 0:
+                sys.stderr.write(
+                    "picolet_ui: picolet_wkwv_register_message_handler failed\n"
+                )
+
+            # Register the picolet:// scheme handler BEFORE create_webview.
+            # The closure receives (path_ptr, task_ptr, user_data_ptr).
+            # It reads /rom/<path> and calls picolet_wkwv_scheme_respond.
+            import uctypes as _uctypes
+
+            def _on_scheme_request(path_ptr, task_ptr, user_data_ptr):
+                try:
+                    path = _mac_ffi.ffi_string(path_ptr)   # e.g. "/ui/style.css"
+                    rom_path = "/rom" + path
+                    from ._app import _mime_for_path
+                    try:
+                        with open(rom_path, "rb") as fh:
+                            data = fh.read()
+                    except OSError as e:
+                        sys.stderr.write(
+                            "picolet_ui: picolet:// 404 {}: {}\n".format(rom_path, e)
+                        )
+                        _mac_ffi.picolet_wkwv_scheme_error(task_ptr)
+                        return
+                    mime = _mime_for_path(rom_path)
+                    buf = bytes(data)
+                    # uctypes.addressof requires a bytearray; bytes works on
+                    # MicroPython because bytes is mutable-compatible in uctypes.
+                    rc2 = _mac_ffi.picolet_wkwv_scheme_respond(
+                        task_ptr,
+                        mime.encode("utf-8") if isinstance(mime, str) else mime,
+                        _uctypes.addressof(bytearray(buf)),
+                        len(buf),
+                    )
+                    if rc2 != 0:
+                        sys.stderr.write(
+                            "picolet_ui: picolet_wkwv_scheme_respond failed "
+                            "for {}\n".format(rom_path)
+                        )
+                except BaseException as exc:
+                    sys.stderr.write(
+                        "picolet_ui: _on_scheme_request raised: {}\n".format(exc)
+                    )
+                    try:
+                        _mac_ffi.picolet_wkwv_scheme_error(task_ptr)
+                    except BaseException:
+                        pass
+
+            # Build the libffi closure: void (*)(p, p, p)
+            scheme_cb = _ffi.callback("v", _on_scheme_request, "ppp", lock=False)
+            # Keep alive at module scope.
+            global _mac_scheme_callback
+            _mac_scheme_callback = scheme_cb
+
+            rc = _mac_ffi.picolet_wkwv_register_scheme_handler(scheme_cb, 0)
+            if rc != 0:
+                sys.stderr.write(
+                    "picolet_ui: picolet_wkwv_register_scheme_handler failed\n"
+                )
+
+            # Create the WKWebView (attaches to window's content view).
+            wv = _mac_ffi.picolet_wkwv_create_webview(
+                window.handle, window.width, window.height
+            )
+            if not wv:
+                raise RuntimeError(
+                    "picolet_ui: picolet_wkwv_create_webview returned NULL"
+                )
+            self._webview = wv
+
+            # Inject the picolet-bridge.js bundle.  WKWebView has no direct
+            # "user script at document-start" equivalent exposed in the flat
+            # C API in v1.2; we evaluate it immediately after load instead,
+            # which is close enough for the v1.2 IPC bridge use-case.
+            # (A proper inject-at-document-start via WKUserScript is a v1.3
+            # enhancement tracked under FR-WV-MAC-4.)
+            _BRIDGE_PATH = "/rom/picolet/picolet-bridge.js"
+            self._bridge_src = ""
+            try:
+                with open(_BRIDGE_PATH, "r") as fh:
+                    self._bridge_src = fh.read()
+            except OSError:
+                pass  # graceful degradation outside a full romfs build
+
+            # Bind transport.
+            self.transport = (
+                transport if transport is not None else WebviewTransport(self)
+            )
+            if self.transport._webview is None:
+                self.transport._webview = self
+
+            # Load initial content if requested.
+            if root_uri is not None:
+                rc = _mac_ffi.picolet_wkwv_load_url(wv, root_uri.encode("utf-8"))
+                if rc != 0:
+                    sys.stderr.write(
+                        "picolet_ui: picolet_wkwv_load_url failed for {}\n".format(root_uri)
+                    )
+
+            # Announce the inspector port (FR-WV-MAC-7 / FR-TEST-MAC-3).
+            if self._test_port is not None:
+                sys.stderr.write("picolet:test-port={}\n".format(self._test_port))
+                sys.stderr.flush()
+
+        def load_html(self, html, base_url=None):
+            """Load an HTML string with an optional base URL."""
+            rc = self._mac_ffi.picolet_wkwv_load_html(
+                self._webview,
+                html.encode("utf-8") if isinstance(html, str) else html,
+                base_url.encode("utf-8") if base_url else 0,
+            )
+            if rc != 0:
+                sys.stderr.write("picolet_ui: picolet_wkwv_load_html failed\n")
+            # Inject bridge JS after load.  On WKWebView the load is async;
+            # we schedule the injection via evaluate_js.  The bridge IIFE is
+            # idempotent so re-injection on reload is safe.
+            if self._bridge_src:
+                self.eval_js(self._bridge_src)
+
+        def load_url(self, url):
+            """Navigate the WKWebView to a URL."""
+            rc = self._mac_ffi.picolet_wkwv_load_url(
+                self._webview,
+                url.encode("utf-8") if isinstance(url, str) else url,
+            )
+            if rc != 0:
+                sys.stderr.write(
+                    "picolet_ui: picolet_wkwv_load_url failed for {}\n".format(url)
+                )
+
+        def eval_js(self, js):
+            """Run JS in the page.  Async completion is ignored."""
+            rc = self._mac_ffi.picolet_wkwv_evaluate_js(
+                self._webview,
+                js.encode("utf-8") if isinstance(js, str) else js,
+            )
+            if rc != 0:
+                sys.stderr.write("picolet_ui: picolet_wkwv_evaluate_js failed\n")
+
+        @property
+        def handle(self):
+            return self._webview
+
+        def close(self):
+            self._webview = None
 
 else:
 
