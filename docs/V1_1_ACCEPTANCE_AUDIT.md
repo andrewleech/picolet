@@ -12,6 +12,26 @@
 
 ---
 
+## Status Update (Sprint A — 2026-05-18)
+
+The following conditions from the original audit have been resolved since HEAD `f27cc69`:
+
+| Condition | Resolution | Commit(s) |
+|---|---|---|
+| C2 — pydfu display font (Berkeley Mono deviation) | Pivoted to Monaspace Neon (Bold + Regular woff2 vendored). Phase-19 font tests now assert presence unconditionally. | `ad18da6` |
+| C3 — LED dot radial-gradient missing | `radial-gradient(circle at 35% 35%, ...)` added to LedDot.vue. | `c345542` |
+| C1 — pydfu real USB path incomplete | libusb void** traversal and DFU flash state machine implemented; `list_dfu_devices()` and `flash_device()` functional on Linux. | C1 fix series |
+| C4/C5 — timing NFRs (NFR-EX-2, NFR-TEST-1) unverified | `perf-check.yml` CI workflow added; timing gates verified in CI. | `perf-check.yml` addition |
+| Windows pydfu — NotImplementedError guard | Windows DFU support added; libusb-1.0.dll vendored; `pydfu_adapter.py` Windows guard removed. | `04c6387`..`5b1d61e` |
+| libusb hashes / SBOM verification | SHA-256 hashes added to `metadata.component` in the runtime SBOM. | `039f571` |
+| [PH13] Caveat — micropython-lib SBOM auto-discovery deferred | `parse_upylib_manifest`, `find_upylib_manifest`, `upylib_components` implemented; `micropython-lib = [...]` in `[dependencies]` now auto-discovers version + MIT licence from vendored manifests. | `148cf17` |
+| R3 — Windows dev redirect via meta-refresh | `picolet_wv2_navigate` C export added; `_app.py` Windows dev path calls `Navigate` directly. | `2082716` |
+| PICOLET_WV_THREADED stub — gate 16 deferred | Gate 16 passed without starvation; stub and env var removed. | `b52fa6a` |
+
+Original verdict and findings are preserved below as the historical record.
+
+---
+
 ## Verdict
 
 **APPROVED WITH CONDITIONS**
