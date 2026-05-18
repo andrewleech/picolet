@@ -40,6 +40,7 @@ frozen modules from a manifest file.
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime
 import hashlib
 import json
@@ -326,6 +327,148 @@ def _runtime_tag(repo_root: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# micropython-lib manifest auto-discovery (A8)
+# ---------------------------------------------------------------------------
+
+# Search paths within micropython-lib for a named module's manifest.py.
+# Tried in order; first hit wins.
+_UPYLIB_SEARCH_DIRS = (
+    "python-stdlib",
+    "micropython",
+    "unix-ffi",
+)
+
+# Canonical licence for all micropython-lib modules (MIT per the repo LICENSE).
+_UPYLIB_LICENCE = "MIT"
+
+# micropython-lib source URL prefix.
+_UPYLIB_SOURCE_URL = "https://github.com/micropython/micropython-lib"
+
+
+def _upylib_root(repo_root: Path) -> Path:
+    """Return the path to the vendored micropython-lib directory."""
+    return (
+        repo_root
+        / "packages"
+        / "picolet-runtime"
+        / "micropython"
+        / "lib"
+        / "micropython-lib"
+    )
+
+
+def parse_upylib_manifest(manifest_path: Path) -> dict:
+    """Parse a micropython-lib manifest.py and return its metadata.
+
+    Uses ast to evaluate only the ``metadata(...)`` call safely.
+    Returns a dict with keys "version" and "description" (may be empty
+    strings if absent from the manifest).
+
+    Raises ValueError if the manifest cannot be parsed.
+    """
+    try:
+        source = manifest_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"cannot read {manifest_path}: {exc}") from exc
+
+    try:
+        tree = ast.parse(source, filename=str(manifest_path))
+    except SyntaxError as exc:
+        raise ValueError(f"syntax error in {manifest_path}: {exc}") from exc
+
+    version = ""
+    description = ""
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Expr):
+            continue
+        call = node.value
+        if not isinstance(call, ast.Call):
+            continue
+        func = call.func
+        if not (isinstance(func, ast.Name) and func.id == "metadata"):
+            continue
+        # Extract keyword arguments.
+        for kw in call.keywords:
+            if kw.arg == "version" and isinstance(kw.value, ast.Constant):
+                version = str(kw.value.value)
+            elif kw.arg == "description" and isinstance(kw.value, ast.Constant):
+                description = str(kw.value.value)
+        # Also accept positional first arg as version (rare but exists).
+        if not version and call.args and isinstance(call.args[0], ast.Constant):
+            version = str(call.args[0].value)
+        break  # only first metadata() call matters
+
+    return {"version": version, "description": description}
+
+
+def find_upylib_manifest(module_name: str, repo_root: Path) -> "Path | None":
+    """Locate the manifest.py for a named micropython-lib module.
+
+    Searches _UPYLIB_SEARCH_DIRS in order; returns the first manifest.py
+    found, or None if the module is not in the vendored micropython-lib.
+    """
+    root = _upylib_root(repo_root)
+    for subdir in _UPYLIB_SEARCH_DIRS:
+        candidate = root / subdir / module_name / "manifest.py"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def upylib_components(
+    module_names: list[str],
+    repo_root: Path,
+    offset: int,
+) -> list[dict]:
+    """Build CycloneDX components for a list of micropython-lib module names.
+
+    For each name, attempts to locate and parse the vendored manifest.py.
+    On success: emits a component with the manifest version and MIT licence.
+    On failure (module not found): emits a component with version "unknown"
+    and LicenseRef-Unknown so downstream policy enforcement handles it.
+    """
+    components = []
+    for i, name in enumerate(module_names):
+        manifest_path = find_upylib_manifest(name, repo_root)
+        if manifest_path is not None:
+            try:
+                meta = parse_upylib_manifest(manifest_path)
+                version = meta["version"] or "unknown"
+                description = meta.get("description", "")
+                licence = _UPYLIB_LICENCE
+            except ValueError:
+                version = "unknown"
+                description = ""
+                licence = "LicenseRef-Unknown"
+        else:
+            version = "unknown"
+            description = ""
+            licence = "LicenseRef-Unknown"
+
+        bom_ref = f"upylib-{name.lower().replace('-', '_')}-{offset + i}"
+        cdx: dict[str, Any] = {
+            "type": "library",
+            "bom-ref": bom_ref,
+            "name": name,
+            "version": version,
+        }
+        if licence.startswith("LicenseRef-"):
+            cdx["licenses"] = [{"license": {"name": licence}}]
+        else:
+            cdx["licenses"] = [{"license": {"id": licence}}]
+        cdx["externalReferences"] = [{"type": "website", "url": _UPYLIB_SOURCE_URL}]
+        cdx["properties"] = [
+            {"name": "picolet:link_type", "value": "static"},
+            {"name": "picolet:source", "value": "micropython-lib"},
+        ]
+        if description:
+            cdx["description"] = description
+        components.append(cdx)
+    return components
+
+
+# ---------------------------------------------------------------------------
 # Public: emit_runtime_sbom
 # ---------------------------------------------------------------------------
 
@@ -427,7 +570,9 @@ def emit_app_sbom(
         _inject_mbm_prs(runtime_cdx_components, pr_titles)
 
     # Step 2 — Build the app dependency component list.
-    app_cdx_components = _app_dep_components(app_data, offset=len(runtime_cdx_components))
+    app_cdx_components = _app_dep_components(
+        app_data, offset=len(runtime_cdx_components), repo_root=repo_root
+    )
 
     # Step 3 — Merge; detect name collisions and keep both with warning.
     runtime_by_name: dict[str, dict] = {c["name"]: c for c in runtime_cdx_components}
@@ -486,12 +631,22 @@ def emit_app_sbom(
 # App dependency components
 # ---------------------------------------------------------------------------
 
-def _app_dep_components(app_data: dict, offset: int) -> list[dict]:
+def _app_dep_components(
+    app_data: dict,
+    offset: int,
+    repo_root: "Path | None" = None,
+) -> list[dict]:
     """Convert app [dependencies] + [dependency_meta] to CDX components.
 
     [dependencies] is a flat table: name = "version".
-    [dependency_meta.<name>] may carry a 'licence' key.  Without it the
-    generator emits LicenseRef-Unknown and the policy enforcement handles it.
+
+    Special key: ``micropython-lib`` may map to a list of module names
+    (e.g. ``micropython-lib = ["asyncio", "json"]``).  When detected,
+    each name is resolved against the vendored micropython-lib manifests
+    (requires *repo_root*) to extract version and licence automatically.
+
+    [dependency_meta.<name>] may carry a 'licence' key for other deps.
+    Without it the generator emits LicenseRef-Unknown.
     """
     deps: dict = app_data.get("dependencies") or {}
     meta_root: dict = app_data.get("dependency_meta") or {}
@@ -499,8 +654,22 @@ def _app_dep_components(app_data: dict, offset: int) -> list[dict]:
     if not deps or not isinstance(deps, dict):
         return []
 
-    components = []
-    for i, (name, version) in enumerate(deps.items()):
+    components: list[dict] = []
+    i = 0
+
+    for name, version in deps.items():
+        # Special case: micropython-lib = ["asyncio", "json", ...]
+        if name == "micropython-lib" and isinstance(version, list):
+            module_names = [str(m) for m in version]
+            if repo_root is not None:
+                upy_comps = upylib_components(module_names, repo_root, offset + i)
+            else:
+                # No repo_root: emit stubs with unknown version/licence.
+                upy_comps = upylib_components(module_names, Path("."), offset + i)
+            components.extend(upy_comps)
+            i += len(module_names)
+            continue
+
         meta = meta_root.get(name) or {}
         licence = meta.get("licence") or meta.get("license") or "LicenseRef-Unknown"
         source_url = meta.get("source_url") or meta.get("url") or ""
@@ -526,6 +695,7 @@ def _app_dep_components(app_data: dict, offset: int) -> list[dict]:
         cdx["properties"] = [{"name": "picolet:link_type", "value": link_type}]
 
         components.append(cdx)
+        i += 1
 
     return components
 
