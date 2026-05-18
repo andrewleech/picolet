@@ -9,9 +9,8 @@ This is the minimal CI-safe proof that the FFI integration is correct.
 Real-device flash is tested manually; CI uses PICOLET_PYDFU_MOCK=1 for all
 functional tests.
 
-Skipped automatically if:
-  - sys.platform == "win32" (Windows is out of scope for v1.1, FR-EX-7)
-  - libusb-1.0.so.0 is not installed on the host (prints a skip notice)
+Skipped automatically if libusb-1.0.so.0 is not installed on the host
+(Linux) or libusb-1.0.dll cannot be loaded (Windows; prints a skip notice).
 """
 from __future__ import annotations
 
@@ -21,12 +20,34 @@ import sys
 import unittest
 
 
-@unittest.skipIf(sys.platform == "win32", "Windows is out of scope for v1.1 (FR-EX-7)")
 class TestLibusbBinding(unittest.TestCase):
 
     def _load_libusb(self):
-        """Load libusb-1.0 via ctypes (host Python, not MicroPython ffi)."""
-        # Try the versioned soname first (what the _usb shim uses), then fallback.
+        """Load libusb-1.0 via ctypes (host Python, not MicroPython ffi).
+
+        On Linux: tries libusb-1.0.so.0 (system package).
+        On Windows: tries the vendored DLL from the src/_usb directory first,
+        then falls back to system PATH.
+        """
+        import os
+        from pathlib import Path
+
+        if sys.platform == "win32":
+            # Try vendored DLL first.
+            here = Path(__file__).parent.parent.parent
+            dll_path = here / "examples" / "pydfu" / "src" / "_usb" / "libusb-1.0.dll"
+            if dll_path.exists():
+                try:
+                    return ctypes.CDLL(str(dll_path))
+                except OSError:
+                    pass
+            try:
+                return ctypes.CDLL("libusb-1.0.dll")
+            except OSError:
+                pass
+            return None
+
+        # Linux path: try the versioned soname first (what the _usb shim uses).
         for name in ("libusb-1.0.so.0", "libusb-1.0.so", "usb-1.0"):
             path = ctypes.util.find_library(name.replace("lib", "").replace(".so.0", ""))
             try:
