@@ -228,6 +228,21 @@ else
   skip "L: binary not found (tests require running binary)"
 fi
 
+# ---- Gate M: binary import chain (no ImportError) --------------------------
+echo "--- Gate M: binary exits without ImportError"
+if [[ -f "$BINARY" ]]; then
+  OUTPUT=$(timeout 3 "$BINARY" 2>&1 | head -20 || true)
+  if echo "$OUTPUT" | grep -q 'ImportError\|module not found'; then
+    echo "    binary failed with ImportError:"
+    echo "$OUTPUT" | head -5
+    fail "M: binary fails at import"
+  else
+    pass "M: binary passes import chain (no ImportError)"
+  fi
+else
+  skip "M: binary not found"
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 

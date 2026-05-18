@@ -245,6 +245,21 @@ else
 fi
 rm -rf "$TMPDIR_APP"
 
+# --- Gate M: binary import chain (no ImportError) ---
+echo "[M] FR-EX-1: binary exits without ImportError"
+if [ -f "$BINARY" ]; then
+    OUTPUT=$(timeout 3 "$BINARY" 2>&1 | head -20 || true)
+    if echo "$OUTPUT" | grep -q 'ImportError\|module not found'; then
+        echo "  binary failed with ImportError:"
+        echo "$OUTPUT" | head -5
+        _fail "binary fails at import"
+    else
+        _ok "binary passes import chain (no ImportError)"
+    fi
+else
+    _skip "binary not found"
+fi
+
 # --- Summary ---
 echo ""
 echo "=== Summary ==="

@@ -235,6 +235,21 @@ else
   fail "O: template init + build"
 fi
 
+# ---- Gate P: binary import chain (no ImportError) --------------------------
+echo "--- Gate P: binary exits without ImportError"
+if [[ -f "$BINARY" ]]; then
+  OUTPUT=$(timeout 3 "$BINARY" 2>&1 | head -20 || true)
+  if echo "$OUTPUT" | grep -q 'ImportError\|module not found'; then
+    echo "    binary failed with ImportError:"
+    echo "$OUTPUT" | head -5
+    fail "P: binary fails at import"
+  else
+    pass "P: binary passes import chain (no ImportError)"
+  fi
+else
+  skip "P: binary not found"
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 
