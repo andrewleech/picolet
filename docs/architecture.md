@@ -199,6 +199,12 @@ to 127.0.0.1 only (NFR-TEST-2 loopback restriction).
   --remote-debugging-address=127.0.0.1` is passed as
   `AdditionalBrowserArguments` to `CreateCoreWebView2EnvironmentWithOptions`
   via a stack-allocated `ICoreWebView2EnvironmentOptions` vtable shim.
+- **macOS/WKWebView**: `NSUserDefaults` keys `WebInspectorServerEnabled=YES`
+  and `WebInspectorPort=<N>` are set before the WKWebView is created.
+  The port is chosen via `picolet_wkwv_pick_test_port` (bind/getsockname/close
+  on 127.0.0.1:0).  These defaults activate the WKRP TCP listener that
+  Safari Web Inspector uses; the same WKRP WebSocket protocol is spoken by
+  AppHarness's webkit path, which already handles macOS transparently.
 
 ### AppHarness
 
@@ -443,3 +449,56 @@ active frontend build hook, the vanilla static files would be copied alongside
 (or overwriting) the Vite `dist/` output. The `with-vue` template omits
 `[romfs] include` entirely to avoid this. The validator does not yet detect
 this combination (deferred; documented here as a footgun).
+
+---
+
+## macOS WKWebView backend (PH25)
+
+### ObjC runtime via libffi — no `.m` files
+
+All Objective-C calls on macOS go through the public `objc_msgSend` ABI
+exported by `libobjc.A.dylib`.  The C glue in `picolet_webview_mac.c` casts
+`objc_msgSend` to the concrete prototype required at each call site (the
+approach used by PyObjC, GNUstep, and Apple's own ObjC bridge tests).
+There is no static ObjC++ linkage and no `.m` source file.
+
+**Why**: `.m` files require clang's ObjC front-end and generate code that
+transitively links ObjC runtime init stubs.  The pure-C approach compiles
+with any C99 compiler that has the macOS SDK headers available, stays in
+the same `picolet_webview2.c` lineage as the Windows overlay, and keeps the
+link-time symbol footprint explicit.
+
+### Per-platform FFI module split
+
+Each platform has its own `_*_ffi.py` binding module:
+
+| Platform | Module | Entry point |
+|---|---|---|
+| Linux | `_gtk_ffi.py` | `ffi.open("libwebkit2gtk-4.1.so.0")` |
+| Windows | `_win_ffi.py` | `ffi.open(None)` → main `.exe` |
+| macOS | `_mac_ffi.py` | `ffi.open(None)` → main Mach-O binary |
+
+The split keeps each module minimal: only the symbols relevant to one
+platform are bound, so a wrong-platform import fails fast at `ffi.open`.
+The `_webview.py` module selects the right class via `sys.platform` at
+import time; the frozen manifest includes all three modules but only the
+correct one's symbols are present in the binary.
+
+### CGRect / struct-return ABI
+
+On x86_64 macOS, structs larger than 16 bytes are returned via a hidden
+first pointer argument (`objc_msgSend_stret`).  `CGRect` is 32 bytes on
+x86_64.  On arm64 all structs up to 128 bytes are returned in registers
+and `objc_msgSend` is used directly.
+
+`picolet_webview_mac.c` wraps all `CGRect`-returning calls inside a
+C-level helper (`picolet_make_rect`) that builds the rect on the stack.
+Python never calls `objc_msgSend_stret` directly.
+
+### Cocoa run loop integration
+
+`[NSApplication run]` blocks; it cannot be called from inside the asyncio
+event loop.  Instead, `picolet_wkwv_pump_messages(seconds)` calls
+`CFRunLoopRunInMode(kCFRunLoopDefaultMode, seconds, false)` — the macOS
+equivalent of `gtk_main_iteration_do`.  It is driven by `_loop._mac_pump`
+on the same asyncio thread, mirroring the Linux GTK pump pattern exactly.
