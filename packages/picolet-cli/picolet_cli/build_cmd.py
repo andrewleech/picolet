@@ -212,9 +212,9 @@ def _do_build(args) -> int:
     except ValueError:
         # Validator already rejected invalid renderer values; this is a
         # belt-and-suspenders guard.
-        raise NotImplementedError(
-            f"unknown ui renderer {renderer!r}; "
-            f"valid values are {sorted(SUPPORTED_RENDERERS)}"
+        sys.exit(
+            f"error: unknown ui.renderer {renderer!r}; "
+            f"valid values are: {', '.join(sorted(SUPPORTED_RENDERERS))}"
         )
 
     # -------------------------------------------------------------------------
@@ -223,9 +223,9 @@ def _do_build(args) -> int:
     target = args.target if args.target else host_target()
 
     if target not in SUPPORTED_TARGETS:
-        raise NotImplementedError(
-            f"--target {target!r} not implemented; "
-            f"supported targets: {', '.join(sorted(SUPPORTED_TARGETS))}."
+        sys.exit(
+            f"error: unsupported --target {target!r}; "
+            f"choose from: {', '.join(sorted(SUPPORTED_TARGETS))}"
         )
 
     if args.verbose:
