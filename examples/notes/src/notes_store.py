@@ -4,6 +4,7 @@ Storage path (in priority order):
   1. PICOLET_NOTES_DIR env var (test isolation)
   2. Linux: $XDG_CONFIG_HOME/notes/ or ~/.config/notes/
   3. Windows: %APPDATA%\\notes\\
+  4. macOS: ~/Library/Application Support/notes/
 
 Note file format:
   Filename: <slug>-<unix-ts>.md
@@ -31,6 +32,8 @@ def _notes_dir() -> Path:
         if not base:
             raise RuntimeError("APPDATA not set on Windows")
         p = Path(base) / "notes"
+    elif sys.platform == "darwin":
+        p = Path.home() / "Library" / "Application Support" / "notes"
     else:
         xdg = os.environ.get("XDG_CONFIG_HOME")
         base = Path(xdg) if xdg else Path.home() / ".config"

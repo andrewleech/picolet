@@ -3,6 +3,9 @@ name = "with-vue"
 version = "0.1.0"
 entry = "src/main.py"
 
+[build]
+targets = ["linux-x64", "windows-x64", "macos-x64", "macos-arm64"]
+
 [ui]
 renderer = "webview"
 root = "ui"
