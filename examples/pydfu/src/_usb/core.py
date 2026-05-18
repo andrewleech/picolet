@@ -77,21 +77,16 @@ libusb_interface_descriptor = {
 
 # Platform-aware library loading.
 # Linux: system libusb-1.0.so.0.
-# Windows: vendored libusb-1.0.dll co-located with this module in romfs.
+# Windows: extracted DLL from romfs (set by main.py before this import),
+#          falling back to system PATH if not extracted.
 if sys.platform == "win32":
-    # Locate the DLL: try the directory containing this module first
-    # (romfs layout: /rom/src/_usb/libusb-1.0.dll), then fall back to
-    # system PATH so a host installation also works.
-    try:
-        _module_dir = os.path.dirname(__file__)
-    except (NameError, AttributeError):
-        _module_dir = ""
-    if _module_dir:
-        _dll_candidate = _module_dir + "/libusb-1.0.dll"
-    else:
-        _dll_candidate = "libusb-1.0.dll"
-    if _module_dir and os.path.exists(_dll_candidate):
-        _dll_path = _dll_candidate
+    # Prefer the path set by the host app's romfs extraction step (main.py
+    # extracts the DLL to %TEMP%\picolet_pydfu\ and sets _usb._native_lib_dir
+    # before importing any module that transitively imports this one).
+    import _usb as _usb_pkg
+    _extracted_dir = getattr(_usb_pkg, "_native_lib_dir", None)
+    if _extracted_dir:
+        _dll_path = _extracted_dir + "\\libusb-1.0.dll"
     else:
         _dll_path = "libusb-1.0.dll"  # rely on system PATH
     libusb = ffi.open(_dll_path)

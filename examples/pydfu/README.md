@@ -18,7 +18,12 @@ The `ffi` module opens `libusb-1.0.so.0` at runtime.
 
 A vendored `libusb-1.0.dll` (x64, LGPL-2.1-or-later, v1.0.26) is bundled in the
 app romfs at `/rom/src/_usb/libusb-1.0.dll`. No separate installation is needed.
-The `ffi` module opens the DLL from its co-location with the `_usb` module.
+
+On first run, `main.py` extracts the DLL from romfs to `%TEMP%\picolet_pydfu\libusb-1.0.dll`
+before any USB import occurs. Windows `LoadLibrary` requires a real filesystem path and
+cannot load from the MicroPython romfs VFS, so the extraction step is mandatory.
+The extracted file is reused on subsequent runs (idempotent). Delete
+`%TEMP%\picolet_pydfu\` to force re-extraction.
 
 The same libusb API is used on both platforms — the DFU protocol implementation
 is identical. No WinUSB driver is required; libusb handles driver selection.
