@@ -816,6 +816,9 @@ def _copy_includes(
         for f in sorted(src.rglob("*")):
             if f.is_dir():
                 continue
+            # Skip CPython cache artefacts that have no meaning in the romfs.
+            if "__pycache__" in f.parts or f.suffix == ".pyc":
+                continue
             rel = f.relative_to(app_root)
             dst = romfs_root / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
