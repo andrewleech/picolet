@@ -21,9 +21,13 @@ import sys
 
 TARGET_LINUX_X64 = "linux-x64"
 TARGET_WINDOWS_X64 = "windows-x64"
+TARGET_MACOS_X64 = "macos-x64"
+TARGET_MACOS_ARM64 = "macos-arm64"
 SUPPORTED_TARGETS: frozenset[str] = frozenset({
     TARGET_LINUX_X64,
     TARGET_WINDOWS_X64,
+    TARGET_MACOS_X64,
+    TARGET_MACOS_ARM64,
 })
 
 
@@ -61,10 +65,16 @@ def target_exe_suffix(target: str) -> str:
 
 def host_target() -> str:
     """Return the target string matching the current host."""
+    import platform
     if sys.platform.startswith("linux"):
         return TARGET_LINUX_X64
     if sys.platform.startswith("win"):
         return TARGET_WINDOWS_X64
+    if sys.platform == "darwin":
+        machine = platform.machine()
+        if machine == "arm64":
+            return TARGET_MACOS_ARM64
+        return TARGET_MACOS_X64
     raise RuntimeError("unsupported host platform: " + sys.platform)
 
 

@@ -53,6 +53,7 @@ export PICOLET_RUNTIME_ROOT="$PKG_ROOT"
 TARGET=""
 VARIANT=""
 CLEAN=0
+FROM_SOURCE=0
 TEST_ROMFS=""   # empty by default; pass --test-romfs <fixture> to embed a test romfs
 
 while [[ $# -gt 0 ]]; do
@@ -63,17 +64,27 @@ while [[ $# -gt 0 ]]; do
             VARIANT="$2"; shift 2 ;;
         --clean)
             CLEAN=1; shift ;;
+        --from-source)
+            FROM_SOURCE=1; shift ;;
         --test-romfs)
             TEST_ROMFS="$2"; shift 2 ;;
         *)
             echo "error: unknown argument: $1" >&2
-            echo "usage: $0 --target <target> --variant <variant> [--clean] [--test-romfs <fixture>]" >&2
+            echo "usage: $0 --target <target> --variant <variant> [--clean] [--from-source] [--test-romfs <fixture>]" >&2
             exit 1 ;;
     esac
 done
 
 if [[ -z "$TARGET" || -z "$VARIANT" ]]; then
     echo "error: --target and --variant are required" >&2
+    exit 1
+fi
+
+# FR-BP-MAC-3: reject --from-source for macOS targets.
+if [[ "$FROM_SOURCE" -eq 1 && "$TARGET" == macos-* ]]; then
+    echo "error: --from-source for macos-* targets is not supported in v1.2." >&2
+    echo "       Use 'picolet build --target $TARGET' to download the pre-built artifact," >&2
+    echo "       or trigger a CI build manually." >&2
     exit 1
 fi
 
@@ -104,6 +115,24 @@ case "${TARGET}/${VARIANT}" in
         ;;
     windows-x64/lvgl)
         # PH12: SDL2 static backend via MXE inside dockcross.
+        ;;
+    macos-x64/cli)
+        # PH24: native macOS x64 cli variant.  Builds on macos-13 CI runner.
+        ;;
+    macos-x64/webview)
+        # PH25/PH26: WKWebView variant — not yet implemented.
+        ;;
+    macos-x64/lvgl)
+        # PH27: SDL2/LVGL variant — not yet implemented.
+        ;;
+    macos-arm64/cli)
+        # PH24: native macOS arm64 cli variant.  Builds on macos-14 CI runner.
+        ;;
+    macos-arm64/webview)
+        # PH25/PH26: WKWebView variant — not yet implemented.
+        ;;
+    macos-arm64/lvgl)
+        # PH27: SDL2/LVGL variant — not yet implemented.
         ;;
     *)
         echo "error: unsupported target/variant combination: $TARGET/$VARIANT" >&2
@@ -264,14 +293,21 @@ finish_artifact() {
     #     SDL2 is built from source with -ffunction-sections so --gc-sections
     #     strips unused SDL2 backends at link time.  The prior 4 MiB deviation
     #     (prebuilt archive, no per-function sections) is reverted.
+    #   macos-{x64,arm64}  → NFR-MAC-1/2/3 (same ceilings as Linux/Windows).
     case "${TARGET:-linux-x64}/${VARIANT}" in
-        linux-x64/cli)     CEILING=1048576;  NFR_ID="NFR-1" ;;
-        linux-x64/webview) CEILING=2097152;  NFR_ID="NFR-2" ;;
-        linux-x64/lvgl)    CEILING=2097152;  NFR_ID="NFR-3" ;;
-        windows-x64/cli)   CEILING=1048576;  NFR_ID="NFR-1" ;;
-        windows-x64/webview) CEILING=2097152; NFR_ID="NFR-2" ;;
-        windows-x64/lvgl)  CEILING=2097152;  NFR_ID="NFR-3" ;;
-        *)                 CEILING=1048576;  NFR_ID="NFR-1" ;;
+        linux-x64/cli)       CEILING=1048576;  NFR_ID="NFR-1" ;;
+        linux-x64/webview)   CEILING=2097152;  NFR_ID="NFR-2" ;;
+        linux-x64/lvgl)      CEILING=2097152;  NFR_ID="NFR-3" ;;
+        windows-x64/cli)     CEILING=1048576;  NFR_ID="NFR-1" ;;
+        windows-x64/webview) CEILING=2097152;  NFR_ID="NFR-2" ;;
+        windows-x64/lvgl)    CEILING=2097152;  NFR_ID="NFR-3" ;;
+        macos-x64/cli)       CEILING=1048576;  NFR_ID="NFR-MAC-1" ;;
+        macos-x64/webview)   CEILING=2097152;  NFR_ID="NFR-MAC-2" ;;
+        macos-x64/lvgl)      CEILING=2097152;  NFR_ID="NFR-MAC-3" ;;
+        macos-arm64/cli)     CEILING=1048576;  NFR_ID="NFR-MAC-1" ;;
+        macos-arm64/webview) CEILING=2097152;  NFR_ID="NFR-MAC-2" ;;
+        macos-arm64/lvgl)    CEILING=2097152;  NFR_ID="NFR-MAC-3" ;;
+        *)                   CEILING=1048576;  NFR_ID="NFR-1" ;;
     esac
     SIZE=$(wc -c < "$artifact")
     echo "[8/8] Checking binary size ($NFR_ID: ≤ $CEILING bytes)"
@@ -425,6 +461,142 @@ build_linux_x64() {
     # Called on the host shell after the container exits — see Decision commit
     # (AD5 / Risk 1 mitigation).  The artifact is already in BUILD_DIR;
     # picolet-cli is importable from the host Python via PYTHONPATH.
+    local sbom_out="${artifact}.cdx.json"
+    echo "[SBOM] Emitting runtime SBOM: $sbom_out"
+    PYTHONPATH="$REPO_ROOT/packages/picolet-cli" python3 -m picolet_cli.sbom_gen emit-runtime \
+        --output "$sbom_out" \
+        --target "$TARGET" \
+        --variant "$VARIANT" \
+        --repo-root "$REPO_ROOT" \
+        --artifact "$artifact"
+}
+
+# ---------------------------------------------------------------------------
+# macos-x64 / macos-arm64 build (native on CI runner — no Docker)
+#
+# FR-BP-MAC-4: runs natively on Darwin using the system clang.
+# FR-BP-MAC-5: guarded by uname -s == Darwin; exits with an actionable
+#              error if invoked on a non-Darwin host (e.g. Linux CI).
+# NFR-MAC-9:   MACOSX_DEPLOYMENT_TARGET=11.0 (Big Sur) for both arches.
+# ---------------------------------------------------------------------------
+
+build_macos() {
+    # FR-BP-MAC-5: guard — must run on Darwin.
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        echo "error: macos-* targets must be built on a Darwin host." >&2
+        echo "       This script was invoked on $(uname -s)." >&2
+        echo "       Trigger the GitHub Actions release workflow to build macOS artifacts." >&2
+        exit 1
+    fi
+
+    local artifact_name="picolet-runtime-${TARGET}-${VARIANT}"
+    local artifact="$BUILD_DIR/$artifact_name"
+    local variant_build="$UNIX_PORT/build-${VARIANT_NAME}"
+    local libffi_ffi_h="$variant_build/lib/libffi/include/ffi.h"
+    local libffi_src="$SUBMODULE/lib/libffi"
+
+    # NFR-MAC-9: deployment target 11.0 for both x64 and arm64.
+    export MACOSX_DEPLOYMENT_TARGET=11.0
+
+    echo "[1/8] Checking integration branch"
+    if [[ "$CLEAN" -eq 1 ]]; then
+        echo "  --clean: re-running rebuild-integration.sh"
+        "$SCRIPT_DIR/rebuild-integration.sh"
+    elif ! git -C "$SUBMODULE" show-ref --quiet refs/heads/integration; then
+        echo "  integration branch not found; running rebuild-integration.sh"
+        "$SCRIPT_DIR/rebuild-integration.sh"
+    else
+        if [[ ! -d "$UNIX_PORT/variants/${VARIANT_NAME}" ]]; then
+            echo "  overlay not applied; running rebuild-integration.sh"
+            "$SCRIPT_DIR/rebuild-integration.sh"
+        else
+            echo "  integration branch warm; skipping rebuild"
+        fi
+    fi
+
+    git -C "$SUBMODULE" checkout integration --quiet
+    echo "  updating nested submodules"
+    git -C "$SUBMODULE" submodule update --init --recursive --quiet
+
+    echo "[2/8] Verifying submodule presence"
+    if [[ ! -d "$SUBMODULE/extmod/asyncio" ]]; then
+        echo "error: $SUBMODULE/extmod/asyncio not found." >&2
+        exit 1
+    fi
+    if [[ ! -d "$SUBMODULE/lib/micropython-lib/python-stdlib/os-path" ]]; then
+        echo "error: micropython-lib/python-stdlib/os-path not found." >&2
+        echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
+        exit 1
+    fi
+
+    echo "[3/8] Building mpy-cross (native macOS host binary)"
+    make -C "$SUBMODULE/mpy-cross" -j
+
+    echo "[4/8] Fetching port submodules (libffi)"
+    make -C "$UNIX_PORT" -j submodules \
+        VARIANT="${VARIANT_NAME}" \
+        MICROPY_STANDALONE=1
+
+    # Warm-cache mitigation: same logic as the Linux path.
+    if [[ -f "$libffi_ffi_h" ]]; then
+        echo "  libffi: warm cache; touching build timestamps to skip re-configure"
+        if [[ ! -f "$libffi_src/configure" ]]; then
+            touch "$libffi_src/configure"
+            chmod +x "$libffi_src/configure"
+        fi
+        find "$variant_build/lib/libffi" -type f -exec touch {} \;
+    elif [[ ! -f "$libffi_src/configure" ]]; then
+        # Cold cache on macOS.  autogen.sh needs automake + libtool (from
+        # Homebrew: brew install automake libtool).  The CI setup step
+        # installs these before invoking this script.
+        echo "  libffi: cold cache and no configure — running autogen on host"
+        if command -v libtoolize >/dev/null 2>&1; then
+            (cd "$libffi_src" && ./autogen.sh) >/dev/null 2>&1 || {
+                echo "  libffi: autogen.sh failed; ensure automake + libtool are installed" >&2
+                echo "  Hint: brew install automake libtool" >&2
+                exit 1
+            }
+        else
+            echo "  libffi: no libtoolize; install via: brew install automake libtool" >&2
+            exit 1
+        fi
+    fi
+
+    build_romfs_image "$BUILD_DIR" "$UNIX_PORT"
+
+    echo "[6/8] Building unix port variant=${VARIANT_NAME} (native macOS)"
+    if [[ -f "$libffi_ffi_h" ]]; then
+        echo "  deplibs: ffi.h cached; skipping deplibs"
+    else
+        make -C "$UNIX_PORT" \
+            -j \
+            VARIANT="${VARIANT_NAME}" \
+            MICROPY_STANDALONE=1 \
+            PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")" \
+            deplibs
+    fi
+    make -C "$UNIX_PORT" \
+        -j \
+        VARIANT="${VARIANT_NAME}" \
+        ROMFS_IMG="$ROMFS_IMG_REL" \
+        PICOLET_RUNTIME_ROOT="$(realpath "$PKG_ROOT")"
+
+    echo "[7/8] Stripping and installing artifact"
+    local built_binary="$variant_build/micropython"
+    if [[ ! -f "$built_binary" ]]; then
+        echo "error: expected binary not found: $built_binary" >&2
+        exit 1
+    fi
+    mkdir -p "$BUILD_DIR"
+    cp "$built_binary" "$artifact"
+    # Darwin strip uses -x (strip debug symbols, keep global symbols).
+    # --strip-unneeded is a GNU binutils flag not present on macOS.
+    strip -x "$artifact"
+    echo "  artifact: $artifact"
+
+    finish_artifact "$artifact"
+
+    # [PH13] Emit runtime SBOM sidecar (FR-BP-MAC-6).
     local sbom_out="${artifact}.cdx.json"
     echo "[SBOM] Emitting runtime SBOM: $sbom_out"
     PYTHONPATH="$REPO_ROOT/packages/picolet-cli" python3 -m picolet_cli.sbom_gen emit-runtime \
@@ -739,4 +911,6 @@ if [[ "$TARGET" == "linux-x64" ]]; then
     build_linux_x64
 elif [[ "$TARGET" == "windows-x64" ]]; then
     build_windows_x64
+elif [[ "$TARGET" == macos-* ]]; then
+    build_macos
 fi

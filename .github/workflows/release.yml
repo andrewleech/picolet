@@ -4,8 +4,12 @@
 #
 # Trigger: push of a tag matching runtime-v* (e.g. runtime-v0.1.0).
 #
-# Produces the 3 × 2 runtime matrix (NFR-7):
-#   {linux-x64, windows-x64} × {cli, webview, lvgl}
+# Produces the 3 × 2 Linux/Windows runtime matrix (NFR-7) plus 1 × 2
+# macOS cli stub (PH24):
+#   {linux-x64, windows-x64} × {cli, webview, lvgl}  — ubuntu-latest
+#   {macos-x64, macos-arm64} × {cli}                  — macos-13/macos-14
+#
+# macOS builds run on release tags only (NFR-MAC-10: cost ~10× ubuntu-latest).
 #
 # Each artifact is uploaded to a GitHub Release together with its
 # .sha256 and .cdx.json sidecars so PH05's runtime_resolver can
@@ -168,12 +172,115 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # release — runs once after all 6 build jobs complete
+  # build-macos — PH24 cli stub: macos-13 (x64) + macos-14 (arm64)
+  #
+  # Runs on release tags only (NFR-MAC-10: cost ~10× ubuntu-latest).
+  # FR-CI-MAC-6: first step records sw_vers + uname -m + which clang and
+  # uploads the output as macos-runner-info-<runner>.txt for PH25 baseline.
+  # ---------------------------------------------------------------------------
+  build-macos:
+    name: "build ${{ matrix.target }} / cli"
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        include:
+          - os: macos-13
+            target: macos-x64
+          - os: macos-14
+            target: macos-arm64
+      fail-fast: false
+
+    steps:
+
+      # FR-CI-MAC-6: record runner OS metadata before any build steps.
+      # Output uploaded as an artifact for PH25 WKWebView inspector baseline.
+      - name: Record runner OS info (FR-CI-MAC-6)
+        run: |
+          {
+            echo "=== sw_vers ==="
+            sw_vers
+            echo "=== uname -m ==="
+            uname -m
+            echo "=== which clang ==="
+            which clang
+            echo "=== clang --version ==="
+            clang --version
+          } | tee /tmp/macos-runner-info.txt
+
+      - name: Upload runner OS info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-runner-info-${{ matrix.os }}
+          path: /tmp/macos-runner-info.txt
+          retention-days: 90
+
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # Install automake + libtool for libffi autogen on cold cache.
+      - name: Install automake and libtool (libffi autogen)
+        run: brew install automake libtool
+
+      - name: Install host prerequisites (mpremote)
+        run: pip3 install --quiet mpremote
+
+      - name: Restore libffi build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/picolet-runtime/micropython/ports/unix/build-picolet-*/lib/libffi
+          key: >-
+            libffi-${{ matrix.target }}-cli-${{
+              hashFiles(
+                'packages/picolet-runtime/micropython/lib/libffi/**'
+              )
+            }}
+          restore-keys: libffi-${{ matrix.target }}-cli-
+
+      # NFR-TEST-2: PICOLET_TEST_MODE must not be set in release builds.
+      - name: Assert PICOLET_TEST_MODE is not set (NFR-TEST-2)
+        run: |
+          if env -0 | tr '\0' '\n' | grep -q '^PICOLET_TEST_MODE='; then
+            echo "ERROR: PICOLET_TEST_MODE set in release environment." >&2
+            echo "Release builds must NOT have PICOLET_TEST_MODE set." >&2
+            exit 1
+          fi
+          echo "OK: PICOLET_TEST_MODE is not set."
+
+      - name: Build macOS cli runtime
+        run: |
+          bash packages/picolet-runtime/scripts/build-runtime.sh \
+            --target "${{ matrix.target }}" \
+            --variant cli
+
+      - name: Compute SHA256 sidecar
+        run: |
+          cd packages/picolet-runtime/build
+          ARTIFACT="picolet-runtime-${{ matrix.target }}-cli"
+          sha256sum "$ARTIFACT" > "${ARTIFACT}.sha256"
+          echo "sha256sum output:"
+          cat "${ARTIFACT}.sha256"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.target }}-cli
+          path: |
+            packages/picolet-runtime/build/picolet-runtime-*-cli*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # release — runs once after all build jobs complete
   # ---------------------------------------------------------------------------
   release:
     name: "Publish GitHub Release"
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, build-macos]
 
     steps:
 
