@@ -2,8 +2,9 @@
 # MIT license; Copyright (c) 2021-2024 Damien P. George
 #
 # Ported from pydfu-win/micropython/tools/pydfu_app/lib/usb/core.py.
-# Supports Linux (system libusb-1.0.so.0) and Windows (vendored
-# libusb-1.0.dll co-located with this module in the romfs).
+# Supports Linux (system libusb-1.0.so.0), Windows (vendored
+# libusb-1.0.dll co-located with this module in the romfs), and macOS
+# (Homebrew libusb-1.0.dylib from /opt/homebrew/lib or /usr/local/lib).
 
 import os
 import sys
@@ -76,9 +77,11 @@ libusb_interface_descriptor = {
 }
 
 # Platform-aware library loading.
-# Linux: system libusb-1.0.so.0.
+# Linux:  system libusb-1.0.so.0.
 # Windows: extracted DLL from romfs (set by main.py before this import),
 #          falling back to system PATH if not extracted.
+# macOS:  Homebrew libusb; tries /opt/homebrew/lib (arm64 Homebrew),
+#         then /usr/local/lib (x64 Homebrew), then bare name (DYLD_LIBRARY_PATH).
 # The extraction is performed by picolet.romfs_extract.extract_dir() in
 # main.py, which copies the DLL to %TEMP%\picolet_pydfu\ and sets
 # _usb._native_lib_dir before any module that transitively imports this
@@ -93,6 +96,26 @@ if sys.platform == "win32":
     else:
         _dll_path = "libusb-1.0.dll"  # rely on system PATH
     libusb = ffi.open(_dll_path)
+elif sys.platform == "darwin":
+    # Try both Homebrew prefixes in order; fall back to bare name so that
+    # DYLD_LIBRARY_PATH / DYLD_FALLBACK_LIBRARY_PATH can resolve it.
+    # subprocess is not available in MicroPython, so brew --prefix is not
+    # called at runtime; the two paths cover all standard Homebrew installs.
+    libusb = None
+    for _dylib_path in [
+        "/opt/homebrew/lib/libusb-1.0.dylib",   # arm64 Homebrew (Apple Silicon)
+        "/usr/local/lib/libusb-1.0.dylib",        # x64 Homebrew (Intel)
+        "libusb-1.0.dylib",                        # DYLD_LIBRARY_PATH fallback
+    ]:
+        try:
+            libusb = ffi.open(_dylib_path)
+            break
+        except OSError:
+            pass
+    if libusb is None:
+        raise OSError(
+            "libusb-1.0 not found on macOS; install it with: brew install libusb"
+        )
 else:
     libusb = ffi.open("libusb-1.0.so.0")
 

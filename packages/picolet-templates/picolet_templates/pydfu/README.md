@@ -28,6 +28,23 @@ The extracted file is reused on subsequent runs (idempotent). Delete
 The same libusb API is used on both platforms — the DFU protocol implementation
 is identical. No WinUSB driver is required; libusb handles driver selection.
 
+### macOS
+
+The app uses libusb-1.0 installed via Homebrew. Install it with:
+
+```
+brew install libusb
+```
+
+The `ffi` module searches for the dylib in the following order at runtime:
+1. `/opt/homebrew/lib/libusb-1.0.dylib` — Apple Silicon (arm64) Homebrew prefix
+2. `/usr/local/lib/libusb-1.0.dylib` — Intel (x64) Homebrew prefix
+3. Bare name `libusb-1.0.dylib` — resolved via `DYLD_LIBRARY_PATH`
+
+No DLL extraction step is needed on macOS; dyld resolves the dylib path directly
+from the filesystem. If libusb is not found, the app exits with an error message
+indicating `brew install libusb`.
+
 ## Mock mode
 
 Set `PICOLET_PYDFU_MOCK=1` to replace the USB backend with a deterministic software
