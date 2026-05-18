@@ -7,15 +7,14 @@
 #   abort_flash()               -> None
 #   get_memory_layout(id)       -> list of segment dicts
 #
-# The real USB path uses libusb-1.0 via the _usb and _pydfu modules (Linux only).
+# The real USB path uses libusb-1.0 via the _usb and _pydfu modules.
+# Linux: libusb-1.0.so.0 (system package).
+# Windows: vendored libusb-1.0.dll co-located with the _usb module in romfs.
 # When PICOLET_PYDFU_MOCK=1 is set, a MockUSB instance replaces the real path.
-# When sys.platform == "win32" and not mocked, NotImplementedError is raised.
 #
 # DFU protocol reference: USB DFU spec v1.1, STM AN3156, STM UM0391 (DfuSe).
 # Algorithm ported from pydfu-win/micropython/tools/pydfu_app/lib/pydfu.py (MIT).
 # USB shim ported from pydfu-win/micropython/tools/pydfu_app/lib/usb/core.py (MIT).
-#
-# O1: Windows WinUSB is deferred; raises NotImplementedError per FR-EX-7 note.
 
 import os
 import sys
@@ -45,26 +44,32 @@ if os.getenv("PICOLET_PYDFU_MOCK") == "1":
 
 
 # ---------------------------------------------------------------------------
-# libusb guard — used only to validate platform before _usb module loads
+# libusb loader — ensures _usb module is available on both Linux and Windows
 # ---------------------------------------------------------------------------
 
 _lib = None  # set after first successful _ensure_lib call (compat sentinel)
 
 
 def _ensure_lib():
-    """Raise NotImplementedError on Windows; ensure _usb module is available on Linux."""
+    """Load the _usb module, raising RuntimeError if libusb-1.0 cannot be found.
+
+    Linux: expects libusb-1.0.so.0 installed (libusb-1.0-0 package).
+    Windows: expects libusb-1.0.dll vendored alongside the _usb module in the
+    romfs (placed at src/_usb/libusb-1.0.dll by the build pipeline).
+    """
     global _lib
     if _lib is not None:
         return _lib
-    if sys.platform == "win32":
-        raise NotImplementedError(
-            "WinUSB support is post-v1.1 roadmap; see FR-EX-7 in v1.1-spec.md"
-        )
     try:
         import _usb.core as _core
         _lib = _core
         return _lib
     except OSError as e:
+        if sys.platform == "win32":
+            raise RuntimeError(
+                "libusb-1.0.dll not found; expected alongside the _usb module "
+                "in the romfs: {}".format(e)
+            )
         raise RuntimeError(
             "libusb-1.0 not found; install libusb-1.0-0: {}".format(e)
         )
