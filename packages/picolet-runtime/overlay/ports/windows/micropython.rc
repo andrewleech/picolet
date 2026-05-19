@@ -1,10 +1,10 @@
-/* picolet overlay: minimal Windows resource file.
+/* picolet: minimal Windows resource file.
    The upstream micropython.rc embeds a 170 KB icon (vector-logo-2.ico)
    which contributes ~167 KB to the PE .rsrc section, exceeding NFR-3's
-   2 MiB ceiling for the windows-x64/lvgl variant.  This overlay-patched
-   version replaces the icon with a minimal version-info resource so
-   windres does not fail.  The icon is cosmetic; omitting it does not
-   affect runtime behavior.  (PH12 NFR-3 fix.) */
+   2 MiB ceiling for the windows-x64/lvgl variant.  This version replaces
+   the icon with a minimal version-info resource so windres does not fail.
+   The icon is cosmetic; omitting it does not affect runtime behavior.
+   (PH12 NFR-3 fix.) */
 
 #include <winver.h>
 

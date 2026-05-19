@@ -24,16 +24,11 @@
  * THE SOFTWARE.
  */
 
-// Picolet overlay for ports/windows/vfs_rom_ioctl.c
-//
-// Extends the stock Windows port VFS ROM ioctl with trailer-detection support
-// (FR-BP-5, PH04).  When MICROPY_VFS_ROM_TRAILER=1 (set in the picolet-cli
-// variant's mpconfigvariant.h), load_romfs_image() first attempts to find and
-// map a romfs payload appended to the running .exe before falling back to the
+// Picolet: add MICROPY_VFS_ROM_TRAILER hook for trailer-detection support.
+// When MICROPY_VFS_ROM_TRAILER=1 (set in the picolet-cli variant's
+// mpconfigvariant.h), load_romfs_image() first attempts to find and map a
+// romfs payload appended to the running .exe before falling back to the
 // linked empty romfs sentinel.
-//
-// This file replaces ports/windows/vfs_rom_ioctl.c in the integration tree
-// via the overlay cp mechanism (rebuild-integration.sh step [3/3]).
 
 #include "py/runtime.h"
 #include "py/mperrno.h"
