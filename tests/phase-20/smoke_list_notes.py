@@ -3,6 +3,9 @@
 On Linux without a Playwright-attachable inspector (webkit/xvfb path),
 falls back to invoking notes_store directly via Python to verify the
 IPC commands work correctly.
+
+When no DISPLAY is available, the binary spawn would block on WebKitGTK
+window creation, so AppHarness is skipped entirely.
 """
 import asyncio
 import os
@@ -17,6 +20,15 @@ sys.path.insert(0, str(_NOTES_SRC))
 BINARY = Path(__file__).parent.parent.parent / "examples/notes/target/linux-x64/notes"
 
 
+def _via_store(tmp: str):
+    """Direct Python test of the storage layer."""
+    os.environ["PICOLET_NOTES_DIR"] = tmp
+    import notes_store as s
+    result = s.list_notes()
+    assert isinstance(result, list), f"expected list, got {type(result)}"
+    print(f"list_notes (store): OK ({len(result)} notes)")
+
+
 async def _via_harness(tmp: str):
     from picolet.testing import AppHarness
     async with AppHarness(str(BINARY), env={"PICOLET_NOTES_DIR": tmp}) as h:
@@ -28,17 +40,14 @@ async def _via_harness(tmp: str):
         return True
 
 
-def _via_store(tmp: str):
-    """Direct Python test of the storage layer."""
-    os.environ["PICOLET_NOTES_DIR"] = tmp
-    import notes_store as s
-    result = s.list_notes()
-    assert isinstance(result, list), f"expected list, got {type(result)}"
-    print(f"list_notes (store): OK ({len(result)} notes)")
-
-
 async def main():
     with tempfile.TemporaryDirectory() as tmp:
+        if not os.environ.get("DISPLAY"):
+            # No display: binary spawn would block on WebKitGTK window creation.
+            print("NOTE: no DISPLAY; testing notes_store directly")
+            _via_store(tmp)
+            print("list_notes: OK (via direct store, no display available)")
+            return
         result = await _via_harness(tmp)
         if result is None:
             # Fallback: test store directly
