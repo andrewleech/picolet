@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # rebuild-integration.sh — rebuild the picolet-runtime micropython submodule's
-# integration branch from the PRs listed in mbm.toml, then re-apply the
-# picolet overlay (renderer modules + port variants) on top.
+# integration branch from the PRs listed in mbm.toml.
+#
+# All Picolet-authored downstream code lives out-of-tree under
+# packages/picolet-runtime/{variants,user_c_modules,lib}/.  The integration
+# branch tip is composed entirely from the feature branches listed in
+# mbm.toml; no post-rebase file copying is performed.
 #
 # Run from anywhere; resolves repo root from the script location.
 #
@@ -12,7 +16,6 @@ set -euo pipefail
 
 PKG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SUBMODULE="$PKG_ROOT/micropython"
-OVERLAY="$PKG_ROOT/overlay"
 RERERE_SRC="$PKG_ROOT/rerere"
 
 cd "$PKG_ROOT"
@@ -25,14 +28,13 @@ fi
 
 # Enable rerere in the submodule and seed the cache with the recorded
 # resolutions from packages/picolet-runtime/rerere/. See that directory's
-# README for the conflict catalogue. Without this seeding, mbm will fail
-# on the known cross-PR Makefile conflict between pr/ports-windows-ffi
-# and pr/unix-windows-romfs.
-echo "[0/3] Enabling rerere and seeding cache from $RERERE_SRC"
+# README for the conflict catalogue.  Without this seeding, the merge of
+# pr/ports-windows-ffi and pr/unix-windows-romfs hits a known Makefile
+# conflict that the seed resolves automatically.
+echo "[0/2] Enabling rerere and seeding cache from $RERERE_SRC"
 git -C "$SUBMODULE" config rerere.enabled true
 git -C "$SUBMODULE" config rerere.autoUpdate true
 SUBMODULE_GITDIR="$(git -C "$SUBMODULE" rev-parse --git-dir)"
-# rev-parse --git-dir returns a relative path; resolve to absolute.
 case "$SUBMODULE_GITDIR" in
     /*) ;;
     *)  SUBMODULE_GITDIR="$SUBMODULE/$SUBMODULE_GITDIR" ;;
@@ -49,110 +51,64 @@ if [ -d "$RERERE_SRC" ] && [ -n "$(ls -A "$RERERE_SRC" 2>/dev/null | grep -v '^R
     done
 fi
 
-# Ensure the upstream remote exists so `mbm rebase --target upstream/master`
-# resolves on a fresh clone. We configure it to point to the andrewleech fork
-# where the PR branches exist, so mbm can find them when rebasing.
-# Both the fork and the main repo have synchronized masters, so rebasing onto
-# upstream/master here will be equivalent to rebasing onto the main micropython
-# master.
+# Ensure the upstream remote exists so PR refs resolve.
 if ! git -C "$SUBMODULE" remote | grep -q '^upstream$'; then
-    echo "[0/3] Adding upstream remote (https://github.com/andrewleech/micropython.git)"
+    echo "[0/2] Adding upstream remote (https://github.com/andrewleech/micropython.git)"
     git -C "$SUBMODULE" remote add upstream https://github.com/andrewleech/micropython.git
     git -C "$SUBMODULE" fetch upstream
 fi
 
-# Ensure PR refs are available from origin (andrewleech/micropython fork).
-# mbm will fetch PR branches when it runs, but we need to ensure origin
-# is configured to fetch them.
+# Ensure PR refs are configured on origin.
 if ! git -C "$SUBMODULE" config --get remote.origin.fetch | grep -q 'pull.*head'; then
-    echo "[0/3] Configuring origin to fetch PR refs"
+    echo "[0/2] Configuring origin to fetch PR refs"
     git -C "$SUBMODULE" config --add remote.origin.fetch '+refs/pull/*/head:refs/remotes/origin/pr/*'
     git -C "$SUBMODULE" fetch origin
 fi
 
-# Pre-create local branches for each PR so mbm can find them. mbm expects
-# branches named pr/lib-pyusb-windows, pr/gc-add-heap, etc. to exist locally.
-echo "[0/3] Creating local branches for the seven PRs"
+# Pre-create local branches for each PR.
+echo "[0/2] Creating local branches for the seven PRs"
 for pr_branch in pr/lib-pyusb-windows pr/mkrules-exe-fix pr/mkrules-frozen-str pr/gc-add-heap pr/ports-windows-ffi pr/unix-windows-romfs pr/ports-windows-variant-overrides; do
     if ! git -C "$SUBMODULE" show-ref --quiet "refs/heads/$pr_branch"; then
-        # Extract PR number from branch name (e.g., "pr/gc-add-heap" -> 41)
-        pr_num=$(git -C "$SUBMODULE" for-each-ref "refs/remotes/origin/$pr_branch" --format='%(refname)' | grep -oE 'pr/[0-9]+$' || echo "$pr_branch")
         git -C "$SUBMODULE" branch "$pr_branch" "origin/$pr_branch" 2>/dev/null || true
     fi
 done
 
-# Ensure the integration branch exists. mbm rebase fails on a fresh
-# submodule because it tries to diff `upstream/master..integration` to
-# show the existing state before rebuilding. Bootstrap from
-# upstream/master so the first run has somewhere to land.
+# Bootstrap integration branch if missing.
 if ! git -C "$SUBMODULE" show-ref --quiet refs/heads/integration; then
-    echo "[0/3] Bootstrapping integration branch from upstream/master"
+    echo "[0/2] Bootstrapping integration branch from upstream/master"
     git -C "$SUBMODULE" branch integration upstream/master
 fi
 
-# Reset to upstream/master before the submodule walk.  A previous run
-# may have left integration HEAD at a state that references submodule
-# paths not present in upstream/master's .gitmodules (e.g. an overlay
-# commit added a gitlink for an embedded directory that wasn't a real
-# submodule).  Without this reset, submodule update --init --recursive
-# fails on the stray path.
+# Reset to upstream/master before the submodule walk.
 git -C "$SUBMODULE" checkout upstream/master --quiet
 
-# Clean any unregistered embedded git directories left over from a
-# previous overlay copy.  Specifically: an earlier rebuild-integration
-# applied an overlay that included overlay/lib/lv_binding_micropython,
-# which left a .git-bearing directory in the inner tree.  Re-running
-# rebuild now (with the fixed overlay that excludes ./lib/) would still
-# trip over the stray directory because git submodule update --init
-# --recursive walks the working tree.  Nuke any non-upstream directories
-# under lib/ that have a .git file/dir but no entry in upstream's
-# .gitmodules.
-for stray in "$SUBMODULE"/lib/*/; do
-    [ -d "$stray" ] || continue
-    name="$(basename "$stray")"
-    if [ -e "$stray/.git" ] && ! git -C "$SUBMODULE" config --file .gitmodules --get-regexp "submodule\..*\.path" 2>/dev/null | grep -q "lib/$name\$"; then
-        echo "[0/3] Removing stray embedded repo: lib/$name"
-        rm -rf "$stray"
-    fi
-done
-
-# Ensure submodule state is clean (update any nested submodules)
-echo "[0/3] Updating transitive submodules"
+# Refresh transitive submodules.
+echo "[0/2] Updating transitive submodules"
 git -C "$SUBMODULE" submodule deinit -f .
 git -C "$SUBMODULE" submodule update --init --recursive
 
-# Verify the working tree is truly clean before calling mbm
 if ! git -C "$SUBMODULE" diff-index --quiet HEAD --; then
     echo "error: $SUBMODULE still has uncommitted changes after submodule update" >&2
     git -C "$SUBMODULE" status
     exit 1
 fi
 
-echo "[1/3] Compose integration_update from mbm.toml PR branches"
+echo "[1/2] Compose integration_update from mbm.toml PR branches"
 #
-# Why we drive this ourselves instead of `mbm rebase`:
-#
-# mbm 2.0.2's `git.merge()` raises on the non-zero exit code from
-# `git merge` even when rerere has already auto-resolved + staged the
-# conflict, and its `_resume_rebase` only knows how to recover from
-# in-progress rebases (not in-progress merges). The combination
-# silently drops the PR whose merge hit a rerere-resolved conflict.
-# See `[PH00] Caveat: mbm rerere handling` commit for the full trace.
-#
-# mbm.toml remains the source of truth for which PRs feed integration;
-# we just drive the merges directly with rerere set up correctly.
+# Driven directly rather than via `mbm rebase` because mbm 2.0.2's
+# `git.merge()` raises on the non-zero exit code from `git merge` even
+# when rerere has already auto-resolved + staged the conflict.  mbm.toml
+# remains the source of truth for which PRs feed integration; we just
+# drive the merges directly with rerere set up correctly.
 
 git -C "$SUBMODULE" checkout -B integration_update upstream/master
 
-# Parse PR branch names from mbm.toml in declaration order.
 mapfile -t PR_BRANCHES < <(grep -E '^name = "pr/' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
 
 for branch in "${PR_BRANCHES[@]}"; do
     msg="Merge branch '$branch'"
     echo "    merging $branch"
     if git -C "$SUBMODULE" merge --no-ff -m "$msg" "$branch" 2>&1 | sed 's/^/      /' ; then
-        # Check pipefail bit — `set -o pipefail` is not in effect here.
-        # PIPESTATUS[0] gives the merge's real exit code.
         merge_rc=${PIPESTATUS[0]}
     else
         merge_rc=${PIPESTATUS[0]}
@@ -160,7 +116,6 @@ for branch in "${PR_BRANCHES[@]}"; do
     if [ "$merge_rc" -eq 0 ]; then
         continue
     fi
-    # Merge non-zero — check whether rerere auto-resolved everything.
     unmerged_count=$(git -C "$SUBMODULE" ls-files --unmerged | wc -l)
     if [ "$unmerged_count" -eq 0 ] && [ -f "$SUBMODULE_GITDIR/MERGE_HEAD" ]; then
         echo "      rerere auto-resolved; finalising merge commit"
@@ -172,9 +127,10 @@ for branch in "${PR_BRANCHES[@]}"; do
     fi
 done
 
-echo "[2/3] Promote integration_update -> integration"
+echo "[2/2] Promote integration_update -> integration"
 git -C "$SUBMODULE" branch -f integration integration_update
 git -C "$SUBMODULE" checkout integration
+
 # Several PRs (notably #38) bump nested-submodule pointers to commits
 # that only exist on andrewleech's forks. Ensure the andrewleech remote
 # is present on lib/micropython-lib so the desired commit is reachable.
@@ -187,36 +143,6 @@ if [ -d "$MPL_DIR" ]; then
     git -C "$MPL_DIR" fetch andrewleech --quiet
 fi
 git -C "$SUBMODULE" submodule update --init --recursive
-
-echo "[3/3] Apply picolet overlay (variants + native modules)"
-if [ -d "$OVERLAY" ] && [ -n "$(ls -A "$OVERLAY" 2>/dev/null)" ]; then
-    cd "$OVERLAY"
-    # Note: overlay/lib/ is intentionally NOT copied into the micropython
-    # tree.  Files under overlay/lib/ are picolet-side third-party deps
-    # (e.g. lv_binding_micropython as a git submodule) accessed via
-    # \$(PICOLET_RUNTIME_ROOT)/overlay/lib/... in the variant .mk files.
-    # Copying them in would create embedded-git-repo confusion and
-    # break recursive submodule init in the micropython tree.
-    find . -type f -not -path './lib/*' -print0 | while IFS= read -r -d '' f; do
-        dest="$SUBMODULE/${f#./}"
-        mkdir -p "$(dirname "$dest")"
-        cp "$f" "$dest"
-    done
-    cd "$PKG_ROOT"
-
-    git -C "$SUBMODULE" add -A
-    git -C "$SUBMODULE" -c core.hooksPath=/dev/null commit -s -m "picolet runtime: Apply downstream overlay.
-
-Downstream-only payload for picolet-runtime: renderer-specific MicroPython
-port variants and the picolet_webview / picolet_ipc / picolet_window native
-modules.
-
-This commit lives only on the local integration branch and is not
-intended for upstream PR. Re-applied by scripts/rebuild-integration.sh
-after each mbm rebase."
-else
-    echo "  (overlay directory is empty — skipping)"
-fi
 
 echo
 echo "Integration rebuilt at $(git -C "$SUBMODULE" rev-parse --short integration)"
