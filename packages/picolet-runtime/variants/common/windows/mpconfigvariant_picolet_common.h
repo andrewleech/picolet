@@ -119,3 +119,9 @@
 // because it assumes the C module is present.  Without this, asyncio/core.py
 // falls back to "from .task import ..." which fails since task.py is not frozen.
 #define MICROPY_PY_ASYNCIO                  (1)
+
+// App-runner mode: skip pre_process_options() and forward argv[1..] verbatim
+// to sys.argv.  All picolet variants embed an application (via romfs or frozen
+// modules) so none of -h/--version/-c/-m/-O/-X/-i should be intercepted by
+// the interpreter.
+#define MICROPY_APP_RUNNER (1)

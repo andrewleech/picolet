@@ -154,3 +154,9 @@
 // and fall back to the linked romfs only on miss.
 // Implementation in variants/picolet-<variant>/romfs_trailer.{c,h}.
 #define MICROPY_VFS_ROM_TRAILER (1)
+
+// App-runner mode: skip pre_process_options() and forward argv[1..] verbatim
+// to sys.argv.  All picolet variants embed an application (via romfs or frozen
+// modules) so none of -h/--version/-c/-m/-O/-X/-i should be intercepted by
+// the interpreter.
+#define MICROPY_APP_RUNNER (1)

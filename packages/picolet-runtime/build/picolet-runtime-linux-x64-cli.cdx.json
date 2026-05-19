@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:4e0a669c-0585-40e8-9f6a-9e3bc7421f36",
+  "serialNumber": "urn:uuid:f854cc2e-36f9-46a5-bee1-1a7fd5e672a6",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-18T04:24:48.155433Z",
+    "timestamp": "2026-05-19T00:15:40.784113Z",
     "tools": [
       {
         "vendor": "picolet",
@@ -19,7 +19,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "c3d72b32738de8f705221f9b457ec8fd6663113e14ac8936e6764d7d3260b517"
+          "content": "ba2e3e665747860cff507807886bfb079788e679c72ca4233335b56a7f1a5eba"
         }
       ]
     }
