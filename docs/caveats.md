@@ -69,14 +69,13 @@ and `mp_obj_t` ABI) can be included in a Picolet binary. The process:
 
 1. Write the C module following the MicroPython native module
    documentation: https://docs.micropython.org/en/latest/develop/natmod.html
-2. Place the module directory under `packages/picolet-runtime/user_c_modules/`.
-3. Reference it in your manifest.
+2. Place the module directory anywhere accessible to the build.
+3. Declare it in your manifest with `c_module("path/to/mymodule")`.
 
-Once [upstream PR #18229](https://github.com/micropython/micropython/pull/18229)
-lands in the Picolet fork, `c_module("./path/to/mymodule")` will declare it
-directly in the manifest without needing to touch the runtime package.
-Until then, user C modules go under `user_c_modules/` and require a
-`--from-source` build.
+`c_module()` is available in the Picolet integration (via the andrewleech
+fork; [upstream PR #18229](https://github.com/micropython/micropython/pull/18229)
+is still in review). A `--from-source` build is required to include custom
+C modules.
 
 ## Runtime memory
 
