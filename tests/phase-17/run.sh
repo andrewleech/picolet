@@ -122,11 +122,41 @@ else
     # Use a background job.  Capture both stdout and stderr (combined) because
     # the MicroPython unix port may route sys.stderr to fd 1 in certain build
     # configurations; combining ensures the port line is found regardless.
+    # Wrap in a Python subprocess spawned with start_new_session=True so that
+    # xvfb-run, Xvfb, picolet-runtime, and all WebKit children share a single
+    # new process group.  Killing the group after port capture prevents orphaned
+    # WebKitWebProcess from saturating CPU and interfering with Gate D (LVGL).
     GATE_B_OUT="$WORKDIR/gate_b.combined"
-    PICOLET_TEST_MODE=1 "${XVFB_CMD[@]}" "$WV_RUNTIME" \
-        -c "import picolet_ui._sanity as t; t.run_sanity_test()" \
-        >"$GATE_B_OUT" 2>>"$GATE_B_OUT" &
-    B_PID=$!
+
+    # Collect the command array as a JSON-serialisable list for python.
+    B_CMD_JSON=$(python3 -c "
+import json, sys
+parts = sys.argv[1:]
+print(json.dumps(parts))
+" "${XVFB_CMD[@]}" "$WV_RUNTIME" \
+  "-c" "import picolet_ui._sanity as t; t.run_sanity_test()")
+
+    B_PID=$(python3 - "$GATE_B_OUT" "$B_CMD_JSON" <<'PYEOF'
+import sys, subprocess, json, os
+
+out_path = sys.argv[1]
+cmd = json.loads(sys.argv[2])
+env = dict(os.environ)
+env["PICOLET_TEST_MODE"] = "1"
+
+with open(out_path, "w") as fh:
+    pass  # create/truncate
+
+proc = subprocess.Popen(
+    cmd, env=env,
+    stdout=open(out_path, "ab"),
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(proc.pid)
+PYEOF
+)
+
     # Wait up to 10 s for the port line using Python's time.monotonic()
     # which is reliably monotonic on WSL2 (unlike bash $SECONDS or date +%s,
     # both of which track the WSL2 wall clock and can jump non-monotonically).
@@ -150,8 +180,13 @@ while time.monotonic() < deadline:
     time.sleep(0.2)
 PYEOF
 )
-    kill $B_PID 2>/dev/null || true
-    wait $B_PID 2>/dev/null || true
+    # Kill the entire process group of the spawned runtime.
+    # Since start_new_session=True was used, pgid == B_PID.
+    # This terminates xvfb-run, Xvfb, picolet-runtime, and all WebKit children
+    # atomically, preventing orphaned WebKitWebProcess from CPU-starving Gate D.
+    if [[ -n "$B_PID" ]]; then
+        kill -- "-$B_PID" 2>/dev/null || kill "$B_PID" 2>/dev/null || true
+    fi
 
     if [[ -n "$GATE_B_PORT" ]]; then
         pass "Gate B: picolet:test-port=$GATE_B_PORT appeared within 10 s"

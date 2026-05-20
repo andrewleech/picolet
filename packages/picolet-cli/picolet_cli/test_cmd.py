@@ -35,6 +35,7 @@ import asyncio
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -248,6 +249,49 @@ def _find_free_display() -> int:
     return 99  # fallback
 
 
+def _kill_proc_group(proc: subprocess.Popen) -> None:
+    """Send SIGTERM to the entire process group of *proc*, then wait.
+
+    WebKitGTK spawns WebKitWebProcess and WebKitNetworkProcess as children of
+    the runtime binary.  When the runtime exits (due to proc.terminate()), its
+    children are re-parented to init and continue running — consuming CPU and
+    X display resources.  Killing the process group ensures all descendants
+    receive SIGTERM at once.
+
+    Only signals the process group when proc is the group leader (pgid ==
+    proc.pid), i.e. when proc was started with start_new_session=True.
+    Otherwise falls back to proc.terminate() to avoid killing unrelated
+    processes in the caller's own process group.
+    """
+    if proc.poll() is not None:
+        return  # already exited
+
+    try:
+        pgid = os.getpgid(proc.pid)
+        if pgid == proc.pid:
+            # proc leads its own group — safe to kill the whole group.
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            # proc shares its parent's process group — kill only proc.
+            proc.terminate()
+    except (OSError, ProcessLookupError):
+        if proc.poll() is None:
+            proc.terminate()
+
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            pgid = os.getpgid(proc.pid)
+            if pgid == proc.pid:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                proc.kill()
+        except (OSError, ProcessLookupError):
+            proc.kill()
+        proc.wait()
+
+
 def _start_xvfb(display: int, verbose: bool = False) -> subprocess.Popen | None:
     """Start an Xvfb server on the given display number.
 
@@ -403,6 +447,17 @@ def run(args) -> int:
     child_env = dict(os.environ)
     child_env["PICOLET_TEST_MODE"] = "1"
 
+    # LVGL binaries use SDL2.  On WSL2 with a Wayland compositor (WSLg),
+    # WAYLAND_DISPLAY is set and SDL2 connects to it.  If the compositor is
+    # busy rendering WebKitGTK output from a prior test gate, SDL2 can block
+    # indefinitely in wl_display_connect / poll(), preventing the stdio
+    # dispatcher from responding to pings.  Force SDL2 offscreen rendering to
+    # avoid any display server dependency for LVGL tests.
+    if browser == "lvgl" and sys.platform == "linux":
+        child_env["SDL_VIDEODRIVER"] = "offscreen"
+        child_env.pop("WAYLAND_DISPLAY", None)
+        child_env.pop("DISPLAY", None)
+
     # Start Xvfb manually if no display is available (Linux headless).
     # Unlike xvfb-run, starting Xvfb as a separate process keeps the child's
     # stdout/stderr pipes intact — xvfb-run's ``"$@" 2>&1`` redirect breaks them.
@@ -471,6 +526,14 @@ def run(args) -> int:
         popen_kwargs: dict = {"env": child_env, "stderr": subprocess.PIPE}
         if xvfbrun_fallback:
             popen_kwargs["stdout"] = subprocess.PIPE
+        # On Linux, start the runtime in a new session so it leads its own
+        # process group.  WebKitGTK spawns WebKitWebProcess / WebKitNetworkProcess
+        # as children; without a separate group those children are re-parented to
+        # init when the runtime exits and keep running, exhausting CPU and X
+        # display resources across successive test gates.  _kill_proc_group() then
+        # sends SIGTERM to the entire group, not just the runtime PID.
+        if sys.platform == "linux":
+            popen_kwargs["start_new_session"] = True
         proc = subprocess.Popen(cmd, **popen_kwargs)
         port = _wait_for_port(
             proc,
@@ -485,8 +548,7 @@ def run(args) -> int:
                 "({}s).  Is PICOLET_TEST_MODE=1 handled by this binary?".format(args.timeout),
                 file=sys.stderr,
             )
-            proc.terminate()
-            proc.wait()
+            _kill_proc_group(proc)
             if xvfb_proc is not None:
                 xvfb_proc.terminate()
             return 1
@@ -501,8 +563,7 @@ def run(args) -> int:
     # ---- bare mode (no screenshot / no run) --------------------------------
     if args.screenshot is None and args.run_script is None:
         print("connected browser={} port={} binary={}".format(browser, port, binary))
-        proc.terminate()
-        proc.wait()
+        _kill_proc_group(proc)
         if xvfb_proc is not None:
             xvfb_proc.terminate()
         return 0
@@ -516,8 +577,7 @@ def run(args) -> int:
             "Install picolet-testing: pip install picolet-testing (or use `uv`)",
             file=sys.stderr,
         )
-        proc.terminate()
-        proc.wait()
+        _kill_proc_group(proc)
         if xvfb_proc is not None:
             xvfb_proc.terminate()
         return 1
@@ -568,15 +628,9 @@ def run(args) -> int:
 
     rc = asyncio.run(_async_main())
     # AppHarness.stop() does not terminate the proc when _running_proc was
-    # pre-supplied (_owns_proc=False).  Terminate it here before waiting so
-    # proc.wait() returns promptly rather than blocking for the full timeout.
-    if proc.poll() is None:
-        proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+    # pre-supplied (_owns_proc=False).  Kill the entire process group so
+    # WebKitWebProcess / WebKitNetworkProcess children are also reaped.
+    _kill_proc_group(proc)
     if xvfb_proc is not None:
         xvfb_proc.terminate()
         try:
