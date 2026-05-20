@@ -143,7 +143,7 @@ else
 fi
 
 NAME="A8 submodule-pin-recorded (gate 17)"
-SUBMODULE_STATUS="$(git -C "$REPO_ROOT" submodule status packages/picolet-runtime/overlay/lib/lv_binding_micropython 2>&1)"
+SUBMODULE_STATUS="$(git -C "$REPO_ROOT" submodule status packages/picolet-runtime/lib/lv_binding_micropython 2>&1)"
 if echo "$SUBMODULE_STATUS" | grep -qE "^[ \-]+[a-f0-9]{40}"; then
     pass "$NAME"
     echo "       $SUBMODULE_STATUS"
@@ -152,7 +152,7 @@ else
 fi
 
 NAME="A9 lv_conf-overlay-token-present (gate 16)"
-if grep -q "PICOLET_LVGL_CONFIG" "$PKG_ROOT/overlay/ports/unix/variants/picolet-lvgl/lv_conf.h"; then
+if grep -q "PICOLET_LVGL_CONFIG" "$PKG_ROOT/variants/lvgl/unix/lv_conf.h"; then
     pass "$NAME"
 else
     fail "$NAME" "PICOLET_LVGL_CONFIG marker not found in overlay lv_conf.h"

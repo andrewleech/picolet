@@ -225,7 +225,7 @@ else
 fi
 
 NAME="B9 lv_conf-picolet-token-present (gate 15)"
-LV_CONF="$PKG_ROOT/overlay/ports/unix/variants/picolet-lvgl/lv_conf.h"
+LV_CONF="$PKG_ROOT/variants/lvgl/unix/lv_conf.h"
 if grep -q "PICOLET_LVGL_CONFIG" "$LV_CONF"; then
     pass "$NAME"
 else
