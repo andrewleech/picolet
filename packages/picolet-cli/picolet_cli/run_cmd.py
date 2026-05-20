@@ -68,6 +68,22 @@ def add_parser(subparsers) -> None:
         dest="no_build",
         help="skip build freshness check; run existing binary directly",
     )
+    # Accepted for parity with `picolet build` so that callers (e.g. test
+    # harnesses) can pass --runtime and --allow-unverified-runtime uniformly
+    # without special-casing `run`.  When --no-build is set these flags have
+    # no effect; when a build is triggered they are forwarded to build_cmd.
+    p.add_argument(
+        "--runtime",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    p.add_argument(
+        "--allow-unverified-runtime",
+        action="store_true",
+        default=False,
+        dest="allow_unverified_runtime",
+        help=argparse.SUPPRESS,
+    )
     p.add_argument(
         "args",
         nargs=argparse.REMAINDER,
@@ -84,7 +100,12 @@ def run(args) -> int:
         if not binary_path.exists() or sources_newer_than(toml_path, data, binary_path):
             if args.verbose:
                 print("binary out of date; running build first", file=sys.stderr)
-            rc = build_cmd.run(build_cmd.build_args_namespace(args.target, args.verbose))
+            rc = build_cmd.run(build_cmd.build_args_namespace(
+                args.target,
+                args.verbose,
+                runtime=getattr(args, "runtime", None),
+                allow_unverified_runtime=getattr(args, "allow_unverified_runtime", False),
+            ))
             if rc != 0:
                 return rc
 
