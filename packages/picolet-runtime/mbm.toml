@@ -51,6 +51,12 @@ pr_url = "https://github.com/andrewleech/micropython/pull/44"
 pr_number = 44
 title = "ports/windows: Allow variant override of common config defines."
 
+[[submodules.branches]]
+name = "manifest_c_module"
+pr_url = "https://github.com/micropython/micropython/pull/18229"
+pr_number = 18229
+title = "py: Add c_module() manifest function for user C modules."
+
 # --- Renderer-specific PRs added here as they're written ---
 # - picolet webview bridge bootstrap
 # - LVGL binding integration
