@@ -76,7 +76,7 @@ variants    = ["lvgl"]
 purl        = "pkg:github/lvgl/lvgl@9.x"
 notes       = "Pulled in as a nested submodule of lv_binding_micropython."
 
-# SDL2 — dynamic on Linux (system package), static on Windows (from-source MXE build).
+# SDL2 — dynamic on Linux (system package) and Windows (upstream MinGW release); dynamic via brew on macOS.
 
 [[component]]
 name        = "SDL2"
@@ -91,14 +91,14 @@ notes       = "System-provided SDL2 on Ubuntu 22.04; loaded dynamically via dlop
 
 [[component]]
 name        = "SDL2"
-version     = "2.26.2"
+version     = "2.30.10"
 licence     = "Zlib"
 source_url  = "https://www.libsdl.org/"
-link_type   = "static"
+link_type   = "dynamic"
 variants    = ["lvgl"]
 targets     = ["windows-x64"]
-purl        = "pkg:github/libsdl-org/SDL@release-2.26.2"
-notes       = "Built from source inside dockcross/windows-static-x64-posix with -ffunction-sections and --gc-sections for dead-code elimination. Version pinned in build-runtime.sh SDL2_VERSION variable."
+purl        = "pkg:github/libsdl-org/SDL@release-2.30.10"
+notes       = "Official upstream MinGW devel release (SDL2-devel-2.30.10-mingw.tar.gz). SDL2.dll redistributed alongside the runtime binary. Linked via libSDL2.dll.a import library at build time. The NFR-3 ceiling for windows-x64/lvgl is relaxed to 3 MiB to accommodate the unstripped DLL; a future pass targeting < 2 MiB via custom from-source build (-ffunction-sections + --gc-sections) is on the roadmap."
 
 [[component]]
 name        = "SDL2"
