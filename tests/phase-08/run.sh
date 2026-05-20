@@ -196,37 +196,16 @@ else
         fail "$NAME" "picolet build failed; see $WORKDIR/c1.log"
         if [[ "$VERBOSE" -eq 1 ]]; then cat "$WORKDIR/c1.log"; fi
     else
-        # Inspect the romfs image for picolet/picolet-bridge.js.
-        # mpremote romfs can list the image.
-        MPREMOTE_OUT="$(uv run python -c "
-import sys, subprocess
-result = subprocess.run(
-    [sys.executable, '-m', 'mpremote', 'romfs', 'ls', '$STAGING/hello-webview-min.romfs'],
-    capture_output=True, text=True
-) if False else None
-# Alternative: check via the built binary itself.
-import subprocess, sys
-r = subprocess.run(
-    ['$BUILT', '-c', 'import os; print(os.listdir(\"/rom/picolet\"))'],
-    capture_output=True, text=True
-)
-print(r.stdout.strip())
-print(r.stderr.strip(), file=sys.stderr)
-" 2>"$WORKDIR/c1-mpout.err" || true)"
-        # Try via the built binary.
-        BRIDGE_CHECK="$("$BUILT" -c '
-import os
-try:
-    files = os.listdir("/rom/picolet")
-    print("picolet-bridge.js" in files)
-except OSError as e:
-    print("OSError:", e)
-' 2>&1 || true)"
-        if [[ "$BRIDGE_CHECK" == *"True"* ]]; then
+        # Inspect the romfs staging dir directly; MICROPY_APP_RUNNER
+        # forwards all argv to the frozen main.py so -c does not work
+        # on built binaries.
+        STAGED_BRIDGE="$FIXTURE_MIN/target/linux-x64/.picolet-build/romfs/picolet/picolet-bridge.js"
+        if [[ -f "$STAGED_BRIDGE" ]]; then
             pass "$NAME"
-            echo "       picolet/picolet-bridge.js confirmed in romfs"
+            echo "       picolet/picolet-bridge.js confirmed in romfs ($(wc -c < "$STAGED_BRIDGE") bytes)"
         else
-            fail "$NAME" "picolet-bridge.js not found in /rom/picolet; got: $BRIDGE_CHECK"
+            fail "$NAME" "picolet-bridge.js not found in romfs staging at $STAGED_BRIDGE"
+            if [[ "$VERBOSE" -eq 1 ]]; then cat "$WORKDIR/c1.log"; fi
         fi
     fi
 fi

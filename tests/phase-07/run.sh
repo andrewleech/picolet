@@ -224,6 +224,7 @@ else
         uv run python -m picolet_cli build \
             --target linux-x64 \
             --runtime "$WEBVIEW_RUNTIME" \
+            --keep-staging \
             > "$WORKDIR/c1.log" 2>&1
     )
     BUILT="$FIXTURE/target/linux-x64/hello-webview-min"
@@ -237,12 +238,16 @@ else
 
     if [[ -f "$BUILT" ]]; then
         NAME="C2 picolet-toml-embedded-in-romfs"
-        TOML_OUT="$("$BUILT" -c 'print(open("/rom/picolet.toml").read())' 2>&1)"
-        if echo "$TOML_OUT" | grep -q '\[window\]' && \
-           echo "$TOML_OUT" | grep -q 'title = "PH07 Sanity"'; then
+        # Inspect the romfs staging dir; MICROPY_APP_RUNNER forwards all
+        # argv to the frozen main.py so -c does not work on built binaries.
+        STAGED_TOML="$FIXTURE/target/linux-x64/.picolet-build/romfs/picolet.toml"
+        if [[ -f "$STAGED_TOML" ]] && \
+           grep -q '\[window\]' "$STAGED_TOML" && \
+           grep -q 'title = "PH07 Sanity"' "$STAGED_TOML"; then
             pass "$NAME"
         else
-            fail "$NAME" "picolet.toml not embedded or missing [window]; got: $TOML_OUT"
+            TOML_CONTENT="$(cat "$STAGED_TOML" 2>/dev/null || echo 'missing')"
+            fail "$NAME" "picolet.toml not embedded or missing [window]; got: $TOML_CONTENT"
         fi
 
         NAME="C3 fixture-launches-and-loads (gate 5/6 e2e)"
