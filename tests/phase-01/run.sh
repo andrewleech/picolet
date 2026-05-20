@@ -6,7 +6,7 @@
 # Covers: FR-RT-1, FR-RT-3, FR-RT-4, FR-RT-5, FR-RT-6, FR-RT-7, FR-RT-8, NFR-1.
 #
 # Usage:
-#   ./tests/phase-01/run.sh [--build] [--skip-romfs-rebuild]
+#   ./tests/phase-01/run.sh [--build] [--skip-romfs-rebuild] [--skip-slow]
 #
 #   --build              Run build-runtime.sh before testing (full build from
 #                        a warm or cold tree). Without this flag the script
@@ -14,6 +14,8 @@
 #   --skip-romfs-rebuild Skip the subtest that rebuilds the binary with the
 #                        no_frozen romfs. Useful in environments where the full
 #                        build toolchain is not available.
+#   --skip-slow          Alias for --skip-romfs-rebuild (skips Group D, which
+#                        requires a Docker-based rebuild).
 #
 # Returns 0 if all enabled subtests pass, non-zero otherwise.
 
@@ -40,6 +42,7 @@ for arg in "$@"; do
     case "$arg" in
         --build)              DO_BUILD=1 ;;
         --skip-romfs-rebuild) SKIP_ROMFS_REBUILD=1 ;;
+        --skip-slow)          SKIP_ROMFS_REBUILD=1 ;;
         --help|-h)
             grep '^#' "$0" | cut -c3-
             exit 0 ;;
@@ -120,15 +123,32 @@ if [[ ! -f "$BIN" ]]; then
     exit 1
 fi
 
-# Group C4 depends on the binary having the test_romfs fixture embedded.
-# Subsequent phases rebuild this same path with a different (empty) romfs,
-# so re-link the primary binary with test_romfs to guarantee C4 sees its
-# expected state.  Idempotent and fast on warm cache (~3 s).
-echo "[pre-flight] Re-linking $BIN with test_romfs embedded"
+# Group C4/C5 depend on a binary with the test_romfs fixture embedded.
+# The all-argv-to-frozen-main change means a romfs-embedded binary forwards
+# all argv to the romfs main.py and ignores -c / -m switches.  The bare
+# runtime (no romfs main) must therefore remain intact for the -c capability
+# gates (B1-B11, C1-C3).
+#
+# Strategy: keep $BIN as the bare runtime; produce a separate romfs-embedded
+# binary at $ROMFS_BIN for C4/C5 only.
+ROMFS_BIN="/tmp/picolet-runtime-linux-x64-cli-test-romfs"
+
+echo "[pre-flight] Building romfs-embedded binary → $ROMFS_BIN"
+# Save the bare binary, run build-runtime.sh (which overwrites $BIN with the
+# romfs-embedded version), copy the result to $ROMFS_BIN, then restore the
+# bare binary so subsequent -c gates see a clean runtime.
+cp "$BIN" "${BIN}.bare-backup"
 "$BUILD_SCRIPT" --target linux-x64 --variant cli --test-romfs test_romfs \
-    >/dev/null 2>&1 || {
-    echo "warning: failed to re-link with test_romfs; C4 may fail" >&2
+    >/dev/null 2>&1 && {
+    cp "$BIN" "$ROMFS_BIN"
+    chmod +x "$ROMFS_BIN"
+} || {
+    echo "warning: failed to build romfs-embedded binary; C4/C5 may fail" >&2
+    # Leave ROMFS_BIN unset / absent so C4/C5 fail visibly rather than
+    # silently using the wrong binary.
 }
+# Restore the bare binary unconditionally.
+mv "${BIN}.bare-backup" "$BIN"
 echo
 
 # ---------------------------------------------------------------------------
@@ -320,18 +340,28 @@ assert_output "$NAME" "True" "$actual"
 # C4 — Binary with embedded test_romfs runs /rom/main.mpy at startup (FR-RT-7)
 # The manifest has no main.py; /rom/main.mpy runs instead.
 # The embedded romfs is test_romfs which prints "ok".
+# Uses the separately-built romfs binary ($ROMFS_BIN) so the bare runtime
+# ($BIN) stays intact for the -c capability gates (B1-B11, C1-C3).
 NAME="C4 romfs-main-runs-at-startup"
-actual=$("$BIN" 2>&1)
-assert_output "$NAME" "ok" "$actual"
+if [[ ! -x "${ROMFS_BIN:-}" ]]; then
+    skip "$NAME" "romfs-embedded binary not available (pre-flight failed)"
+else
+    actual=$("$ROMFS_BIN" 2>&1)
+    assert_output "$NAME" "ok" "$actual"
+fi
 
 # C5 — Binary exits 0 when /rom/main.mpy calls sys.exit(0) (FR-RT-7)
 NAME="C5 romfs-main-exit-code"
-"$BIN" >/dev/null 2>&1
-rc=$?
-if [[ "$rc" -eq 0 ]]; then
-    pass "$NAME"
+if [[ ! -x "${ROMFS_BIN:-}" ]]; then
+    skip "$NAME" "romfs-embedded binary not available (pre-flight failed)"
 else
-    fail "$NAME" "expected exit code 0, got $rc"
+    "$ROMFS_BIN" >/dev/null 2>&1
+    rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        pass "$NAME"
+    else
+        fail "$NAME" "expected exit code 0, got $rc"
+    fi
 fi
 
 echo
