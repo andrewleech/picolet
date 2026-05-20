@@ -127,19 +127,34 @@ else
         -c "import picolet_ui._sanity as t; t.run_sanity_test()" \
         >"$GATE_B_OUT" 2>>"$GATE_B_OUT" &
     B_PID=$!
-    # Wait up to 5 s for the port line.
-    B_DEADLINE=$(( SECONDS + 5 ))
-    GATE_B_PORT=""
-    while [[ $SECONDS -lt $B_DEADLINE ]]; do
-        GATE_B_PORT=$(grep -oP 'picolet:test-port=\K\d+' "$GATE_B_OUT" 2>/dev/null | head -1 || true)
-        if [[ -n "$GATE_B_PORT" ]]; then break; fi
-        sleep 0.2
-    done
+    # Wait up to 10 s for the port line using Python's time.monotonic()
+    # which is reliably monotonic on WSL2 (unlike bash $SECONDS or date +%s,
+    # both of which track the WSL2 wall clock and can jump non-monotonically).
+    GATE_B_PORT=$(python3 - "$GATE_B_OUT" <<'PYEOF'
+import sys, time, re, os
+
+out_path = sys.argv[1]
+port_re = re.compile(r'picolet:test-port=(\d+)')
+deadline = time.monotonic() + 10.0
+
+while time.monotonic() < deadline:
+    try:
+        with open(out_path) as fh:
+            for line in fh:
+                m = port_re.search(line)
+                if m:
+                    print(m.group(1))
+                    sys.exit(0)
+    except OSError:
+        pass
+    time.sleep(0.2)
+PYEOF
+)
     kill $B_PID 2>/dev/null || true
     wait $B_PID 2>/dev/null || true
 
     if [[ -n "$GATE_B_PORT" ]]; then
-        pass "Gate B: picolet:test-port=$GATE_B_PORT appeared within 5 s"
+        pass "Gate B: picolet:test-port=$GATE_B_PORT appeared within 10 s"
         verbose "stderr: $(cat "$GATE_B_OUT" | head -5)"
     else
         fail "Gate B: no picolet:test-port=<N> line in stderr (timeout)"
@@ -254,18 +269,36 @@ else
         XVFB_CMD_F=(xvfb-run -a -s "-screen 0 1280x800x24")
     fi
 
+    # Use run_test_server (which stays alive until killed) instead of
+    # run_sanity_test (which exits immediately after the sanity check).
+    # run_sanity_test exits before Gate F has time to verify the port binding
+    # via ss/connect.  run_test_server keeps the GTK loop running so the
+    # inspector port stays bound while Gate F probes it.
     PICOLET_TEST_MODE=1 "${XVFB_CMD_F[@]}" "$WV_RUNTIME" \
-        -c "import picolet_ui._sanity as t; t.run_sanity_test()" \
+        -c "import picolet_ui._sanity as t; t.run_test_server()" \
         >"$WORKDIR/gate_f.combined" 2>>"$WORKDIR/gate_f.combined" &
     F_PID=$!
 
-    F_DEADLINE=$(( SECONDS + 8 ))
-    F_PORT=""
-    while [[ $SECONDS -lt $F_DEADLINE ]]; do
-        F_PORT=$(grep -oP 'picolet:test-port=\K\d+' "$WORKDIR/gate_f.combined" 2>/dev/null | head -1 || true)
-        if [[ -n "$F_PORT" ]]; then break; fi
-        sleep 0.2
-    done
+    F_PORT=$(python3 - "$WORKDIR/gate_f.combined" <<'PYEOF'
+import sys, time, re
+
+out_path = sys.argv[1]
+port_re = re.compile(r'picolet:test-port=(\d+)')
+deadline = time.monotonic() + 10.0
+
+while time.monotonic() < deadline:
+    try:
+        with open(out_path) as fh:
+            for line in fh:
+                m = port_re.search(line)
+                if m:
+                    print(m.group(1))
+                    sys.exit(0)
+    except OSError:
+        pass
+    time.sleep(0.2)
+PYEOF
+)
 
     if [[ -n "$F_PORT" ]]; then
         # Check that the port is bound only on 127.0.0.1.
