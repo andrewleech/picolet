@@ -29,7 +29,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import tomllib
 from pathlib import Path
 
@@ -827,16 +826,12 @@ def _compile_mpy(
             entry=entry.as_posix(),
             original_source=original_source,
         )
-        src_to_compile = entry_abs  # default; overridden below when using tmpfile
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".py",
-            prefix="picolet_entry_",
-            encoding="utf-8",
-            delete=False,
-        ) as tmp:
-            tmp.write(wrapper)
-            tmp_path = Path(tmp.name)
+        # Write the wrapper to a fixed, deterministic path in the staging
+        # directory rather than a random tempfile.  The source filename is
+        # embedded in the compiled .mpy bytecode; a random suffix would make
+        # each build byte-distinct even for identical inputs (FR-BP-6).
+        tmp_path = romfs_root.parent / "picolet_entry_wrapper.py"
+        tmp_path.write_text(wrapper, encoding="utf-8")
         try:
             if verbose:
                 print(
