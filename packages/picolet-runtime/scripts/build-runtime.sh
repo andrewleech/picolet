@@ -742,9 +742,7 @@ build_windows_x64() {
         local SDL2_VERSION="2.30.10"
         local SDL2_TARBALL="SDL2-devel-${SDL2_VERSION}-mingw.tar.gz"
         local SDL2_URL="https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/${SDL2_TARBALL}"
-        local SDL2_SHA256="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-        # NOTE: SHA-256 above is a placeholder; update after first download by running:
-        #   sha256sum build/cache/SDL2-devel-2.30.10-mingw.tar.gz
+        local SDL2_SHA256="a7763f9439ea25685b053e9257dac1eac012e5cd0824f1a801b27b1d92ebe321"
         local SDL2_CACHE_DIR="$BUILD_DIR/cache"
         local SDL2_TARBALL_PATH="$SDL2_CACHE_DIR/$SDL2_TARBALL"
         local SDL2_EXTRACT_DIR="$BUILD_DIR/sdl2-mingw-${SDL2_VERSION}"
@@ -764,16 +762,14 @@ build_windows_x64() {
                     exit 1
                 fi
             fi
-            # Verify SHA-256 when the placeholder has been replaced.
-            if [[ "$SDL2_SHA256" != "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" ]]; then
-                local ACTUAL_SHA256
-                ACTUAL_SHA256="$(sha256sum "$SDL2_TARBALL_PATH" | awk '{print $1}')"
-                if [[ "$ACTUAL_SHA256" != "$SDL2_SHA256" ]]; then
-                    echo "error: SDL2 tarball SHA-256 mismatch" >&2
-                    echo "  expected: $SDL2_SHA256" >&2
-                    echo "  actual:   $ACTUAL_SHA256" >&2
-                    exit 1
-                fi
+            # Verify SHA-256 of the cached tarball.
+            local ACTUAL_SHA256
+            ACTUAL_SHA256="$(sha256sum "$SDL2_TARBALL_PATH" | awk '{print $1}')"
+            if [[ "$ACTUAL_SHA256" != "$SDL2_SHA256" ]]; then
+                echo "error: SDL2 tarball SHA-256 mismatch" >&2
+                echo "  expected: $SDL2_SHA256" >&2
+                echo "  actual:   $ACTUAL_SHA256" >&2
+                exit 1
             fi
             echo "  extracting SDL2 upstream MinGW release..."
             mkdir -p "$SDL2_EXTRACT_DIR"
