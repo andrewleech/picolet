@@ -520,12 +520,15 @@ else:
 
         AF_INET    = 2
         SOCK_STREAM = 1
-        # SOCK_NONBLOCK (Linux) — prevents connect() from stalling the thread
-        # in SYN_SENT while waiting for the remote to accept.  With O_NONBLOCK
-        # set, connect() returns EINPROGRESS immediately (or 0 on instant
-        # loopback success); we close the fd and pump GTK in the sleep below.
-        # This is Linux-specific but the whole function is Linux-only.
-        SOCK_NONBLOCK = 0x800  # O_NONBLOCK on Linux (also accepted as SOCK_* flag)
+        # Use a plain blocking socket for the probe connect().  On Linux
+        # loopback, a blocking connect() to a closed port returns ECONNREFUSED
+        # immediately (no network round-trip, no SYN_SENT wait), so the poll
+        # never stalls the calling thread.  SOCK_NONBLOCK cannot be used here:
+        # on Linux loopback connect() with SOCK_NONBLOCK returns EINPROGRESS
+        # even when the port is bound and listening, which makes it impossible
+        # to distinguish "port open" from "port not yet bound" without an
+        # additional select()/getsockopt(SO_ERROR) round-trip.  Blocking is
+        # both simpler and correct for loopback polling.
 
         # Open libc for socket syscalls.
         import ffi as _ffi
@@ -586,17 +589,17 @@ else:
             deadline_ms = _ticks_ms() + timeout_ms
 
         while True:
-            # SOCK_NONBLOCK: connect() returns EINPROGRESS immediately on a
-            # not-yet-bound port rather than stalling the calling thread,
-            # which would prevent GTK from being pumped below.  A return
-            # value of 0 means the loopback connect completed synchronously
-            # (port is bound and listening).
-            fd = sock_f(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)
+            # Blocking connect(): returns 0 on success (port bound and
+            # accepting), or -1 with errno=ECONNREFUSED if the port is not
+            # yet bound.  On Linux loopback both cases return within ~1 ms,
+            # so GTK event-pumping between attempts is sufficient to allow
+            # WebKitGTK's GMain-based networking thread to bind the socket.
+            fd = sock_f(AF_INET, SOCK_STREAM, 0)
             if fd >= 0:
                 rc = connect_f(fd, addr_ptr, 16)
                 close_f(fd)
                 if rc == 0:
-                    return True  # connected — port is bound
+                    return True  # connected — port is bound and accepting
 
             # Drive GTK so WebKitGTK's GMain loop can make progress.
             if drive_gtk:
