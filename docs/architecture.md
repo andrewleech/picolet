@@ -100,6 +100,28 @@ artifact is available (via cache or network download).
 installer formats (`.msi`, `.dmg`, `.AppImage`) deferred to a
 `picolet bundle` subcommand on the roadmap, post-v0.4.
 
+## Roadmap
+
+### windows-x64/lvgl: recover < 2 MiB NFR-3 target via custom SDL2 build
+
+The current windows-x64/lvgl build uses the official SDL2 upstream MinGW
+binary release (SDL2-devel-2.30.10-mingw.tar.gz, dynamic linkage via
+SDL2.dll).  This simplifies the build considerably but the resulting
+executable is ~2.05 MiB, exceeding the original NFR-3 target of 2 MiB.
+The NFR-3 ceiling for windows-x64/lvgl is temporarily raised to 3 MiB to
+accommodate this.
+
+A future pass should:
+1. Build SDL2 from source inside the dockcross container with
+   `-ffunction-sections -fdata-sections -Os` and link with `--gc-sections`
+   to strip unused SDL2 backends (DirectX audio, haptics, sensors, etc.).
+2. This was previously implemented at SDL2 2.26.2 (see the removed
+   `[2b/8]` block in `build-runtime.sh` git history) but reverted because
+   the resulting binary was still marginally over 2 MiB (~2.05 MB).
+3. A tighter subsystem exclusion list or further LTO/size tuning should
+   close the remaining gap and restore static linkage (eliminating the
+   SDL2.dll redistribution requirement).
+
 ## Runtime artifact matrix
 
 ```
