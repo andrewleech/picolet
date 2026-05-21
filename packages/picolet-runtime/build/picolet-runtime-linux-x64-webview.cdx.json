@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:cbf32e66-b1f9-4ba1-97d1-7386d40e8c45",
+  "serialNumber": "urn:uuid:c11a5851-86a6-4dc4-8f3e-10808438286a",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-19T00:45:11.610451Z",
+    "timestamp": "2026-05-20T20:24:33.762943Z",
     "tools": [
       {
         "vendor": "picolet",
@@ -19,7 +19,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "6d4fea8904855baff903e619be62852840f5fab656fe04d00a0ce1e18b561fab"
+          "content": "ee680ec35385e0f339bf6801bb4c042a6e32ec2aa2521a83d1bf39af7ed838dd"
         }
       ]
     }
@@ -50,7 +50,7 @@
           "value": "static"
         }
       ],
-      "description": "Integration PRs are MicroPython-derived patches sharing the MicroPython MIT licence; the generator injects the full PR list from mbm.toml automatically.\npr/lib-pyusb-windows: lib/micropython-lib: Update pyusb with Windows support.\npr/mkrules-exe-fix: py/mkrules.mk: Allow PROG to be set on the command line for .exe targets.\npr/mkrules-frozen-str: py/mkrules.mk: Make MICROPY_MODULE_FROZEN_STR conditional on compiler.\npr/gc-add-heap: py/modgc: Add gc.add_heap() function for runtime heap expansion.\npr/ports-windows-ffi: ports/windows: Add FFI module support with libffi.\npr/unix-windows-romfs: ports/unix,windows: Add embedded romfs support with auto-mount.\npr/ports-windows-variant-overrides: ports/windows: Allow variant override of common config defines."
+      "description": "Integration PRs are MicroPython-derived patches sharing the MicroPython MIT licence; the generator injects the full PR list from mbm.toml automatically.\npr/lib-pyusb-windows: lib/micropython-lib: Update pyusb with Windows support.\npr/mkrules-exe-fix: py/mkrules.mk: Allow PROG to be set on the command line for .exe targets.\npr/mkrules-frozen-str: py/mkrules.mk: Make MICROPY_MODULE_FROZEN_STR conditional on compiler.\npr/gc-add-heap: py/modgc: Add gc.add_heap() function for runtime heap expansion.\npr/ports-windows-ffi: ports/windows: Add FFI module support with libffi.\npr/unix-windows-romfs: ports/unix,windows: Add embedded romfs support with auto-mount.\npr/ports-windows-variant-overrides: ports/windows: Allow variant override of common config defines.\nmanifest_c_module: py: Add c_module() manifest function for user C modules."
     },
     {
       "type": "library",
