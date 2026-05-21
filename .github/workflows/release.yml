@@ -185,7 +185,7 @@ jobs:
   # 2 os × 3 variants = 6 macOS artifacts per release run.
   # ---------------------------------------------------------------------------
   build-macos:
-    name: "build macos-${{ runner.arch == 'X64' && 'x64' || 'arm64' }} / ${{ matrix.variant }}"
+    name: "build macos-${{ matrix.os == 'macos-13' && 'x64' || 'arm64' }} / ${{ matrix.variant }}"
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -241,12 +241,12 @@ jobs:
           path: |
             packages/picolet-runtime/micropython/ports/unix/build-picolet-*/lib/libffi
           key: >-
-            libffi-macos-${{ runner.arch == 'X64' && 'x64' || 'arm64' }}-${{ matrix.variant }}-${{
+            libffi-macos-${{ matrix.os == 'macos-13' && 'x64' || 'arm64' }}-${{ matrix.variant }}-${{
               hashFiles(
                 'packages/picolet-runtime/micropython/lib/libffi/**'
               )
             }}
-          restore-keys: libffi-macos-${{ runner.arch == 'X64' && 'x64' || 'arm64' }}-${{ matrix.variant }}-
+          restore-keys: libffi-macos-${{ matrix.os == 'macos-13' && 'x64' || 'arm64' }}-${{ matrix.variant }}-
 
       # NFR-TEST-2: PICOLET_TEST_MODE must not be set in release builds.
       - name: Assert PICOLET_TEST_MODE is not set (NFR-TEST-2)
@@ -277,7 +277,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: runtime-macos-${{ runner.arch == 'X64' && 'x64' || 'arm64' }}-${{ matrix.variant }}
+          name: runtime-macos-${{ matrix.os == 'macos-13' && 'x64' || 'arm64' }}-${{ matrix.variant }}
           path: |
             packages/picolet-runtime/build/picolet-runtime-macos-*-${{ matrix.variant }}*
           if-no-files-found: error
