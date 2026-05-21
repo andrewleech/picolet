@@ -60,6 +60,18 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      # 1b. Compose the micropython integration branch from mbm.toml.
+      #     The parent repo records the submodule pointer at a single
+      #     reachable feature-branch tip (pr/unix-windows-romfs); the
+      #     actual integration branch used by the build is composed
+      #     locally from the feature branches via rebuild-integration.sh.
+      #     This is intentional: integration is a per-build artefact
+      #     by design and is never pushed (see micropython submodule's
+      #     CLAUDE.local.md).
+      - name: Compose micropython integration branch
+        run: |
+          bash packages/picolet-runtime/scripts/rebuild-integration.sh
+
       # 2. Restore caches.
       #
       #    a. Linux build Docker image layers (keyed on Dockerfile SHA).
@@ -223,6 +235,12 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+
+      # Compose the micropython integration branch from mbm.toml.
+      # (See unix build job above for rationale.)
+      - name: Compose micropython integration branch
+        run: |
+          bash packages/picolet-runtime/scripts/rebuild-integration.sh
 
       # Install automake + libtool for all variants; add sdl2 for lvgl.
       - name: Install brew dependencies

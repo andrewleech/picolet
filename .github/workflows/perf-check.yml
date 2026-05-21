@@ -39,11 +39,18 @@ jobs:
     steps:
 
       # 1. Checkout (submodules needed for the runtime build).
+      #    fetch-depth: 0 is required so rebuild-integration.sh can fetch
+      #    the upstream master + PR feature branches via mbm.
       - name: Checkout repository and submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 1
+          fetch-depth: 0
+
+      # 1b. Compose the micropython integration branch from mbm.toml.
+      - name: Compose micropython integration branch
+        run: |
+          bash packages/picolet-runtime/scripts/rebuild-integration.sh
 
       # 2. Install uv (mirrors release.yml / screenshots.yml pattern).
       - name: Install uv
