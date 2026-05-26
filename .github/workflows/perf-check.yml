@@ -172,6 +172,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Compose micropython integration branch
+        run: |
+          bash packages/picolet-runtime/scripts/rebuild-integration.sh
       - name: Install deps
         run: |
           brew install automake libtool node uv
