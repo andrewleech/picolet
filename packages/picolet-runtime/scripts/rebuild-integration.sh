@@ -34,6 +34,15 @@ fi
 echo "[0/2] Enabling rerere and seeding cache from $RERERE_SRC"
 git -C "$SUBMODULE" config rerere.enabled true
 git -C "$SUBMODULE" config rerere.autoUpdate true
+
+# Set local user.email/user.name in the submodule so `git merge` can sign
+# the merge commits below.  CI runners (e.g. GitHub Actions) start with no
+# global git config; without these, `git merge` fails with:
+#   fatal: empty ident name (for <runner@...>) not allowed
+# Use a Picolet-CI identity rather than inheriting whatever the developer
+# has globally — keeps the integration tip deterministic across machines.
+git -C "$SUBMODULE" config user.email "rebuild-integration@picolet.local"
+git -C "$SUBMODULE" config user.name "Picolet rebuild-integration"
 SUBMODULE_GITDIR="$(git -C "$SUBMODULE" rev-parse --git-dir)"
 case "$SUBMODULE_GITDIR" in
     /*) ;;
