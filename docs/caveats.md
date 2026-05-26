@@ -39,7 +39,9 @@ without any manifest declaration:
 
 The following modules are available via
 [micropython-lib](https://github.com/micropython/micropython-lib) and
-must be declared with `require("name")` in the manifest:
+must be declared with `require("name")` in the manifest (see
+[docs/manifest.md](manifest.md) for the full syntax + community
+package sources):
 
 `argparse`, `pathlib`, `dataclasses`, `typing`, `unittest`, `copy`,
 `decimal`, `fractions`, `pprint`, `shutil`, `traceback`, `warnings`,
