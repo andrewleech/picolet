@@ -210,11 +210,12 @@ picolet/
 
 ## More
 
+- [Getting started](docs/getting-started.md) — step-by-step tutorial
+- [`manifest.py` guide](docs/manifest.md) — declaring frozen modules + `require()` from `micropython-lib` and community packages
 - [Architecture](docs/architecture.md) — design decisions
 - [Caveats](docs/caveats.md) — MicroPython compatibility reference
 - [Examples tour](docs/examples.md) — what each example app demonstrates
 - [CLI reference](docs/cli-reference.md) — every `picolet` subcommand
-- [Getting started](docs/getting-started.md) — step-by-step tutorial
 - [SBOM](docs/sbom.md) — supply-chain documentation
 - [History](docs/history/) — phase artefacts and version-specific specs/plans/audits
 

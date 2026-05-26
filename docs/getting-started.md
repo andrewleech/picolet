@@ -114,6 +114,11 @@ For the simpler case — all `.py` files under `src/` — the default
 without a manifest compiles every `.py` under the entry's directory and
 produces a single binary.
 
+For full manifest syntax — `package()`, `include()`, `add_library()`,
+`c_module()`, custom indexes — and guidance on pulling community
+packages from [checkmim.com/packages](https://checkmim.com/packages),
+see **[docs/manifest.md](manifest.md)**.
+
 ---
 
 ## 3. Adding a webview GUI
