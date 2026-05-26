@@ -124,24 +124,64 @@ See [docs/caveats.md](docs/caveats.md) for a full catalogue.
 
 ## Getting started
 
+Install the CLI. `uv tool install` is the recommended path (no separate
+package manager needed if you already use `uv`); `pipx` is the fallback
+for environments without `uv`. Plain `pip install` is deliberately not
+listed — most modern distros (PEP 668) block it system-wide.
+
 ```bash
-pip install picolet-cli                          # or: uv tool install picolet-cli
-picolet init my-app --template hello-cli         # see --list-templates for the full set
+uv tool install picolet-cli                       # recommended
+# or:
+pipx install picolet-cli                          # fallback
+
+picolet init my-app --template hello-cli          # see --list-templates for the full set
 cd my-app
-picolet dev                                       # live rebuild on file changes
-picolet build                                     # produce target/<os-arch>/my-app[.exe]
+picolet dev                                        # live rebuild on file changes
+picolet build                                      # produce target/<os-arch>/my-app[.exe]
 ```
 
 Templates: `hello-cli`, `hello-webview`, `hello-lvgl`, `hello-vue`, `pydfu`, `notes`, `config-editor`, `dashboard`.
 
 ## Examples gallery
 
-| | |
-|---|---|
-| ![pydfu](examples/pydfu/screenshots/device-list-populated.png) | ![notes](examples/notes/screenshots/list-populated.png) |
-| **pydfu** — DFU firmware flasher (industrial control-panel aesthetic) | **notes** — Markdown notes (editorial / refined) |
-| ![config-editor](examples/config-editor/screenshots/edit-toml.png) | ![dashboard](examples/dashboard/screenshots/full-dashboard.png) |
-| **config-editor** — Schema-driven TOML/YAML/JSON editor (brutalist terminal) | **dashboard** — Live system metrics (data-dense) |
+<table>
+  <tr>
+    <td align="center">
+      <a href="examples/pydfu/">
+        <img src="examples/pydfu/screenshots/device-list-populated.png" alt="pydfu screenshot" />
+      </a>
+      <br>
+      <strong>pydfu</strong><br>
+      DFU firmware flasher (industrial control-panel aesthetic)
+    </td>
+    <td align="center">
+      <a href="examples/notes/">
+        <img src="examples/notes/screenshots/list-populated.png" alt="notes screenshot" />
+      </a>
+      <br>
+      <strong>notes</strong><br>
+      Markdown notes (editorial / refined)
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="examples/config-editor/">
+        <img src="examples/config-editor/screenshots/edit-toml.png" alt="config-editor screenshot" />
+      </a>
+      <br>
+      <strong>config-editor</strong><br>
+      Schema-driven TOML/YAML/JSON editor (brutalist terminal)
+    </td>
+    <td align="center">
+      <a href="examples/dashboard/">
+        <img src="examples/dashboard/screenshots/full-dashboard.png" alt="dashboard screenshot" />
+      </a>
+      <br>
+      <strong>dashboard</strong><br>
+      Live system metrics (data-dense)
+    </td>
+  </tr>
+</table>
 
 See [docs/examples.md](docs/examples.md) for a longer tour of each.
 

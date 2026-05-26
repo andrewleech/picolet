@@ -6,7 +6,11 @@ CLI script) to a multi-module app, then to a GUI app with an IPC bridge.
 ## Prerequisites
 
 - Python 3.11+
-- `pip install picolet-cli` or `uv tool install picolet-cli`
+- Install the CLI:
+  - **`uv tool install picolet-cli`** (recommended — fastest, isolated)
+  - or **`pipx install picolet-cli`** (fallback)
+  - Plain `pip install` is not recommended: most modern distros block
+    system-wide pip per PEP 668.
 
 For GUI work with Vue: Node.js 18+. For Windows cross-compilation from
 Linux: Docker. Neither is needed for the first two sections.
