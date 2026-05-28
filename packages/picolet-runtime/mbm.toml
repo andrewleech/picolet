@@ -57,6 +57,12 @@ pr_url = "https://github.com/micropython/micropython/pull/18229"
 pr_number = 18229
 title = "py: Add c_module() manifest function for user C modules."
 
+[[submodules.branches]]
+name = "pr/windows-extra-src-c"
+pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
+pr_number = 0
+title = "ports/windows: Add EXTRA_SRC_C hook for variant-supplied source files."
+
 # --- Renderer-specific PRs added here as they're written ---
 # - picolet webview bridge bootstrap
 # - LVGL binding integration

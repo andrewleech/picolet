@@ -1,0 +1,204 @@
+# Select the variant to build for:
+ifdef VARIANT_DIR
+# Custom variant path - remove trailing slash and get the final component of
+# the path as the variant name.
+VARIANT ?= $(notdir $(VARIANT_DIR:/=))
+else
+# If not given on the command line, then default to standard.
+VARIANT ?= standard
+VARIANT_DIR ?= variants/$(VARIANT)
+endif
+
+ifeq ($(wildcard $(VARIANT_DIR)/.),)
+$(error Invalid VARIANT specified: $(VARIANT_DIR))
+endif
+
+# If the build directory is not given, make it reflect the variant name.
+BUILD ?= build-$(VARIANT)
+
+include ../../py/mkenv.mk
+-include mpconfigport.mk
+include $(VARIANT_DIR)/mpconfigvariant.mk
+
+FROZEN_MANIFEST ?= variants/manifest.py
+
+# Define main target
+PROG ?= micropython
+
+# qstr definitions (must come before including py.mk)
+QSTR_DEFS += ../unix/qstrdefsport.h
+QSTR_GLOBAL_DEPENDENCIES += $(VARIANT_DIR)/mpconfigvariant.h
+
+# include py core make definitions
+include $(TOP)/py/py.mk
+include $(TOP)/extmod/extmod.mk
+
+INC += -I.
+INC += -I$(TOP)
+INC += -I$(BUILD)
+INC += -I$(VARIANT_DIR)
+# romfs_trailer.h lives in variants/common/ (out-of-tree, PICOLET_RUNTIME_ROOT).
+INC += -I$(PICOLET_RUNTIME_ROOT)/variants/common
+
+# compiler settings
+CFLAGS += $(INC) -Wall -Wpointer-arith -Wdouble-promotion -Werror -std=gnu99 -DUNIX -D__USE_MINGW_ANSI_STDIO=1 $(COPT) $(CFLAGS_EXTRA)
+LDFLAGS += -lm -lbcrypt $(LDFLAGS_EXTRA)
+
+# Force the use of 64-bits for file sizes in C library functions on 32-bit platforms.
+# This option has no effect on 64-bit builds.
+CFLAGS += -D_FILE_OFFSET_BITS=64
+
+# Force the use of 64-bits for time_t in C library functions on 32-bit platforms.
+# This option has no effect on 64-bit builds.
+CFLAGS += -D_TIME_BITS=64
+
+# Debugging/Optimization
+ifdef DEBUG
+CFLAGS += -g
+COPT = -O0
+else
+COPT = -Os #-DNDEBUG
+endif
+
+# source files
+SRC_C = \
+	shared/libc/printf.c \
+	shared/runtime/gchelper_generic.c \
+	ports/unix/main.c \
+	ports/unix/input.c \
+	ports/unix/gccollect.c \
+	windows_mphal.c \
+	realpath.c \
+	init.c \
+	fmode.c \
+	vfs_rom_ioctl.c \
+	$(wildcard $(VARIANT_DIR)/*.c)
+
+# Allow variant mpconfigvariant.mk files to supply additional source files
+# without losing them to SRC_C's plain `=` reassignment above.  Variants set
+# EXTRA_SRC_C += /abs/path/to/file.c (e.g. for shared sources living
+# outside the in-tree variant directory).
+SRC_C += $(EXTRA_SRC_C)
+
+# romfs_trailer.c lives in variants/common/ (out-of-tree).
+# Kept explicit in addition to EXTRA_SRC_C so it always lands in the build
+# even for variants that don't set EXTRA_SRC_C.
+SRC_C += $(PICOLET_RUNTIME_ROOT)/variants/common/romfs_trailer.c
+
+SHARED_SRC_C += $(addprefix shared/,\
+	$(SHARED_SRC_C_EXTRA) \
+	)
+
+OBJ = $(PY_O) $(addprefix $(BUILD)/, $(SRC_C:.c=.o))
+OBJ += $(addprefix $(BUILD)/, $(SRC_CXX:.cpp=.o))
+OBJ += $(addprefix $(BUILD)/, $(SHARED_SRC_C:.c=.o))
+OBJ += $(addprefix $(BUILD)/, $(LIB_SRC_C:.c=.o))
+
+ifeq ($(MICROPY_USE_READLINE),1)
+CFLAGS += -DMICROPY_USE_READLINE=1
+SRC_C += shared/readline/readline.c
+SRC_C += shared/runtime/pyexec.c
+endif
+
+ifeq ($(MICROPY_PY_FFI),1)
+# Build libffi from source.
+GIT_SUBMODULES += lib/libffi
+DEPLIBS += libffi
+LIBFFI_CFLAGS := -I$(BUILD)/lib/libffi/out/include
+LIBFFI_LDFLAGS = $(BUILD)/lib/libffi/out/lib/libffi.a
+
+CFLAGS += $(LIBFFI_CFLAGS) -DMICROPY_PY_FFI=1
+LDFLAGS += $(LIBFFI_LDFLAGS)
+SRC_C += modffi.c
+endif
+
+LIB += -lws2_32
+
+# List of sources for qstr extraction
+SRC_QSTR += $(SRC_C) $(SRC_CXX) $(SHARED_SRC_C)
+
+ifneq ($(FROZEN_MANIFEST),)
+CFLAGS += -DMPZ_DIG_SIZE=16
+endif
+
+ifeq ($(shell $(CC) -dumpmachine),i686-w64-mingw32)
+# GCC disables the SSE instruction set by default on i366 targets and we have
+# to specify all three of these options to enable it.
+# https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html (see -mfpmath=unit section)
+# Enabling the SSE instruction set is necessary to get correct rounding of floating points.
+# https://lemire.me/blog/2020/06/26/gcc-not-nearest
+CFLAGS += -msse -mfpmath=sse -march=pentium4
+endif
+
+# Build with embedded romfs by linking the binary directly
+# Usage: make ROMFS_IMG=romfs.img
+ifdef ROMFS_IMG
+CFLAGS += -DMICROPY_ROMFS_EMBEDDED=1
+OBJ += $(BUILD)/romfs_data.o
+endif
+
+include $(TOP)/py/mkrules.mk
+
+# Rule to build romfs_data.o from romfs.img (must be after mkrules.mk for OBJCOPY)
+ifdef ROMFS_IMG
+$(BUILD)/romfs_data.o: $(ROMFS_IMG) | $(BUILD)
+	$(Q)$(OBJCOPY) -I binary -O pe-x86-64 -B i386:x86-64 \
+		--rename-section .data=.rodata,alloc,load,readonly,data,contents \
+		--redefine-sym _binary_$(subst .,_,$(subst /,_,$(ROMFS_IMG)))_start=romfs_embedded_data \
+		--redefine-sym _binary_$(subst .,_,$(subst /,_,$(ROMFS_IMG)))_end=romfs_embedded_end \
+		$< $@
+endif
+
+# Value of configure's --host= option (required for cross-compilation).
+# Deduce it from CROSS_COMPILE by default, but can be overridden.
+ifneq ($(CROSS_COMPILE),)
+CROSS_COMPILE_HOST = --host=$(patsubst %-,%,$(CROSS_COMPILE))
+else
+CROSS_COMPILE_HOST =
+endif
+
+deplibs: $(DEPLIBS)
+
+libffi: $(BUILD)/lib/libffi/out/include/ffi.h
+
+$(TOP)/lib/libffi/configure: $(TOP)/lib/libffi/autogen.sh
+	cd $(TOP)/lib/libffi; ./autogen.sh
+
+# Build libffi as a dependency library
+$(BUILD)/lib/libffi/out/include/ffi.h: $(TOP)/lib/libffi/configure
+	mkdir -p $(BUILD)/lib/libffi; cd $(BUILD)/lib/libffi; \
+	$(abspath $(TOP))/lib/libffi/configure $(CROSS_COMPILE_HOST) --prefix=$$PWD/out --disable-shared --disable-structs CC="$(CC)" CXX="$(CXX)" LD="$(LD)" CFLAGS="-Os -fomit-frame-pointer -fstrict-aliasing -ffast-math -fno-exceptions"; \
+	$(MAKE) install-exec-recursive; $(MAKE) -C include install-data-am
+
+.PHONY: test test_full deplibs libffi romfs
+
+# Note for recent gcc versions like 13.2:
+# - mingw64-x86_64 gcc builds will pass the math_domain_special test
+# - mingw64-ucrt64 gcc builds will pass all of the below tests
+RUN_TESTS_SKIP += -e math_fun -e float2int_double -e float_parse -e math_domain_special
+
+test: $(BUILD)/$(PROG) $(TOP)/tests/run-tests.py
+	$(eval DIRNAME=ports/$(notdir $(CURDIR)))
+	cd $(TOP)/tests && MICROPY_MICROPYTHON=../$(DIRNAME)/$(BUILD)/$(PROG) $(PYTHON) ./run-tests.py $(RUN_TESTS_SKIP)
+
+test_full: test
+	$(eval DIRNAME=ports/$(notdir $(CURDIR)))
+	cd $(TOP)/tests && MICROPY_MICROPYTHON=../$(DIRNAME)/$(BUILD)/$(PROG) $(PYTHON) ./run-tests.py --via-mpy $(RUN_TESTS_MPY_CROSS_FLAGS) $(RUN_TESTS_SKIP) -d basics float micropython
+
+$(BUILD)/$(PROG): $(BUILD)/micropython.res
+
+$(BUILD)/%.res: %.rc
+	$(ECHO) "WINDRES $<"
+	$(Q)$(WINDRES) $< -O coff -o $@
+
+# Build a romfs image from a directory
+# Usage: make romfs ROMFS_DIR=path/to/directory
+# Creates romfs.img in the current directory
+romfs:
+	@if [ -z "$(ROMFS_DIR)" ]; then \
+		echo "Error: ROMFS_DIR not specified"; \
+		echo "Usage: make romfs ROMFS_DIR=path/to/directory"; \
+		exit 1; \
+	fi
+	$(PYTHON) -m mpremote romfs build $(ROMFS_DIR)
+	mv $(notdir $(ROMFS_DIR)).romfs romfs.img
