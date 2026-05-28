@@ -98,3 +98,53 @@ LDFLAGS += -Wl,--gc-sections
 # romfs_trailer.c is in variants/common/ (out-of-tree).
 # The Windows port Makefile appends it to SRC_C after the SRC_C = block;
 # that path reference is updated in the Makefile separately.
+
+# picolet_winevents: generic Win32 event hook (WM_DEVICECHANGE, WM_CLOSE,
+# WM_POWERBROADCAST, …).  Compiled into the .exe and reached from Python
+# via ffi.open(None).func("picolet_winevents_*").
+#
+# Unlike the webview variant, this variant does NOT use --export-all-symbols
+# (PE export table size), so the FFI-visible symbols are pinned individually
+# via -Wl,--undefined= below to survive --gc-sections.
+#
+# EXTRA_SRC_C (from pr/windows-extra-src-c) is the documented extension
+# hook — variant SRC_C += is silently discarded by the port Makefile's
+# plain SRC_C = reassignment.
+EXTRA_SRC_C += $(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_winevents/picolet_winevents.c
+INC         += -I$(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_winevents
+
+# Win32 libs that picolet_winevents.c needs in addition to what SDL2/lvgl pull in.
+# user32, ole32, shell32, oleaut32, advapi32 are already in LIB above (SDL2).
+LIB += -lcomctl32 -lwtsapi32 -lpowrprof
+
+# Retain picolet_winevents_* symbols against --gc-sections.
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_attach
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_detach
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_subscribe
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_unsubscribe
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_poll_json
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_free
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_overflow_count
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_watch_device_interface
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_watch_power
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_watch_session
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_watch_clipboard
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_accept_drop_files
+LDFLAGS_EXTRA += -Wl,--undefined=picolet_winevents_last_error
+# The LVGL variant doesn't --export-all-symbols either, so symbols listed via
+# --undefined must also appear in the export table for ffi.open(None) to
+# resolve them at runtime.  -Wl,--export-dynamic-symbol takes a single name
+# at a time and is supported by MinGW ld since 2.35.
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_attach
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_detach
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_subscribe
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_unsubscribe
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_poll_json
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_free
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_overflow_count
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_watch_device_interface
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_watch_power
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_watch_session
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_watch_clipboard
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_accept_drop_files
+LDFLAGS_EXTRA += -Wl,--export-dynamic-symbol=picolet_winevents_last_error

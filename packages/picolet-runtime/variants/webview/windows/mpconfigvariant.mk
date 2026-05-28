@@ -38,7 +38,24 @@ LDFLAGS += -Wl,--export-all-symbols
 # ws2_32 is needed by picolet_wv2_pick_test_port() (PH17) — WSAStartup/socket/
 # getsockname/closesocket.  The port Makefile may already link ws2_32 but we
 # add it explicitly so the dependency is captured here.
+#
+# picolet_winevents (user_c_modules/picolet_winevents/picolet_winevents.c) pulls in
+# comctl32 (SetWindowSubclass), wtsapi32 (WTSRegisterSessionNotification) and
+# powrprof (RegisterPowerSettingNotification).  shell32 is already listed for
+# the loader.
 LIB += -lole32 -loleaut32 -luser32 -lshell32 -lshlwapi -lws2_32
+LIB += -lcomctl32 -lwtsapi32 -lpowrprof
+
+# picolet_winevents: generic Win32 event hook (WM_DEVICECHANGE, WM_CLOSE,
+# WM_POWERBROADCAST, …).  Statically linked into the .exe; reached from
+# Python via ffi.open(None).func("picolet_winevents_*").  --export-all-symbols
+# above makes its symbols visible without per-symbol --undefined retains.
+#
+# EXTRA_SRC_C (from pr/windows-extra-src-c) is the documented extension
+# hook — variant SRC_C += is silently discarded by the port Makefile's
+# plain SRC_C = reassignment.
+EXTRA_SRC_C += $(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_winevents/picolet_winevents.c
+INC         += -I$(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_winevents
 
 # Frozen manifest: windows-aware webview variant.  See manifest_webview_windows.py.
 FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_webview_windows.py
