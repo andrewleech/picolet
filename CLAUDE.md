@@ -130,3 +130,95 @@ commit to `docs/v1-spec.md` before the affected phase resumes.
   `packages/picolet-runtime/sbom/runtime.toml` before they enter a build
   (this file is created in PH13; until then, new dependencies are
   noted in the phase file and ratified retroactively).
+
+## Repository layout
+
+```
+picolet/
+├── packages/
+│   ├── picolet-cli/         Host-side CLI: picolet init|build|dev|run|test.
+│   │                      Pure-Python, installable via pip/uv tool/pipx.
+│   ├── picolet-runtime/     The MicroPython runtime sources + Picolet-specific
+│   │   │                  variants and Python modules frozen into each
+│   │   │                  binary.
+│   │   ├── micropython/   git submodule.  Tracks andrewleech/micropython
+│   │   │                  at the `integration` branch (composed by mbm
+│   │   │                  from feature branches, never pushed).
+│   │   ├── mbm.toml       Branch-manager config: each [[submodules.branches]]
+│   │   │                  entry is an upstream-targetable PR.  Local
+│   │   │                  `integration` is rebuilt by `scripts/
+│   │   │                  rebuild-integration.sh`.
+│   │   ├── manifests/     Per-variant frozen-module manifests
+│   │   │                  (manifest_<variant>_<platform>.py).
+│   │   ├── variants/      Variant-specific C glue and mpconfigvariant.{h,mk}.
+│   │   │   ├── cli/{unix,windows}/
+│   │   │   ├── webview/{unix,windows}/   — host-side webview glue
+│   │   │   ├── lvgl/{unix,windows}/
+│   │   │   └── common/    Shared C (romfs_trailer.c, …).
+│   │   ├── user_c_modules/   C sources that compile *into* the runtime
+│   │   │                  binary and are reached from Python via FFI
+│   │   │                  (`ffi.open(None).func("name")`).  Each variant
+│   │   │                  mk picks the set it needs via EXTRA_SRC_C +=
+│   │   │                  (Windows) or SRC_C += (Unix).
+│   │   │                  Currently: picolet_winevents (Win32 event hook),
+│   │   │                  picolet_lvgl_test (PNG encoder for LVGL snapshots).
+│   │   │                  Note: lv_binding_micropython is the ONLY proper
+│   │   │                  MicroPython USER_C_MODULES-style C module (it
+│   │   │                  registers `import lvgl`); everything else here
+│   │   │                  is statically-linked FFI surface.
+│   │   ├── python/        Source for frozen modules: `picolet/`, `picolet_ui/`.
+│   │   ├── lib/           Vendored sub-libraries (lv_binding_micropython
+│   │   │                  submodule + its lvgl submodule).
+│   │   ├── scripts/       build-runtime.sh, rebuild-integration.sh,
+│   │   │                  dockerfiles/ for the linux + windows toolchains.
+│   │   ├── rerere/        rerere cache for cross-PR conflict auto-resolution.
+│   │   └── sbom/          CycloneDX SBOM inputs for built artefacts.
+│   ├── picolet-bridge-js/   `window.picolet.invoke / .on` JS bridge.  TS source
+│   │                      compiled to a single ES module bundled into romfs.
+│   ├── picolet-templates/   `picolet init --template <name>` starter packs.
+│   └── picolet-testing/     AppHarness for autonomous test + screenshot.
+├── examples/              Worked example apps (pydfu, notes, config-editor,
+│                          dashboard).
+├── tests/                 Per-phase + topic-specific test suites
+│                          (tests/phase-NN/ and tests/<topic>/ run via
+│                          their own run.sh).
+└── docs/                  Architecture, caveats, examples tour, CLI
+                           reference, manifest.py guide, history/.
+```
+
+### Variant build mechanics (cheat sheet)
+
+- A *variant* is a `mpconfigvariant.{h,mk}` pair under `variants/<variant>/
+  <platform>/` plus a frozen manifest under `manifests/`.  Adding a variant
+  requires no submodule changes — the windows port Makefile globs
+  `$(VARIANT_DIR)/*.c` and includes the .mk file.
+- Variants pull in extra C sources from `user_c_modules/` by appending to
+  `EXTRA_SRC_C` (Windows port — `SRC_C +=` is silently discarded by the
+  port Makefile's plain `SRC_C =` assignment, so the dedicated
+  `EXTRA_SRC_C` hook on the `pr/windows-extra-src-c` feature branch is
+  the documented vector) or to `SRC_C` directly (Unix port).
+- Symbol export for FFI:
+  - Webview Windows: `-Wl,--export-all-symbols` exports everything.
+  - LVGL Windows: per-symbol `--undefined=` + `--export-dynamic-symbol=`
+    retains (the PE export table is kept small to save size).
+  - Linux: `-rdynamic` on the unix port.
+
+### Cross-platform façade pattern
+
+`picolet_ui` and `picolet.system` both split a per-platform backend behind a
+single import-time `sys.platform` switch.  The pattern:
+
+```
+picolet_ui/__init__.py    — public surface (Window, Webview, Application, …)
+picolet_ui/_window.py     — Windows + GTK branches gated on sys.platform
+picolet_ui/_win_ffi.py    — Win32 libffi bindings
+picolet_ui/_gtk_ffi.py    — GTK 3 libffi bindings
+picolet_ui/_mac_ffi.py    — macOS libffi bindings (post-v1)
+
+picolet/system.py         — cross-platform event façade
+picolet/_system_win.py    — Windows backend (wraps picolet_winevents)
+                          — _system_macos, _system_linux follow same shape
+```
+
+The façade file imports the backend lazily on first use so each variant
+only links what its platform needs.
