@@ -131,6 +131,39 @@ commit to `docs/v1-spec.md` before the affected phase resumes.
   (this file is created in PH13; until then, new dependencies are
   noted in the phase file and ratified retroactively).
 
+## Single-binary output is non-negotiable
+
+A Picolet build produces ONE executable.  No sidecar DLLs, .so files,
+.dylibs, asset bundles, or "drop this next to the .exe" anything — not
+even when it would meaningfully shrink the binary.  "One file you can
+copy and run" is a primary user-visible guarantee and ranks above
+binary size, build complexity, or static-link footprint.
+
+Rules:
+
+- Third-party libraries link statically into the runtime artifact.
+  When upstream ships both a static archive (`libfoo.a`) and an import
+  lib (`libfoo.dll.a` / `libfoo.so`), reference the archive by
+  explicit path so the linker can't silently prefer the dynamic form.
+- The only acceptable "external" runtime dependencies are Windows /
+  macOS / Linux system libraries that are present on every install of
+  the target OS (e.g. KERNEL32.dll, libc.so, /System/Library/*).
+- App-bundled assets that the *app developer* chose to ship (e.g.
+  HTML, fonts in romfs) are part of the binary's appended romfs, not
+  separate files on disk.  An app that explicitly opts into emitting
+  separate files at runtime is the app's decision; the runtime never
+  forces it.
+- Build scripts must guard against accidental regression.  Pattern:
+  after the link step, run `objdump -p` (or platform equivalent) and
+  fail the build if the import table contains anything other than the
+  agreed system-library allow-list.  See the [7c] step in
+  `packages/picolet-runtime/scripts/build-runtime.sh` for the windows
+  lvgl variant's check.
+
+If a build path can't be made to fit this constraint and the user
+hasn't explicitly opted out, the answer is to do less work in the
+binary or pick a smaller dependency — not to ship a sidecar file.
+
 ## Repository layout
 
 ```
