@@ -32,15 +32,32 @@
 extern "C" {
 #endif
 
+/* ---- Export-visibility shim --------------------------------------------
+ *
+ * On MinGW/PE the linker's --export-all-symbols flag dumps every defined
+ * symbol into the export table.  The webview variant turns that on; the
+ * lvgl variant does not (to keep the export table small).  __declspec
+ * (dllexport) makes the public surface visible regardless of which
+ * linker mode the host variant chose, and also pins these symbols
+ * against --gc-sections without per-symbol --undefined retains.
+ *
+ * Hosts that already use --export-all-symbols see no change — dllexport
+ * on an already-exported symbol is a no-op. */
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  define PICOLET_WINEVENTS_API __declspec(dllexport)
+#else
+#  define PICOLET_WINEVENTS_API __attribute__((visibility("default")))
+#endif
+
 /* ---- Lifecycle ---------------------------------------------------------- */
 
 /* Install the subclass on `hwnd`.  Idempotent; safe to call multiple times.
  * Returns 0 on success, negative on failure (sets last_error). */
-int32_t picolet_winevents_attach(void *hwnd);
+PICOLET_WINEVENTS_API int32_t picolet_winevents_attach(void *hwnd);
 
 /* Remove the subclass and free any associated state.  Safe to call on a
  * never-attached HWND. */
-int32_t picolet_winevents_detach(void *hwnd);
+PICOLET_WINEVENTS_API int32_t picolet_winevents_detach(void *hwnd);
 
 /* ---- Subscription ------------------------------------------------------- */
 
@@ -51,9 +68,11 @@ int32_t picolet_winevents_detach(void *hwnd);
  * Idempotent: subscribing to the same msg twice updates the consume flag.
  *
  * Returns 0 on success, -1 on table full, -2 on hwnd not attached. */
+PICOLET_WINEVENTS_API
 int32_t picolet_winevents_subscribe(void *hwnd, uint32_t msg, int32_t consume);
 
 /* Remove a subscription.  Returns 0 even if msg was not subscribed. */
+PICOLET_WINEVENTS_API
 int32_t picolet_winevents_unsubscribe(void *hwnd, uint32_t msg);
 
 /* ---- Polling ------------------------------------------------------------ */
@@ -71,12 +90,12 @@ int32_t picolet_winevents_unsubscribe(void *hwnd, uint32_t msg);
  * payload is associated with an event, the "extra" key is omitted.
  *
  * On out-of-memory or encoding failure, returns NULL and sets last_error. */
-char *picolet_winevents_poll_json(void *hwnd);
-void picolet_winevents_free(char *buf);
+PICOLET_WINEVENTS_API char *picolet_winevents_poll_json(void *hwnd);
+PICOLET_WINEVENTS_API void picolet_winevents_free(char *buf);
 
 /* Number of events dropped due to ring overflow since the last call.
  * Reading also clears the counter. */
-int32_t picolet_winevents_overflow_count(void *hwnd);
+PICOLET_WINEVENTS_API int32_t picolet_winevents_overflow_count(void *hwnd);
 
 /* ---- Convenience registrations ------------------------------------------ */
 
@@ -92,27 +111,28 @@ int32_t picolet_winevents_overflow_count(void *hwnd);
  * Returns 0 on success, negative on failure.  Also implicitly subscribes
  * to WM_DEVICECHANGE (without consume), so a separate subscribe() call is
  * not needed for the standard "observe device events" use case. */
-int32_t picolet_winevents_watch_device_interface(void *hwnd,
-                                                const uint8_t *guid16_bytes);
+PICOLET_WINEVENTS_API int32_t picolet_winevents_watch_device_interface(
+    void *hwnd, const uint8_t *guid16_bytes);
 
 /* Register for system power-state notifications (WM_POWERBROADCAST). */
-int32_t picolet_winevents_watch_power(void *hwnd);
+PICOLET_WINEVENTS_API int32_t picolet_winevents_watch_power(void *hwnd);
 
 /* Register for session notifications (WM_WTSSESSION_CHANGE) — lock,
  * unlock, RDP connect/disconnect. */
-int32_t picolet_winevents_watch_session(void *hwnd);
+PICOLET_WINEVENTS_API int32_t picolet_winevents_watch_session(void *hwnd);
 
 /* Register the window as a clipboard format listener (WM_CLIPBOARDUPDATE). */
-int32_t picolet_winevents_watch_clipboard(void *hwnd);
+PICOLET_WINEVENTS_API int32_t picolet_winevents_watch_clipboard(void *hwnd);
 
 /* Enable WM_DROPFILES delivery (DragAcceptFiles).  `enable=0` disables. */
+PICOLET_WINEVENTS_API
 int32_t picolet_winevents_accept_drop_files(void *hwnd, int32_t enable);
 
 /* ---- Errors ------------------------------------------------------------- */
 
 /* Last HRESULT / GetLastError set by any of the above.  Cleared on any
  * successful call. */
-int32_t picolet_winevents_last_error(void);
+PICOLET_WINEVENTS_API int32_t picolet_winevents_last_error(void);
 
 #ifdef __cplusplus
 }
