@@ -4,10 +4,10 @@
 # Deltas from the Linux version:
 #   - MICROPY_STANDALONE is not set (Windows Makefile handles libffi via deplibs).
 #   - FROZEN_MANIFEST points at manifest_lvgl_windows.py.
-#   - SDL2 cflags and ldflags are injected directly (MXE static path).
+#   - SDL2 paths come from the official upstream MinGW binary release
+#     (downloaded by build-runtime.sh [2b/8] and passed in as
+#     SDL2_INCLUDE_DIR / SDL2_LIB_DIR Make variables).
 #   - LV_CONF_PATH reuses the unix lv_conf.h (content is platform-agnostic).
-
-MXE_ROOT := /usr/src/mxe/usr/x86_64-w64-mingw32.static.posix
 
 # Enable the ffi module.  Do NOT set MICROPY_STANDALONE — Windows Makefile's
 # deplibs rule handles libffi cross-build without the standalone bootstrap.
@@ -37,20 +37,35 @@ LV_CONF_PATH = $(PICOLET_RUNTIME_ROOT)/variants/lvgl/unix/lv_conf.h
 # active when CURDIR's basename is "unix" (AD2).
 CFLAGS_EXTRA += -DMICROPY_SDL=1
 
-# SDL2 include path.  lv_conf.h uses #include <SDL2/SDL.h> (with the SDL2/
-# prefix), so the include path must point at the directory *above* SDL2/,
-# not at SDL2/ itself.
-CFLAGS_EXTRA += -I$(MXE_ROOT)/include
+# SDL2 paths come from build-runtime.sh which downloads the official
+# libsdl-org MinGW binary release (SDL2-devel-2.30.10-mingw.tar.gz) and
+# passes SDL2_INCLUDE_DIR and SDL2_LIB_DIR as Make variables.  Fail the
+# build with a clear message if either is unset rather than producing a
+# confusing missing-header error later.
+ifeq ($(SDL2_INCLUDE_DIR),)
+$(error SDL2_INCLUDE_DIR not set — build-runtime.sh should pass it in. \
+        If invoking make directly, point it at the upstream MinGW \
+        release's x86_64-w64-mingw32/include directory)
+endif
+ifeq ($(SDL2_LIB_DIR),)
+$(error SDL2_LIB_DIR not set — see comment above)
+endif
 
-# SDL2 static lib + Win32 dependencies SDL2 needs when statically linked.
-# SDL2 on Windows calls into: user32 (window creation), winmm (timer),
-# gdi32 (GDI surface), ole32 (COM init), imm32 (IME input), version
-# (VerQueryValueW), setupapi (HID device enumeration).
-# Additional dependencies from the MXE static build: oleaut32, uuid,
-# advapi32 (registry / security), shell32.
-LIB += $(MXE_ROOT)/lib/libSDL2.a
-LIB += -luser32 -lwinmm -lgdi32 -lole32 -loleaut32 -limm32 -lversion
-LIB += -lsetupapi -luuid -ladvapi32 -lshell32
+# lv_conf.h uses #include <SDL2/SDL.h>, so the include path must point at
+# the directory *above* SDL2/ — exactly what SDL2_INCLUDE_DIR contains.
+CFLAGS_EXTRA += -I$(SDL2_INCLUDE_DIR)
+
+# Dynamic linkage against SDL2.dll via the import library libSDL2.dll.a
+# in $(SDL2_LIB_DIR).  build-runtime.sh copies SDL2.dll alongside the
+# final artifact (and picolet build embeds it in the app romfs / drops it
+# beside the .exe).  This is the supported configuration post-PH12; the
+# previous MXE static-link path is retired.
+#
+# Win32 sub-libs SDL2 itself depends on are embedded inside SDL2.dll, so
+# we don't need to list them here.  user32 / ole32 / shell32 etc. are
+# also pulled in transitively by the other code paths in this binary
+# (picolet_winevents, etc.) and need not be repeated.
+LIB += -L$(SDL2_LIB_DIR) -lSDL2
 
 # LV_CFLAGS: force the binding's CPP preprocessing step to include
 # lv_drivers.h so SDL window/input functions appear in the generated
@@ -70,7 +85,7 @@ LIB += -lsetupapi -luuid -ladvapi32 -lshell32
 # the actual SDL symbols — those come at link time from libSDL2.a).
 LV_CFLAGS = -include $(PICOLET_RUNTIME_ROOT)/lib/lv_binding_micropython/lvgl/src/drivers/lv_drivers.h \
             -DMICROPY_SDL=1 \
-            -I$(MXE_ROOT)/include
+            -I$(SDL2_INCLUDE_DIR)
 
 # Dead-code elimination: put each function/data item in its own section
 # so the linker can garbage-collect unreachable sections from SDL2's static

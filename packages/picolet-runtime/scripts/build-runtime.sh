@@ -790,12 +790,28 @@ build_windows_x64() {
     docker_windows "$SUBMODULE/mpy-cross" make -j
 
     echo "[4/8] Fetching port submodules (libffi)"
+    # Build up optional Make overrides for lvgl.  SDL2_UPSTREAM_DIR is the
+    # x86_64-w64-mingw32 subtree from the official MinGW release tarball;
+    # the variant .mk uses SDL2_INCLUDE_DIR and SDL2_LIB_DIR to locate
+    # headers and the import library (libSDL2.dll.a).  Built early because
+    # every make invocation below parses the variant .mk (which $(error)s
+    # if these vars are unset, including for non-build targets like
+    # `submodules`).
+    local EXTRA_MAKE_VARS=()
+    if [[ "$VARIANT" == "lvgl" ]]; then
+        EXTRA_MAKE_VARS+=(
+            "SDL2_INCLUDE_DIR=${SDL2_UPSTREAM_DIR}/include"
+            "SDL2_LIB_DIR=${SDL2_UPSTREAM_DIR}/lib"
+        )
+    fi
+
     # The Windows Makefile's deplibs target adds lib/libffi to GIT_SUBMODULES
     # when MICROPY_PY_FFI=1 (set in the variant .mk).  We run `submodules` on
     # the host (pure git op, no compiler needed).
     make -C "$windows_port" -j submodules \
         VARIANT_DIR="$VARIANT_DIR_WINDOWS" \
-        BUILD="build-${VARIANT_NAME}"
+        BUILD="build-${VARIANT_NAME}" \
+        "${EXTRA_MAKE_VARS[@]}"
 
     # Warm-cache mitigation for libffi: when ffi.h and libffi.a already exist
     # from a prior successful deplibs build, touch all relevant timestamps so
@@ -828,18 +844,7 @@ build_windows_x64() {
     fi
 
     build_romfs_image "$BUILD_DIR" "$windows_port"
-
-    # Build up optional Make overrides for lvgl.  SDL2_UPSTREAM_DIR is the
-    # x86_64-w64-mingw32 subtree from the official MinGW release tarball;
-    # the variant .mk uses SDL2_INCLUDE_DIR and SDL2_LIB_DIR to locate
-    # headers and the import library (libSDL2.dll.a).
-    local EXTRA_MAKE_VARS=()
-    if [[ "$VARIANT" == "lvgl" ]]; then
-        EXTRA_MAKE_VARS+=(
-            "SDL2_INCLUDE_DIR=${SDL2_UPSTREAM_DIR}/include"
-            "SDL2_LIB_DIR=${SDL2_UPSTREAM_DIR}/lib"
-        )
-    fi
+    # EXTRA_MAKE_VARS is set above (before [4/8] make submodules).
 
     echo "[6/8] Building libffi (deplibs) inside dockcross"
     if [[ -f "$libffi_ffi_h" ]]; then
