@@ -884,17 +884,21 @@ build_windows_x64() {
     docker_windows "$PKG_ROOT" "${CROSS}strip" --strip-unneeded "$artifact"
     echo "  artifact: $artifact"
 
-    # [7c] For the lvgl variant, copy SDL2.dll alongside the artifact so end
-    # users do not need a separate SDL2 install.  The DLL is taken from the
-    # upstream MinGW release tarball extracted in [2b/8].
-    if [[ "$VARIANT" == "lvgl" && -n "$SDL2_UPSTREAM_DIR" ]]; then
-        local SDL2_DLL="$SDL2_UPSTREAM_DIR/bin/SDL2.dll"
-        if [[ -f "$SDL2_DLL" ]]; then
-            cp "$SDL2_DLL" "$BUILD_DIR/SDL2.dll"
-            echo "  [7c] SDL2.dll copied to $BUILD_DIR/SDL2.dll"
-        else
-            echo "warning: SDL2.dll not found at $SDL2_DLL; users must supply it separately" >&2
+    # [7c] Assert the lvgl-windows binary has NO runtime SDL2.dll dependency.
+    # Static linkage against libSDL2.a is non-negotiable for this project;
+    # the "one binary, no runtime deps" property is a primary user-visible
+    # guarantee.  If SDL2.dll appears in the PE import directory the build
+    # has silently regressed to the upstream import-lib path — fail loudly.
+    if [[ "$VARIANT" == "lvgl" && "$TARGET" == "windows-x64" ]]; then
+        local IMPORTS
+        IMPORTS="$(docker_windows "$PKG_ROOT" "${CROSS}objdump" -p "$artifact" \
+                   | grep -i 'DLL Name:' || true)"
+        if echo "$IMPORTS" | grep -qi 'SDL2\.dll'; then
+            echo "error: lvgl-windows binary imports SDL2.dll (should be statically linked)" >&2
+            echo "$IMPORTS" >&2
+            exit 1
         fi
+        echo "  [7c] SDL2 statically linked (no SDL2.dll import in PE table)"
     fi
 
     finish_artifact "$artifact"

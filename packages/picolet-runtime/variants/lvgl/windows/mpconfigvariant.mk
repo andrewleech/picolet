@@ -55,17 +55,27 @@ endif
 # the directory *above* SDL2/ — exactly what SDL2_INCLUDE_DIR contains.
 CFLAGS_EXTRA += -I$(SDL2_INCLUDE_DIR)
 
-# Dynamic linkage against SDL2.dll via the import library libSDL2.dll.a
-# in $(SDL2_LIB_DIR).  build-runtime.sh copies SDL2.dll alongside the
-# final artifact (and picolet build embeds it in the app romfs / drops it
-# beside the .exe).  This is the supported configuration post-PH12; the
-# previous MXE static-link path is retired.
+# Static linkage against libSDL2.a from the official upstream MinGW
+# binary release.  The "one binary, no runtime deps" property is core to
+# the project's value proposition; dynamic linkage against SDL2.dll is
+# NOT acceptable here.  The upstream release ships both libSDL2.a and
+# libSDL2.dll.a — ld picks the import lib first for plain `-lSDL2`, so
+# we reference the archive by explicit path to force static linkage.
 #
-# Win32 sub-libs SDL2 itself depends on are embedded inside SDL2.dll, so
-# we don't need to list them here.  user32 / ole32 / shell32 etc. are
-# also pulled in transitively by the other code paths in this binary
-# (picolet_winevents, etc.) and need not be repeated.
-LIB += -L$(SDL2_LIB_DIR) -lSDL2
+# Win32 sub-libs SDL2 itself calls into (from sdl2.pc Libs.private):
+#   - dinput8 / dxguid / dxerr8  DirectInput
+#   - user32                     window creation
+#   - winmm                      multimedia timer
+#   - gdi32                      GDI surface
+#   - ole32 / oleaut32 / uuid    COM
+#   - imm32                      IME input
+#   - version                    VerQueryValueW
+#   - setupapi                   HID device enumeration
+#   - shell32                    shell APIs
+LIB += $(SDL2_LIB_DIR)/libSDL2.a
+LIB += -ldinput8 -ldxguid -ldxerr8
+LIB += -luser32 -lwinmm -lgdi32 -lole32 -loleaut32 -limm32 -lversion
+LIB += -lsetupapi -luuid -lshell32
 
 # LV_CFLAGS: force the binding's CPP preprocessing step to include
 # lv_drivers.h so SDL window/input functions appear in the generated
