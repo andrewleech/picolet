@@ -74,10 +74,14 @@ and `mp_obj_t` ABI) can be included in a Picolet binary. The process:
 2. Place the module directory anywhere accessible to the build.
 3. Declare it in your manifest with `c_module("path/to/mymodule")`.
 
-`c_module()` is available in the Picolet integration (via the andrewleech
-fork; [upstream PR #18229](https://github.com/micropython/micropython/pull/18229)
-is still in review). A `--from-source` build is required to include custom
-C modules.
+`c_module()` is already available in Picolet — it comes from
+[upstream PR #18229](https://github.com/micropython/micropython/pull/18229),
+which is composed into the
+[andrewleech/micropython](https://github.com/andrewleech/micropython) fork
+that Picolet builds against (the PR is still in review upstream).
+A `--from-source` build is required to include custom C modules in your
+own runtime; the prebuilt runtimes shipped on the GitHub Release only
+contain modules baked in at release time.
 
 ## Runtime memory
 

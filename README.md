@@ -97,30 +97,32 @@ async def list_items(args):
 
 Four worked examples under `examples/` (`pydfu`, `notes`, `config-editor`, `dashboard`) demonstrate the patterns end-to-end, each with a distinct visual aesthetic.
 
-## Caveats
+## MicroPython, not CPython
 
-Read these before adopting.
+Picolet runs your app on MicroPython.  That's what keeps the binary
+small — but it's a smaller dialect of Python with some real constraints
+worth knowing before you commit to it.  The full catalogue lives at
+**[docs/caveats.md](docs/caveats.md)**; the short version:
 
-- **MicroPython, not CPython.** The standard library subset is smaller. Pure-Python code using `os`, `sys`, `json`, `re`, `time`, `asyncio`, `struct`, `io` etc. typically works. Code that depends on C extensions (numpy, pandas, Pillow, lxml, etc.) does not. Picolet cannot make a CPython library "just work" — it would have to be ported or replaced with a MicroPython equivalent.
+- **Smaller standard library.** Pure-Python code using `os`, `sys`, `json`, `re`, `time`, `asyncio`, `struct`, `io` etc. typically works.  Code that depends on C extensions (numpy, pandas, Pillow, lxml, ...) does not — Picolet can't make a CPython library "just work"; it has to be ported or replaced with a MicroPython equivalent.
 
-- **`micropython-lib` fills most stdlib gaps.** Modules like `argparse`, `pathlib`, `dataclasses`, `typing`, `unittest` are available via [micropython-lib](https://github.com/micropython/micropython-lib) and are declared with `require("name")` in the manifest.
+- **`micropython-lib` fills most stdlib gaps.** `argparse`, `pathlib`, `dataclasses`, `typing`, `unittest` and similar are available via [micropython-lib](https://github.com/micropython/micropython-lib) and pulled in with `require("name")` in the manifest.
 
-- **Custom C modules are straightforward.** A Picolet binary is a MicroPython build under the hood, so any C module written against the standard MicroPython API works. Drop a directory under `user_c_modules/` and reference it in the manifest. Once [upstream PR #18229](https://github.com/micropython/micropython/pull/18229) lands in the fork, `c_module("./path/to/mymodule")` can declare it directly in the manifest.
+- **Custom C modules work.** A Picolet binary is a MicroPython build under the hood, so any C module written against the standard MicroPython native API can be statically linked.  Declare them in the manifest with `c_module("./path/to/mymodule")` — the c_module function comes from upstream PR [micropython#18229](https://github.com/micropython/micropython/pull/18229) (still in review upstream, already composed into the [andrewleech/micropython](https://github.com/andrewleech/micropython) fork picolet uses).
 
-- **Python C-API extensions (CPython `.so`/`.pyd`) do NOT work.** MicroPython's runtime is binary-incompatible with CPython. Write a MicroPython C module instead.
+- **CPython C-API extensions (`.so` / `.pyd`) do NOT work.** MicroPython's runtime is binary-incompatible with CPython.  Write a MicroPython C module instead.
 
-- **Async semantics differ slightly.** MicroPython's `asyncio` is a subset of CPython's. Coroutines, tasks, queues, locks, `gather`, `wait_for` work; `asyncio.run` with policies, debug mode, the `loop.add_signal_handler` interface, and some niche APIs don't. Most app code is unaffected.
+- **`asyncio` is a subset.** Coroutines, tasks, queues, locks, `gather`, `wait_for` work.  `asyncio.run` with policies, debug mode, `loop.add_signal_handler` and a handful of niche APIs don't.  Most app code is unaffected.
 
-- **First-class platform support is Linux x64 and Windows x64.** macOS (Intel + Apple Silicon) is source-complete but requires GitHub Actions CI for native builds — local cross-compile from Linux is not supported. ARM Linux and mobile platforms are on the backlog.
-
-See [docs/caveats.md](docs/caveats.md) for a full catalogue.
+Again — these are the headline items.  For the full per-module compatibility list (stdlib, threading, C-extension situation, runtime heap, per-platform notes), see **[docs/caveats.md](docs/caveats.md)**.
 
 ## Toolchain expectations
 
 - The `picolet` CLI runs on Linux, macOS, or Windows (host).
-- Building Windows binaries from Linux uses [`dockcross`](https://github.com/dockcross/dockcross); Docker is required for that path.
-- Building macOS binaries uses GitHub Actions runners (`macos-13` Intel, `macos-14` Apple Silicon).
+- First-class targets are Linux x64 and Windows x64 — both build locally on a Linux host.  Building Windows binaries from Linux uses [`dockcross`](https://github.com/dockcross/dockcross); Docker is required for that path.
+- macOS (Intel + Apple Silicon) is source-complete but builds via GitHub Actions runners (`macos-13` and `macos-14`); no local cross-compile from Linux.
 - Node.js + npm are required only when building Vue/React frontends.
+- ARM Linux and mobile platforms are on the backlog, not yet supported.
 
 ## Getting started
 
