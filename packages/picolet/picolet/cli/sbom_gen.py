@@ -323,7 +323,7 @@ def _runtime_tag(repo_root: Path) -> str:
     tag_file = repo_root / "packages" / "picolet-runtime" / "RUNTIME_TAG"
     if tag_file.is_file():
         return tag_file.read_text().strip()
-    return "runtime-v0.1.0"
+    return "runtime-v0.0.1"
 
 
 # ---------------------------------------------------------------------------

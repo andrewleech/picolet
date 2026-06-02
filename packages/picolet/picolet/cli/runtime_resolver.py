@@ -213,8 +213,9 @@ def _read_runtime_tag_sidecar() -> str:
     if tag_file.is_file():
         return tag_file.read_text().strip()
 
-    # Step 3: last-resort default.
-    return "runtime-v0.1.0"
+    # Step 3: last-resort default.  Kept in sync with packages/picolet-
+    # runtime/RUNTIME_TAG; the file lookup above is authoritative.
+    return "runtime-v0.0.1"
 
 
 def _cache_root() -> Path:
