@@ -1002,7 +1002,11 @@ class TestRuntimeTagResourceLookup(unittest.TestCase):
             with mock.patch.object(rr, "_repo_root", return_value=Path("/nonexistent/repo")):
                 tag = rr._read_runtime_tag_sidecar()
 
-        self.assertEqual(tag, "runtime-v0.1.0")
+        # Default tracks the value hard-coded in runtime_resolver._read_runtime_tag_sidecar
+        # last-resort branch.  Updated to runtime-v0.0.1 alongside the initial CLI
+        # release.  Keep in sync with packages/picolet-runtime/RUNTIME_TAG and the
+        # similarly-hardcoded fallback in sbom_gen._runtime_tag.
+        self.assertEqual(tag, "runtime-v0.0.1")
 
     # -------------------------------------------------------------------------
     # test_load_config_uses_package_resource_tag_by_default

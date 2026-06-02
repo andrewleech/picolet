@@ -8,3 +8,19 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
 ]
+
+[tool.pytest.ini_options]
+# tests/phase-* import `from picolet.cli ...` (the CLI host package at
+# packages/picolet/picolet/cli/).  tests/system and tests/tui need
+# `import picolet.system` / `import picolet_tui ...` from packages/
+# picolet-runtime/python — but BOTH dirs ship a `picolet` package with
+# DIFFERENT submodules (CLI vs. frozen-in-binary).  Putting both on the
+# global pythonpath causes whichever comes first to shadow the other.
+#
+# Resolution: pyproject.toml lists only the CLI path globally;
+# tests/system/conftest.py and tests/tui/conftest.py prepend the runtime
+# path with a teardown that removes it again.  Running these test dirs
+# together is supported via the conftest scoping.
+pythonpath = [
+    "packages/picolet",
+]
