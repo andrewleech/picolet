@@ -6,7 +6,7 @@
 picolet — the Picolet framework CLI.
 
 Invocation paths:
-  uv run packages/picolet-cli/picolet_cli/__main__.py <args>   # zero-install
+  uv run packages/picolet/picolet/__main__.py <args>   # zero-install
   picolet <args>                                              # after pip install
 """
 from __future__ import annotations
@@ -15,18 +15,18 @@ import argparse
 import sys
 from pathlib import Path
 
-# When invoked via `uv run picolet_cli/__main__.py`, the parent of the picolet_cli
-# package directory (packages/picolet-cli/) is not automatically on sys.path.
-# Insert it so `from picolet_cli import ...` resolves correctly in both the
+# When invoked via `uv run picolet/__main__.py`, the parent of the picolet
+# package directory (packages/picolet/) is not automatically on sys.path.
+# Insert it so `from picolet.cli import ...` resolves correctly in both the
 # uv-run and installed invocation paths.
-_PKG_PARENT = Path(__file__).parent.parent  # packages/picolet-cli/
+_PKG_PARENT = Path(__file__).parent.parent  # packages/picolet/
 if str(_PKG_PARENT) not in sys.path:
     sys.path.insert(0, str(_PKG_PARENT))
 
 try:
     from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
-    VERSION = _pkg_version("picolet-cli")
+    VERSION = _pkg_version("picolet")
 except Exception:
     VERSION = "0.2.0-dev"
 
@@ -67,7 +67,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # Register subcommands.
-    from picolet_cli import build_cmd, dev_cmd, init_cmd, run_cmd, test_cmd, validate_cmd
+    from picolet.cli import build_cmd, dev_cmd, init_cmd, run_cmd, test_cmd, validate_cmd
 
     init_cmd.add_parser(subparsers)
     validate_cmd.add_parser(subparsers)

@@ -5,11 +5,11 @@ Usage:
     picolet init <name> [--template TEMPLATE] [--output-dir DIR]
 
 Template resolution order:
-  1. importlib.resources.files("picolet_templates") — works when picolet-templates
+  1. importlib.resources.files("picolet.templates") — works when picolet-templates
      is installed (uv pip install -e or wheel install).
   2. __file__-relative fallback — traverses up from this file to find
-     packages/picolet-templates/picolet_templates/ in the source tree.
-     Covers the `uv run packages/picolet-cli/picolet_cli/__main__.py` path where
+     packages/picolet/picolet/templates/ in the source tree.
+     Covers the `uv run packages/picolet/picolet/__main__.py` path where
      picolet-templates is not installed into the script's isolated environment.
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from picolet_cli.validator import validate_toml
+from picolet.cli.validator import validate_toml
 
 # Templates known to exist in this phase. `picolet init --template <name>` will
 # be rejected with a clear error for any name not in this set.
@@ -173,7 +173,7 @@ def _resolve_template(template_name: str) -> Path | None:
     try:
         from importlib.resources import files
 
-        pkg = files("picolet_templates")
+        pkg = files("picolet.templates")
         candidate = Path(str(pkg.joinpath(template_name)))
         if candidate.is_dir():
             return candidate
@@ -181,13 +181,13 @@ def _resolve_template(template_name: str) -> Path | None:
         pass
 
     # Attempt 2: __file__-relative path — works in the source tree via uv run.
-    # packages/picolet-cli/picolet_cli/init_cmd.py -> packages/picolet-templates/picolet_templates/
-    here = Path(__file__).parent  # packages/picolet-cli/picolet_cli/
+    # packages/picolet/picolet/init_cmd.py -> packages/picolet/picolet/templates/
+    here = Path(__file__).parent  # packages/picolet/picolet/
     candidate = (
         here.parent.parent.parent  # repo root
         / "packages"
         / "picolet-templates"
-        / "picolet_templates"
+        / "picolet.templates"
         / template_name
     )
     if candidate.is_dir():

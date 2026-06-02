@@ -150,7 +150,7 @@ _UI_SRC = _CE_DIR / "ui" / "src"
 _ASSETS_DIR = _UI_SRC / "assets"
 _VIEWS_DIR = _UI_SRC / "views"
 _SCREENSHOTS_DIR = _CE_DIR / "screenshots"
-_TEMPLATE_DIR = _REPO_ROOT / "packages" / "picolet-templates" / "picolet_templates" / "config-editor"
+_TEMPLATE_DIR = _REPO_ROOT / "packages" / "picolet-templates" / "picolet.templates" / "config-editor"
 _CLI_ROOT = _REPO_ROOT / "packages" / "picolet-cli"
 
 sys.path.insert(0, str(_CE_SRC))
@@ -1092,7 +1092,7 @@ class TestScreenshots(unittest.TestCase):
 class TestTemplate(unittest.TestCase):
 
     def test_config_editor_in_known_templates(self):
-        from picolet_cli.init_cmd import _KNOWN_TEMPLATES
+        from picolet.cli.init_cmd import _KNOWN_TEMPLATES
         self.assertIn("config-editor", _KNOWN_TEMPLATES)
 
     def test_template_picolet_toml_has_name_placeholder(self):

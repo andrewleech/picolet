@@ -87,7 +87,7 @@ strip -x "$artifact"  # strip debug symbols, keep global symbols on Darwin
 
 ### SBOM on macOS
 
-`picolet_cli.sbom_gen emit-runtime` is a host Python script. It runs on
+`picolet.cli.sbom_gen emit-runtime` is a host Python script. It runs on
 the macOS runner using the Python from Homebrew or the runner's
 pre-installed Python 3.x. No changes to the SBOM generator are needed —
 it is purely a host-side CLI tool.

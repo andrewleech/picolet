@@ -25,8 +25,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from picolet_cli import build_cmd
-from picolet_cli._paths import (
+from picolet.cli import build_cmd
+from picolet.cli._paths import (
     collect_watch_paths,
     iter_watched_files,
     resolve_app,

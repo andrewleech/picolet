@@ -21,9 +21,9 @@ The trailer mechanism uses an append-at-end strategy (Decision: `223380f`): the 
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.h` | C header: `picolet_trailer_t` packed struct, magic constant, `picolet_load_romfs_trailer()` declaration | 78 |
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.c` | CRC32 table + `picolet_load_romfs_trailer()` implementation (procfs, seek, validate, malloc) | 238 |
 | `packages/picolet-runtime/overlay/ports/unix/main.c` | Full copy of integration-branch `main.c` with `#if MICROPY_VFS_ROM_TRAILER` patch applied | 1070 |
-| `packages/picolet-cli/picolet/_trailer.py` | Python trailer struct constants and `pack_trailer()` / `unpack_trailer()` helpers | 55 |
-| `packages/picolet-cli/picolet/runtime_resolver.py` | `resolve_runtime()` and `locate_mpy_cross()` — walk repo tree to find build artifacts | 84 |
-| `packages/picolet-cli/picolet/build_cmd.py` | `picolet build` subcommand: full 10-step pipeline | 480 |
+| `packages/picolet/picolet/_trailer.py` | Python trailer struct constants and `pack_trailer()` / `unpack_trailer()` helpers | 55 |
+| `packages/picolet/picolet/runtime_resolver.py` | `resolve_runtime()` and `locate_mpy_cross()` — walk repo tree to find build artifacts | 84 |
+| `packages/picolet/picolet/build_cmd.py` | `picolet build` subcommand: full 10-step pipeline | 480 |
 | `tests/phase-03/fixtures/hello-cli-with-assets/picolet.toml` | Gate 8 fixture manifest with `[romfs] include = ["assets"]` | 7 |
 | `tests/phase-03/fixtures/hello-cli-with-assets/src/main.py` | Gate 8 fixture app: opens `/rom/assets/data.txt` at runtime | 5 |
 | `tests/phase-03/fixtures/hello-cli-with-assets/assets/data.txt` | Gate 8 fixture asset file | 1 |
@@ -36,7 +36,7 @@ The trailer mechanism uses an append-at-end strategy (Decision: `223380f`): the 
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/mpconfigvariant.h` | Added `#define MICROPY_VFS_ROM_TRAILER (1)` | Enables trailer detection for the cli variant only |
 | `packages/picolet-runtime/scripts/build-runtime.sh` | (a) Default `TEST_ROMFS=""` → builds empty romfs. (b) Warm-cache skip for libffi `make deplibs`. (c) [7a] magic check changed to tail-byte `od` comparison. (d) [7b] `.version` sidecar written via `mpy-cross --version`. | Ship empty romfs by default; work around Ubuntu 22.04 libtool incompatibility; correct magic check; version sidecar for `_verify_mpy_cross_version()` |
 | `packages/picolet-runtime/scripts/dockerfiles/linux-x64-build/Dockerfile` | Added `autoconf`, `automake`, `libtool` to apt-get install | libffi `autogen.sh` requires a modern libtool for `LT_SYS_SYMBOL_USCORE` |
-| `packages/picolet-cli/picolet/__main__.py` | PEP-723 dep added (`mpremote`); `build_cmd` imported and registered; `NotImplementedError` caught in `main()` | Wire `picolet build` into CLI entry point |
+| `packages/picolet/picolet/__main__.py` | PEP-723 dep added (`mpremote`); `build_cmd` imported and registered; `NotImplementedError` caught in `main()` | Wire `picolet build` into CLI entry point |
 
 ## Build Status
 

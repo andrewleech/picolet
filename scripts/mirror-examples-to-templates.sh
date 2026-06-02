@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/mirror-examples-to-templates.sh
 #
-# Mirror the four worked-example apps into picolet_templates/ with per-field
+# Mirror the four worked-example apps into picolet.templates/ with per-field
 # {{name}} substitution. Examples are authoritative; templates are derived.
 #
 # Usage:
@@ -29,7 +29,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXAMPLES_DIR="$REPO_ROOT/examples"
-TEMPLATES_DIR="$REPO_ROOT/packages/picolet-templates/picolet_templates"
+TEMPLATES_DIR="$REPO_ROOT/packages/picolet/picolet/templates"
 
 CHECK_ONLY=0
 if [[ "${1:-}" == "--check" ]]; then

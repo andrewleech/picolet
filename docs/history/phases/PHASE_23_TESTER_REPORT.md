@@ -102,7 +102,7 @@ No tests re-implement production logic inline. No simulation tests detected.
 
 ## Notable findings
 
-**SQE-reported Bug 1 (orphan `dashboard/scripts/`)** is confirmed fixed by commit `f27cc69`. The orphan detection no longer applies `EXCLUDE_DIRS` to the template destination walk. Manual verification confirms `packages/picolet-templates/picolet_templates/dashboard/scripts/` is absent. `TestTemplateSubstitution::test_templates_do_not_contain_scripts_dir` passes for all 4 templates without annotation.
+**SQE-reported Bug 1 (orphan `dashboard/scripts/`)** is confirmed fixed by commit `f27cc69`. The orphan detection no longer applies `EXCLUDE_DIRS` to the template destination walk. Manual verification confirms `packages/picolet/picolet/templates/dashboard/scripts/` is absent. `TestTemplateSubstitution::test_templates_do_not_contain_scripts_dir` passes for all 4 templates without annotation.
 
 **Phase-03 run.sh failures (gates 1, 3, 11)** are pre-existing and unrelated to PH23 — same failure pattern present before PH23 commits.
 

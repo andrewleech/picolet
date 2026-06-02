@@ -66,7 +66,7 @@ A single workflow run produces all 18 files (6 binaries + 6 SHA256 + 6 SBOMs).
 
 ## Consuming from `picolet build`
 
-`picolet build` resolves the runtime via `packages/picolet-cli/picolet/runtime_resolver.py`.
+`picolet build` resolves the runtime via `packages/picolet/picolet/runtime_resolver.py`.
 
 Resolution order (first match wins):
 

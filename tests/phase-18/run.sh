@@ -23,10 +23,10 @@
 #   --verbose           Print extra diagnostics.
 #
 # Prerequisites:
-#   - uv on PATH, or python3 + PYTHONPATH wired for picolet_cli
+#   - uv on PATH, or python3 + PYTHONPATH wired for picolet.cli
 #   - npm + Node >= 18 LTS on PATH
 #   - packages/picolet-runtime/build/picolet-runtime-linux-x64-webview (built)
-#   - packages/picolet-testing installed or in picolet venv
+#   - packages/picolet installed or in picolet venv
 #
 # Exit: 0 if all mandatory gates pass; non-zero otherwise.
 
@@ -65,7 +65,7 @@ WORKDIR="$(mktemp -d /tmp/picolet-ph18-XXXXXX)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # picolet CLI invocation wrapper (matches phase-13/14 pattern).
-PICOLET_PY="PYTHONPATH=$REPO_ROOT/packages/picolet-cli python3 $REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py"
+PICOLET_PY="PYTHONPATH=$REPO_ROOT/packages/picolet python3 $REPO_ROOT/packages/picolet/picolet/__main__.py"
 WITH_VUE="$REPO_ROOT/examples/with-vue"
 BINARY="$WITH_VUE/target/linux-x64/with-vue"
 WV_RUNTIME="$REPO_ROOT/packages/picolet-runtime/build/picolet-runtime-linux-x64-webview"
@@ -274,7 +274,7 @@ else
             XVFB_CMD=(xvfb-run -a -s "-screen 0 1280x800x24")
         fi
         verbose "running: picolet test --run $INVOKE_SCRIPT $BINARY"
-        if (cd "$REPO_ROOT" && "${XVFB_CMD[@]}" timeout 30 uv run python -m picolet_cli test \
+        if (cd "$REPO_ROOT" && "${XVFB_CMD[@]}" timeout 30 uv run python -m picolet.cli test \
             --no-build --run "$INVOKE_SCRIPT" \
             "$BINARY" \
             2>/dev/null); then

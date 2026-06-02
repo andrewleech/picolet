@@ -525,10 +525,10 @@ fi
 NAME="D3 ph03-end-to-end-build"
 if command -v uv &>/dev/null; then
     D3_APP="$WORKDIR/d3app"
-    (cd "$WORKDIR" && uv run "$REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py" \
+    (cd "$WORKDIR" && uv run "$REPO_ROOT/packages/picolet/picolet/__main__.py" \
         init d3app --template hello-cli >/dev/null 2>&1) || true
     if [[ -d "$D3_APP" ]]; then
-        (cd "$D3_APP" && uv run "$REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py" \
+        (cd "$D3_APP" && uv run "$REPO_ROOT/packages/picolet/picolet/__main__.py" \
             build --target linux-x64 --runtime "$LINUX_RUNTIME" >/dev/null 2>&1) || true
         if [[ -f "$D3_APP/target/linux-x64/d3app" ]]; then
             actual="$("$D3_APP/target/linux-x64/d3app" 2>&1)"

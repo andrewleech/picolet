@@ -283,7 +283,7 @@ else
     else
         (
             cd "$FIXTURE" && \
-            uv run --project "$REPO_ROOT" python -m picolet_cli build \
+            uv run --project "$REPO_ROOT" python -m picolet.cli build \
                 --target windows-x64 \
                 --runtime "$LVGL_WIN_RUNTIME" \
                 > "$WORKDIR/d2-build.log" 2>&1

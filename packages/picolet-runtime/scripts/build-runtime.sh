@@ -475,7 +475,7 @@ build_linux_x64() {
     # picolet-cli is importable from the host Python via PYTHONPATH.
     local sbom_out="${artifact}.cdx.json"
     echo "[SBOM] Emitting runtime SBOM: $sbom_out"
-    PYTHONPATH="$REPO_ROOT/packages/picolet-cli" python3 -m picolet_cli.sbom_gen emit-runtime \
+    PYTHONPATH="$REPO_ROOT/packages/picolet" python3 -m picolet.cli.sbom_gen emit-runtime \
         --output "$sbom_out" \
         --target "$TARGET" \
         --variant "$VARIANT" \
@@ -652,7 +652,7 @@ build_macos() {
     # [PH13] Emit runtime SBOM sidecar (FR-BP-MAC-6).
     local sbom_out="${artifact}.cdx.json"
     echo "[SBOM] Emitting runtime SBOM: $sbom_out"
-    PYTHONPATH="$REPO_ROOT/packages/picolet-cli" python3 -m picolet_cli.sbom_gen emit-runtime \
+    PYTHONPATH="$REPO_ROOT/packages/picolet" python3 -m picolet.cli.sbom_gen emit-runtime \
         --output "$sbom_out" \
         --target "$TARGET" \
         --variant "$VARIANT" \
@@ -906,7 +906,7 @@ build_windows_x64() {
     # [PH13] Emit runtime SBOM sidecar (FR-SBOM-1, NFR-7).
     local sbom_out="${artifact}.cdx.json"
     echo "[SBOM] Emitting runtime SBOM: $sbom_out"
-    PYTHONPATH="$REPO_ROOT/packages/picolet-cli" python3 -m picolet_cli.sbom_gen emit-runtime \
+    PYTHONPATH="$REPO_ROOT/packages/picolet" python3 -m picolet.cli.sbom_gen emit-runtime \
         --output "$sbom_out" \
         --target "$TARGET" \
         --variant "$VARIANT" \

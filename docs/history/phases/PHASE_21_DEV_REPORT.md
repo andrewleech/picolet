@@ -49,7 +49,7 @@ All 15 exit gates pass on the first run.
 | `scripts/generate_screenshots.py` | Five-screenshot Playwright headless Chromium script |
 | `screenshots/*.png` | Five PNGs: file-picker, edit-toml, edit-yaml-with-errors, diff-add, diff-delete |
 
-### `packages/picolet-templates/picolet_templates/config-editor/`
+### `packages/picolet/picolet/templates/config-editor/`
 
 Mirror of examples/config-editor/ with `{{name}}` substitutions in:
 - `picolet.toml`: name, window title
@@ -60,7 +60,7 @@ Mirror of examples/config-editor/ with `{{name}}` substitutions in:
 
 Build artifacts, tests, and scripts excluded from template.
 
-### `packages/picolet-cli/picolet_cli/init_cmd.py` (modified)
+### `packages/picolet/picolet/init_cmd.py` (modified)
 
 `"config-editor"` added to `_KNOWN_TEMPLATES` frozenset and help string.
 

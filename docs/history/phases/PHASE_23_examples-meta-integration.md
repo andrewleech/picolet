@@ -5,7 +5,7 @@
 ### Goal
 
 Close the v1.1 examples epic with six pieces of glue work: a mirror script
-that makes `picolet_templates/` a derivative of `examples/`; `--list-templates`
+that makes `picolet.templates/` a derivative of `examples/`; `--list-templates`
 support in `picolet init`; a cross-example `examples/README.md`; a narrative
 `docs/examples.md` tour; a screenshot-regeneration CI job; and a root
 `README.md` update with a 2×2 thumbnail grid. Nothing here is novel runtime
@@ -36,9 +36,9 @@ enforcing that gap in CI.
 
 - PH19–PH22 all passed: `examples/{pydfu,notes,config-editor,dashboard}/`
   are complete, built, and have committed screenshots.
-- `packages/picolet-templates/picolet_templates/{pydfu,notes,config-editor,dashboard}/`
+- `packages/picolet/picolet/templates/{pydfu,notes,config-editor,dashboard}/`
   already exist and are mostly in sync with examples (drift catalogued below).
-- `packages/picolet-cli/picolet_cli/init_cmd.py` already lists all four templates
+- `packages/picolet/picolet/init_cmd.py` already lists all four templates
   in `_KNOWN_TEMPLATES` and the `--help` string. The `--list-templates` flag
   and clean machine-readable listing do not yet exist.
 - `.github/workflows/release.yml` exists; only `release.yml` is present in
@@ -52,7 +52,7 @@ enforcing that gap in CI.
 
 Running `diff -rq` (excluding `node_modules/`, `dist/`, `target/`,
 `screenshots/`, `scripts/`, `tests/`, `package-lock.json`) between each
-`examples/<name>/` and `packages/picolet-templates/picolet_templates/<name>/`
+`examples/<name>/` and `packages/picolet/picolet/templates/<name>/`
 reveals the following:
 
 **pydfu — 4 files differ:**
@@ -124,7 +124,7 @@ Option A is the right outcome; the mirror script must be per-field-aware for
 
 #### init_cmd.py: `--list-templates` does not yet exist
 
-`packages/picolet-cli/picolet_cli/init_cmd.py` has no `--list-templates` flag.
+`packages/picolet/picolet/init_cmd.py` has no `--list-templates` flag.
 `_KNOWN_TEMPLATES` is a `frozenset` that already includes all eight templates
 (including the four real ones). The `--help` string on `--template` lists them
 inline. Adding `--list-templates` means: if that flag is present, print each
@@ -180,7 +180,7 @@ example-development artefacts, not scaffolding content.
 #### `with-vue` example
 
 `examples/with-vue/` has no `picolet-templates` counterpart except
-`picolet_templates/hello-vue/` which was written in PH18. These are
+`picolet.templates/hello-vue/` which was written in PH18. These are
 **different** templates. `with-vue` is the baseline Vue integration example;
 `hello-vue` is the starter template. The mirror script should not touch
 `with-vue` — only `{pydfu,notes,config-editor,dashboard}`.
@@ -217,7 +217,7 @@ example-development artefacts, not scaffolding content.
 #### Chunk 1 — Mirror script (`scripts/mirror-examples-to-templates.sh`)
 
 **What it does**: For each of `{pydfu, notes, config-editor, dashboard}`:
-1. Delete the corresponding `packages/picolet-templates/picolet_templates/<name>/`
+1. Delete the corresponding `packages/picolet/picolet/templates/<name>/`
    content (or rsync with `--delete`).
 2. Copy the source files from `examples/<name>/` to the template directory,
    excluding: `node_modules/`, `dist/`, `target/`, `screenshots/`, `scripts/`,
@@ -250,14 +250,14 @@ This avoids `sed` portability issues with multiline replacements and the
 
 **Pattern reference**: `examples/pydfu/screenshots/capture_screenshots.sh` for
 bash script structure; the substitution logic should mirror the approach in
-`packages/picolet-cli/picolet_cli/init_cmd.py:_copy_template()` (which does the
+`packages/picolet/picolet/init_cmd.py:_copy_template()` (which does the
 reverse direction: `{{name}}` → concrete name in text files).
 
 ---
 
 #### Chunk 2 — `--list-templates` in `init_cmd.py`
 
-**File**: `packages/picolet-cli/picolet_cli/init_cmd.py`
+**File**: `packages/picolet/picolet/init_cmd.py`
 
 Add `--list-templates` flag to `add_parser()`:
 
@@ -497,7 +497,7 @@ releases." to reflect the current state: v1.1 examples complete, see
 
 | Surface | Where it connects |
 |---|---|
-| `scripts/mirror-examples-to-templates.sh` | Reads `examples/{pydfu,notes,config-editor,dashboard}/`; writes `packages/picolet-templates/picolet_templates/{pydfu,notes,config-editor,dashboard}/` |
+| `scripts/mirror-examples-to-templates.sh` | Reads `examples/{pydfu,notes,config-editor,dashboard}/`; writes `packages/picolet/picolet/templates/{pydfu,notes,config-editor,dashboard}/` |
 | `init_cmd.py --list-templates` | Reads `_KNOWN_TEMPLATES` frozenset; no file I/O |
 | `screenshots.yml` | Reads `examples/*/scripts/generate_screenshots.py`; reads `examples/*/screenshots/*.png` via `git diff` |
 | `release.yml` screenshots job | Same as above; additionally uses `gh pr create` (needs `pull-requests: write`) |

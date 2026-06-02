@@ -130,9 +130,9 @@ for environments without `uv`. Plain `pip install` is deliberately not
 listed — most modern distros (PEP 668) block it system-wide.
 
 ```bash
-uv tool install picolet                       # recommended
+uv tool install picolet-cli                       # recommended
 # or:
-pipx install picolet                          # fallback
+pipx install picolet-cli                          # fallback
 
 picolet init my-app --template hello-cli          # see --list-templates for the full set
 cd my-app
@@ -198,20 +198,14 @@ See [docs/examples.md](docs/examples.md) for a longer tour of each.
 ```
 picolet/
 ├── packages/
-│   ├── picolet/             # The PyPI distribution `picolet` —
-│   │                        # CLI (picolet.cli), starter templates
-│   │                        # (picolet.templates), and the AppHarness
-│   │                        # (picolet.testing, optional extra).
-│   ├── picolet-runtime/     # MicroPython runtime sources, variants,
-│   │                        # user_c_modules, manifests, build scripts.
-│   │                        # Used by maintainers to produce the runtime
-│   │                        # artefacts shipped on GitHub releases.
-│   │                        # NOT a PyPI distribution.
-│   └── picolet-bridge-js/   # JS shim: window.picolet.invoke(...).
-│                            # npm package, NOT a PyPI distribution.
-├── examples/                # four worked example apps
-├── tests/                   # per-phase test suites
-└── docs/                    # architecture, caveats, examples, CLI reference
+│   ├── picolet-cli/         # picolet init|dev|build|run|test
+│   ├── picolet-runtime/     # the MicroPython runtime + variants + user_c_modules
+│   ├── picolet-bridge-js/   # JS shim: window.picolet.invoke(...)
+│   ├── picolet-templates/   # `picolet init --template <name>` starter packs
+│   └── picolet-testing/     # AppHarness for autonomous test/screenshot
+├── examples/              # four worked example apps
+├── tests/                 # per-phase test suites
+└── docs/                  # architecture, caveats, examples, CLI reference
 ```
 
 ## More

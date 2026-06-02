@@ -28,7 +28,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PKG_ROOT="$REPO_ROOT/packages/picolet-runtime"
-MAIN_PY="$REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py"
+MAIN_PY="$REPO_ROOT/packages/picolet/picolet/__main__.py"
 
 RUNTIME_EXE="$PKG_ROOT/build/picolet-runtime-windows-x64-cli.exe"
 LINUX_RUNTIME="$PKG_ROOT/build/picolet-runtime-linux-x64-cli"

@@ -64,8 +64,8 @@ Both are resolved in the Key Research Findings section below.
 
 #### From PH17 (already landed)
 
-- `picolet.testing.AppHarness` at `packages/picolet-testing/picolet/testing/_harness.py`.
-- `picolet test --screenshot` CLI at `packages/picolet-cli/picolet_cli/test_cmd.py`.
+- `picolet.testing.AppHarness` at `packages/picolet/picolet/testing/_harness.py`.
+- `picolet test --screenshot` CLI at `packages/picolet/picolet/test_cmd.py`.
 - `window.picolet.__ready__ === true` contract waited on by AppHarness.
 
 #### From PH18 (already landed)
@@ -97,7 +97,7 @@ Both are resolved in the Key Research Findings section below.
 #### What PH23 needs from PH21
 
 - `examples/config-editor/` present and buildable. PH23's mirror script copies
-  it to `packages/picolet-templates/picolet_templates/config-editor/`.
+  it to `packages/picolet/picolet/templates/config-editor/`.
 - `examples/config-editor/screenshots/` non-empty. PH23's CI screenshot job
   validates.
 
@@ -1579,14 +1579,14 @@ uv run scripts/generate_screenshots.py
 copy of the config-editor app with `{{name}}` substituted.
 
 **Pattern reference:**
-- `packages/picolet-cli/picolet_cli/init_cmd.py` — `_KNOWN_TEMPLATES` frozenset,
+- `packages/picolet/picolet/init_cmd.py` — `_KNOWN_TEMPLATES` frozenset,
   `_copy_template` function, `{{name}}` substitution logic.
 - PH20 added `"notes"` to `_KNOWN_TEMPLATES` using this exact mechanism.
   PH21 adds `"config-editor"`.
 
 **Files to create:**
 
-- `packages/picolet-templates/picolet_templates/config-editor/` — structurally
+- `packages/picolet/picolet/templates/config-editor/` — structurally
   identical to `examples/config-editor/` with `{{name}}` substitutions in all
   text files (`.py`, `.toml`, `.html`, `.ts`, `.vue`, `.json`). The
   `_TEXT_EXTENSIONS` frozenset already includes these suffixes.
@@ -1607,7 +1607,7 @@ copy of the config-editor app with `{{name}}` substituted.
 
 **Files to modify:**
 
-- `packages/picolet-cli/picolet_cli/init_cmd.py`:
+- `packages/picolet/picolet/init_cmd.py`:
   - Add `"config-editor"` to `_KNOWN_TEMPLATES` frozenset.
   - Update the `--template` help string to include `"config-editor"`.
 

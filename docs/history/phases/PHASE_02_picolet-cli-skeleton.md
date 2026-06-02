@@ -48,20 +48,20 @@ PH02 does not resolve runtime artifacts or invoke mpy-cross.
 | `/home/anl/picolet/CLAUDE.md` | Branch/commit conventions, PEP 723 note (from global rules), investigation-log pattern |
 | `/home/anl/picolet/docs/phases/PHASE_01_picolet-runtime-linux-x64-cli.md` | PH01 deliverables and constraints (romfs/argv note, containerised build pattern, test harness shape) |
 | `/home/anl/picolet/docs/phases/README.md` | Phase file structure and naming conventions |
-| `/home/anl/picolet/packages/picolet-cli/README.md` | Current placeholder description of the CLI and its subcommands |
-| `/home/anl/picolet/packages/picolet-templates/README.md` | Planned templates; PH02 ships hello-cli stub only |
+| `/home/anl/picolet/packages/picolet/README.md` | Current placeholder description of the CLI and its subcommands |
+| `/home/anl/picolet/packages/picolet/README.md` | Planned templates; PH02 ships hello-cli stub only |
 | `/home/anl/picolet/tests/phase-01/run.sh` | Test harness pattern PH02 tests should follow |
-| `/home/anl/picolet/picolet.toml` | Workspace metadata; confirms `packages/picolet-cli` is a registered package |
+| `/home/anl/picolet/picolet.toml` | Workspace metadata; confirms `packages/picolet` is a registered package |
 
 ### Scope nailed down
 
 **PH02 ships:**
 
-- `packages/picolet-cli/picolet/__main__.py` — the `picolet` CLI entry point.
-- `packages/picolet-cli/picolet/validator.py` — `picolet.toml` schema validator.
-- `packages/picolet-cli/picolet/init_cmd.py` — `picolet init` implementation.
-- `packages/picolet-cli/pyproject.toml` — package metadata with entry point and version.
-- `packages/picolet-templates/hello-cli/` — minimal stub template (picolet.toml + src/main.py only).
+- `packages/picolet/picolet/__main__.py` — the `picolet` CLI entry point.
+- `packages/picolet/picolet/validator.py` — `picolet.toml` schema validator.
+- `packages/picolet/picolet/init_cmd.py` — `picolet init` implementation.
+- `packages/picolet/pyproject.toml` — package metadata with entry point and version.
+- `packages/picolet/hello-cli/` — minimal stub template (picolet.toml + src/main.py only).
 - `tests/phase-02/run.sh` — tester harness exercising all exit-gate conditions.
 
 **PH02 does not ship:**
@@ -95,7 +95,7 @@ and to allow PH03/PH16 to add their modules independently.
 The global user CLAUDE.md requires PEP 723 inline deps so `uv run
 script.py` works. The deliverable is both a proper installable package
 (via `pyproject.toml`) **and** a file that can be run directly with
-`uv run packages/picolet-cli/picolet/__main__.py`. These are not mutually
+`uv run packages/picolet/picolet/__main__.py`. These are not mutually
 exclusive: the PEP 723 inline-script metadata block at the top of
 `__main__.py` declares the dependencies; when installed via `pip install
 -e .` or `uv pip install -e .`, the entry-point wrapper ignores the
@@ -110,19 +110,19 @@ picolet = "picolet.__main__:main"
 ```
 
 This gives tester machines two invocation paths:
-1. `uv run packages/picolet-cli/picolet/__main__.py <args>` — zero-install.
-2. `uv pip install -e packages/picolet-cli && picolet <args>` — installed.
+1. `uv run packages/picolet/picolet/__main__.py <args>` — zero-install.
+2. `uv pip install -e packages/picolet && picolet <args>` — installed.
 
 **Single file vs package:**
 
-A package (`packages/picolet-cli/picolet/`) rather than a single file.
+A package (`packages/picolet/picolet/`) rather than a single file.
 Rationale: `picolet init` and `picolet validate` are distinct enough in
 logic that a single file would be long and hard to extend. PH03 will add
 `build_cmd.py` alongside the existing modules without restructuring.
 
 **Version source of truth:**
 
-Declared once in `packages/picolet-cli/pyproject.toml` under
+Declared once in `packages/picolet/pyproject.toml` under
 `[project] version`. Read at runtime via `importlib.metadata`:
 
 ```python
@@ -219,13 +219,13 @@ picolet init <name> [--template TEMPLATE] [--output-dir DIR]
 
 **Template storage:**
 
-Templates live in `packages/picolet-templates/<template-name>/`.
+Templates live in `packages/picolet/<template-name>/`.
 `picolet init` resolves the template directory relative to the installed
 package location using `importlib.resources` (Python ≥ 3.9 API):
 
 ```python
 from importlib.resources import files
-template_dir = files("picolet_templates").joinpath(template_name)
+template_dir = files("picolet.templates").joinpath(template_name)
 ```
 
 This requires `picolet-templates` to be an importable Python package
@@ -238,12 +238,12 @@ or — for the uv-runnable path — relative to `__file__`:
 
 ```python
 import pathlib
-_HERE = pathlib.Path(__file__).parent          # packages/picolet-cli/picolet/
+_HERE = pathlib.Path(__file__).parent          # packages/picolet/picolet/
 _TEMPLATES = _HERE.parent.parent.parent / "packages" / "picolet-templates"
 ```
 
 This works for both the in-repo `uv run` path and the installed path if
-`packages/picolet-templates` is a sibling. However, it breaks if the
+`packages/picolet` is a sibling. However, it breaks if the
 package is installed standalone. The correct solution is to list
 `picolet-templates` as a workspace dependency in `picolet-cli`'s
 `pyproject.toml` and include the template files as package data. This is
@@ -274,7 +274,7 @@ variable.
 
 ### The hello-cli template stub
 
-Located at `packages/picolet-templates/hello-cli/`. PH02 ships exactly
+Located at `packages/picolet/hello-cli/`. PH02 ships exactly
 two files. PH14 will expand the template; resist adding more here.
 
 **`picolet.toml`** (with `{{name}}` placeholder):
@@ -308,46 +308,46 @@ to run.
 
 | Path | Purpose |
 |---|---|
-| `packages/picolet-cli/pyproject.toml` | Package metadata: `[project]`, `requires-python = ">=3.11"`, `[project.scripts] picolet = "picolet.__main__:main"`, version, dependency on `picolet-templates` as a workspace package |
-| `packages/picolet-cli/picolet/__init__.py` | Empty; makes `picolet` a package |
-| `packages/picolet-cli/picolet/__main__.py` | PEP 723 inline-script block + argparse setup + `main()` entry point; imports `init_cmd`, `validate_cmd`; wires `--version` |
-| `packages/picolet-cli/picolet/validator.py` | `PicoletTomlError` dataclass + `validate_toml(path)` function |
-| `packages/picolet-cli/picolet/init_cmd.py` | `run(args)` implementing `picolet init` |
-| `packages/picolet-cli/picolet/validate_cmd.py` | `run(args)` implementing `picolet validate` (thin wrapper around `validator.py`) |
-| `packages/picolet-templates/pyproject.toml` | Minimal package metadata so templates are importable / installable |
-| `packages/picolet-templates/__init__.py` | Empty; makes `picolet_templates` importable |
-| `packages/picolet-templates/hello-cli/picolet.toml` | Template toml with `{{name}}` placeholder |
-| `packages/picolet-templates/hello-cli/src/main.py` | Template main.py with `{{name}}` placeholder |
+| `packages/picolet/pyproject.toml` | Package metadata: `[project]`, `requires-python = ">=3.11"`, `[project.scripts] picolet = "picolet.__main__:main"`, version, dependency on `picolet-templates` as a workspace package |
+| `packages/picolet/picolet/__init__.py` | Empty; makes `picolet` a package |
+| `packages/picolet/picolet/__main__.py` | PEP 723 inline-script block + argparse setup + `main()` entry point; imports `init_cmd`, `validate_cmd`; wires `--version` |
+| `packages/picolet/picolet/validator.py` | `PicoletTomlError` dataclass + `validate_toml(path)` function |
+| `packages/picolet/picolet/init_cmd.py` | `run(args)` implementing `picolet init` |
+| `packages/picolet/picolet/validate_cmd.py` | `run(args)` implementing `picolet validate` (thin wrapper around `validator.py`) |
+| `packages/picolet/pyproject.toml` | Minimal package metadata so templates are importable / installable |
+| `packages/picolet/__init__.py` | Empty; makes `picolet.templates` importable |
+| `packages/picolet/hello-cli/picolet.toml` | Template toml with `{{name}}` placeholder |
+| `packages/picolet/hello-cli/src/main.py` | Template main.py with `{{name}}` placeholder |
 | `tests/phase-02/run.sh` | Tester harness exercising all 11 exit-gate conditions |
 
 #### Modified files
 
 | Path | Change |
 |---|---|
-| `packages/picolet-cli/README.md` | Update from "Not yet implemented" to reflect PH02 scope (optional; planner recommends it but tester does not require it) |
+| `packages/picolet/README.md` | Update from "Not yet implemented" to reflect PH02 scope (optional; planner recommends it but tester does not require it) |
 
 No files under `packages/picolet-runtime/` are touched in PH02.
 
 ### Sequence the developer follows
 
-1. **Create `packages/picolet-cli/pyproject.toml`** with package name
+1. **Create `packages/picolet/pyproject.toml`** with package name
    `picolet-cli`, `version = "0.2.0"` (placeholder; aligns with PH02),
    `requires-python = ">=3.11"`, entry point `picolet =
    "picolet.__main__:main"`, and a workspace dependency on
    `picolet-templates`.
 
-2. **Create `packages/picolet-templates/pyproject.toml`** so that
+2. **Create `packages/picolet/pyproject.toml`** so that
    `picolet-cli` can declare it as a dependency and `importlib.resources`
    can locate the template files.
 
-3. **Create `packages/picolet-templates/__init__.py`** (empty).
+3. **Create `packages/picolet/__init__.py`** (empty).
 
 4. **Lay down the hello-cli template**: create
-   `packages/picolet-templates/hello-cli/picolet.toml` and
-   `packages/picolet-templates/hello-cli/src/main.py` with `{{name}}`
+   `packages/picolet/hello-cli/picolet.toml` and
+   `packages/picolet/hello-cli/src/main.py` with `{{name}}`
    placeholders as described above.
 
-5. **Create `packages/picolet-cli/picolet/__init__.py`** (empty).
+5. **Create `packages/picolet/picolet/__init__.py`** (empty).
 
 6. **Write `validator.py`**: implement `PicoletTomlError` and
    `validate_toml(path: Path) -> list[PicoletTomlError]`. Start with the
@@ -364,7 +364,7 @@ No files under `packages/picolet-runtime/` are touched in PH02.
    `./picolet.toml`).
 
 8. **Write `init_cmd.py`**: implement the scaffold steps listed above.
-   Use `importlib.resources.files("picolet_templates").joinpath(...)` for
+   Use `importlib.resources.files("picolet.templates").joinpath(...)` for
    template lookup. Perform the name validity check before touching the
    filesystem.
 
@@ -375,11 +375,11 @@ No files under `packages/picolet-runtime/` are touched in PH02.
 
 10. **Smoke-test locally** with:
     ```
-    uv run packages/picolet-cli/picolet/__main__.py --version
-    uv run packages/picolet-cli/picolet/__main__.py --help
-    uv run packages/picolet-cli/picolet/__main__.py init test-app --template hello-cli
+    uv run packages/picolet/picolet/__main__.py --version
+    uv run packages/picolet/picolet/__main__.py --help
+    uv run packages/picolet/picolet/__main__.py init test-app --template hello-cli
     ls test-app/
-    uv run packages/picolet-cli/picolet/__main__.py validate test-app/picolet.toml
+    uv run packages/picolet/picolet/__main__.py validate test-app/picolet.toml
     rm -rf test-app/
     ```
 
@@ -439,7 +439,7 @@ rm -rf test-ph02-app existing /tmp/bad7.toml /tmp/bad8.toml /tmp/bad9.toml x
 ```
 
 The test harness must work both with `picolet` installed (`uv pip install
--e packages/picolet-cli`) and with `uv run packages/picolet-cli/picolet/__main__.py`.
+-e packages/picolet`) and with `uv run packages/picolet/picolet/__main__.py`.
 The harness should detect which path is available and prefer the installed
 entry point.
 
@@ -447,10 +447,10 @@ entry point.
 
 | Risk | Mitigation |
 |---|---|
-| **`uv` not on tester's PATH** | The run.sh should fall back to `python3 packages/picolet-cli/picolet/__main__.py` if `uv` is absent. However, `tomllib` requires Python 3.11+; the harness must assert `python3 --version` is ≥ 3.11 before proceeding. |
+| **`uv` not on tester's PATH** | The run.sh should fall back to `python3 packages/picolet/picolet/__main__.py` if `uv` is absent. However, `tomllib` requires Python 3.11+; the harness must assert `python3 --version` is ≥ 3.11 before proceeding. |
 | **PEP 723 dep resolution latency on first run** | PH02 declares no third-party dependencies (tomllib is stdlib); the inline block is effectively empty. First-run overhead is negligible. |
 | **`importlib.resources` path resolution differs between uv-run and installed** | Test both invocation modes in run.sh. If template discovery fails in one mode, the fallback `__file__`-relative path is a well-understood escape hatch documented in init_cmd.py. |
-| **`pyproject.toml` workspace dependency syntax** | `uv` workspaces use `{workspace = true}` for intra-workspace deps. The developer must verify `uv pip install -e packages/picolet-cli` resolves `picolet-templates` correctly before writing the test harness. |
+| **`pyproject.toml` workspace dependency syntax** | `uv` workspaces use `{workspace = true}` for intra-workspace deps. The developer must verify `uv pip install -e packages/picolet` resolves `picolet-templates` correctly before writing the test harness. |
 | **tomllib does not expose line numbers for validated keys** | FR-CLI-8 requires "structured error" with file context. It does not require a line number — section+key is sufficient. Do not attempt to parse raw TOML text to recover line numbers; the added complexity is not justified. |
 | **Name collision: `picolet` package vs project** | The installed package is `picolet-cli`; the Python package inside is `picolet`. If a user has another `picolet` package installed, imports will clash. This is a known risk in the design (the README describes this); PH02 does not resolve it. |
 | **hello-cli `src/main.py` runs in MicroPython not CPython** | The template `src/main.py` must be valid MicroPython. `print("Hello from {{name}}")` is safe. Do not use CPython-only APIs. |
@@ -568,7 +568,7 @@ other means).
 `picolet validate roundtrip-app/picolet.toml` — both exit 0. The produced
 `picolet.toml` has `name = "roundtrip-app"` substituted correctly.
 
-**Installed entry-point.** After `uv pip install -e packages/picolet-cli`,
+**Installed entry-point.** After `uv pip install -e packages/picolet`,
 the binary at `.venv/bin/picolet` successfully ran `--version`, `init`,
 and `validate`. Template resolution via `importlib.resources` worked
 correctly through the installed path.

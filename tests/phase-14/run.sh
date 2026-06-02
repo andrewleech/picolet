@@ -93,7 +93,7 @@ _picolet_init() {
     local outdir="$3"
     (
         cd "$REPO_ROOT" && \
-        uv run python -m picolet_cli init "$name" \
+        uv run python -m picolet.cli init "$name" \
             --template "$template" \
             --output-dir "$outdir" \
             > "$WORKDIR/init-${template}.log" 2>&1
@@ -109,7 +109,7 @@ _picolet_build_linux() {
     local logfile="$3"
     (
         cd "$appdir" && \
-        uv run --project "$REPO_ROOT" python -m picolet_cli build \
+        uv run --project "$REPO_ROOT" python -m picolet.cli build \
             --target linux-x64 \
             --runtime "$runtime" \
             --no-sbom \
@@ -126,7 +126,7 @@ _picolet_build_win() {
     local logfile="$3"
     (
         cd "$appdir" && \
-        uv run --project "$REPO_ROOT" python -m picolet_cli build \
+        uv run --project "$REPO_ROOT" python -m picolet.cli build \
             --target windows-x64 \
             --runtime "$runtime" \
             --no-sbom \
@@ -227,7 +227,7 @@ if [[ "$HAVE_UV" -eq 0 ]]; then
 else
     OUT="$(
         cd "$REPO_ROOT" && \
-        uv run python -m picolet_cli init neg --template no-such-template \
+        uv run python -m picolet.cli init neg --template no-such-template \
             --output-dir "$WORKDIR/neg-template" 2>&1
     )" || true
     if echo "$OUT" | grep -q "unknown template"; then

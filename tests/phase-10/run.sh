@@ -211,7 +211,7 @@ elif ! command -v uv >/dev/null 2>&1; then
 else
     (
         cd "$E2E_FIXTURE" && \
-        uv run --project "$REPO_ROOT" python -m picolet_cli build \
+        uv run --project "$REPO_ROOT" python -m picolet.cli build \
             --target windows-x64 \
             --runtime "$WV_RUNTIME" \
             > "$WORKDIR/c1.log" 2>&1

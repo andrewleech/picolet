@@ -70,32 +70,32 @@ echo
 # ---------------------------------------------------------------------------
 echo "=== Gate A: CLI wiring ==="
 
-if (cd "$REPO_ROOT" && uv run python -m picolet_cli --help 2>&1 | grep -q "dev"); then
+if (cd "$REPO_ROOT" && uv run python -m picolet.cli --help 2>&1 | grep -q "dev"); then
     pass "picolet --help lists 'dev' subcommand"
 else
     fail "picolet --help missing 'dev' subcommand"
 fi
 
-if (cd "$REPO_ROOT" && uv run python -m picolet_cli --help 2>&1 | grep -q "run"); then
+if (cd "$REPO_ROOT" && uv run python -m picolet.cli --help 2>&1 | grep -q "run"); then
     pass "picolet --help lists 'run' subcommand"
 else
     fail "picolet --help missing 'run' subcommand"
 fi
 
-if (cd "$REPO_ROOT" && uv run python -m picolet_cli dev --help 2>&1 | grep -q "\-\-target"); then
+if (cd "$REPO_ROOT" && uv run python -m picolet.cli dev --help 2>&1 | grep -q "\-\-target"); then
     pass "picolet dev --help shows --target flag"
 else
     fail "picolet dev --help missing --target flag"
 fi
 
-if (cd "$REPO_ROOT" && uv run python -m picolet_cli run --help 2>&1 | grep -q "\-\-no-build"); then
+if (cd "$REPO_ROOT" && uv run python -m picolet.cli run --help 2>&1 | grep -q "\-\-no-build"); then
     pass "picolet run --help shows --no-build flag"
 else
     fail "picolet run --help missing --no-build flag"
 fi
 
 # C9: picolet run forwards sys.argv via argparse.REMAINDER.
-if (cd "$REPO_ROOT" && uv run python -m picolet_cli run --help 2>&1 | grep -q "forwarded to the binary"); then
+if (cd "$REPO_ROOT" && uv run python -m picolet.cli run --help 2>&1 | grep -q "forwarded to the binary"); then
     pass "picolet run --help documents args forwarding"
 else
     fail "picolet run --help missing args forwarding documentation"
@@ -120,7 +120,7 @@ from pathlib import Path
 repo_root = Path(sys.argv[1])
 sys.path.insert(0, str(repo_root / "packages" / "picolet-cli"))
 
-from picolet_cli.dev_cmd import _Watcher
+from picolet.cli.dev_cmd import _Watcher
 
 watch_dir = Path(sys.argv[2])
 
@@ -203,7 +203,7 @@ repo_root = Path(sys.argv[1])
 src_dir = Path(sys.argv[2])
 sys.path.insert(0, str(repo_root / "packages" / "picolet-cli"))
 
-from picolet_cli.dev_cmd import _Watcher, _DEBOUNCE_DELAY, _POLL_INTERVAL
+from picolet.cli.dev_cmd import _Watcher, _DEBOUNCE_DELAY, _POLL_INTERVAL
 
 # Seed files.
 files = [src_dir / f"file{i}.py" for i in range(5)]
@@ -282,7 +282,7 @@ else
     # Scaffold a hello-cli app.
     (
         cd "$REPO_ROOT" && \
-        uv run python -m picolet_cli init hello-app \
+        uv run python -m picolet.cli init hello-app \
             --template hello-cli \
             --output-dir "$APP_DIR" \
             > "$WORKDIR/init.log" 2>&1
@@ -294,7 +294,7 @@ else
     # app directory (which has no uv workspace of its own).
     (
         cd "$APP_DIR" && \
-        uv run --project "$REPO_ROOT" python -m picolet_cli dev --verbose > "$DEV_LOG" 2>&1
+        uv run --project "$REPO_ROOT" python -m picolet.cli dev --verbose > "$DEV_LOG" 2>&1
     ) &
     DEV_PID=$!
     verbose "dev PID: $DEV_PID"
@@ -396,7 +396,7 @@ else
     if [[ ! -d "$SIGINT_APP" ]]; then
         (
             cd "$REPO_ROOT" && \
-            uv run python -m picolet_cli init sigint-app \
+            uv run python -m picolet.cli init sigint-app \
                 --template hello-cli \
                 --output-dir "$SIGINT_APP" \
                 > /dev/null 2>&1
@@ -414,8 +414,8 @@ else
 import os, sys
 os.write(1, (str(os.getpid()) + "\n").encode())
 sys.stdout.flush()
-sys.path.insert(0, "$REPO_ROOT/packages/picolet-cli")
-from picolet_cli.dev_cmd import run as _dev_run
+sys.path.insert(0, "$REPO_ROOT/packages/picolet")
+from picolet.cli.dev_cmd import run as _dev_run
 import argparse
 args = argparse.Namespace(target=None, verbose=False, func=_dev_run)
 _dev_run(args)
@@ -499,7 +499,7 @@ else
     # Scaffold a hello-cli app and adjust src/main.py to print sys.argv as JSON.
     (
         cd "$REPO_ROOT" && \
-        uv run python -m picolet_cli init argv-app \
+        uv run python -m picolet.cli init argv-app \
             --template hello-cli \
             --output-dir "$ARGV_APP" \
             > /dev/null 2>&1
@@ -514,7 +514,7 @@ sys.stdout.flush()
 PYEOF
 
     # Build once (without args forwarding).
-    if (cd "$ARGV_APP" && uv run --project "$REPO_ROOT" python -m picolet_cli build \
+    if (cd "$ARGV_APP" && uv run --project "$REPO_ROOT" python -m picolet.cli build \
             --runtime "$CLI_RUNTIME_LINUX" \
             --allow-unverified-runtime \
             > "$ARGV_LOG" 2>&1); then
@@ -522,7 +522,7 @@ PYEOF
 
         # Run with forwarded args.
         ARGV_OUTPUT="$WORKDIR/argv_output.txt"
-        if (cd "$ARGV_APP" && uv run --project "$REPO_ROOT" python -m picolet_cli run \
+        if (cd "$ARGV_APP" && uv run --project "$REPO_ROOT" python -m picolet.cli run \
                 --no-build \
                 --runtime "$CLI_RUNTIME_LINUX" \
                 --allow-unverified-runtime \

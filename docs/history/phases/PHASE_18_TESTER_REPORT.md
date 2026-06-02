@@ -72,7 +72,7 @@ the documented limitation (O1, D-6).
 ### PH18 pytest suite (independently run)
 
 ```
-PYTHONPATH=packages/picolet-cli python3 -m pytest tests/phase-18/test_vue_toolchain.py -v
+PYTHONPATH=packages/picolet python3 -m pytest tests/phase-18/test_vue_toolchain.py -v
 72 passed in 0.27s
 ```
 
@@ -81,7 +81,7 @@ All 72 tests pass.
 ### Full regression pytest (excluding pre-existing phase-06 failure)
 
 ```
-PYTHONPATH=packages/picolet-cli python3 -m pytest tests/ --ignore=tests/phase-06 -q
+PYTHONPATH=packages/picolet python3 -m pytest tests/ --ignore=tests/phase-06 -q
 334 passed, 1 xfailed in 13.28s
 ```
 
@@ -114,7 +114,7 @@ additions.
 
 | # | Source | Requirement | Implemented? | File:Line Evidence | Test Coverage | Notes |
 |---|---|---|---|---|---|---|
-| 1 | FR-VUE-1 | `picolet init --template hello-vue` produces Vue 3 + Vite + TS skeleton that builds | Yes | `init_cmd.py:26` (`_KNOWN_TEMPLATES`); `picolet_templates/hello-vue/` (all files); Gate F passes | TestInitCmdVue (5), TestHelloVueTemplate (11), Gate F | Template scaffolds, validates, npm installs, and builds cleanly |
+| 1 | FR-VUE-1 | `picolet init --template hello-vue` produces Vue 3 + Vite + TS skeleton that builds | Yes | `init_cmd.py:26` (`_KNOWN_TEMPLATES`); `picolet.templates/hello-vue/` (all files); Gate F passes | TestInitCmdVue (5), TestHelloVueTemplate (11), Gate F | Template scaffolds, validates, npm installs, and builds cleanly |
 | 2 | FR-VUE-2 | `picolet dev` runs Vite alongside watcher; webview loads from localhost:5173 dev, romfs after build | Partial | `dev_cmd.py:72-191` (Vite spawn + PICOLET_DEV_URL injection); `_app.py:220-270` (PICOLET_DEV_URL runtime read on Linux) | TestDevCmdViteIntegration (5), Gate I (SKIP) | Linux runtime rebuilt and verified. Windows runtime not rebuilt (D-5 meta-refresh workaround documented). Gate I skipped per O1 deferred decision. |
 | 3 | FR-VUE-3 | `picolet-bridge-js` ships `picolet.d.ts` typed declaration | Yes | `packages/picolet-bridge-js/src/picolet.d.ts:1-71`; Gates G+H pass | TestPicoletDts (12) | Hand-authored ambient declaration per D4; augments Window + declares PicoletBridge interface |
 | 4 | FR-VUE-4 | `picolet build` detects Vue via `picolet.toml`, runs npm install + build_cmd, packs `dist_dir/` into romfs | Yes | `build_cmd.py:265-268` (step 4b hook), `build_cmd.py:287-291` (step 6a copy), `build_cmd.py:480-534` (`_run_frontend_build`), `build_cmd.py:537-575` (`_copy_dist_to_ui_root`); Gates C+E pass | TestRunFrontendBuild (8), TestCopyDistToUiRoot (6), Gates C+E | No extra subcommand. npm check, install, build_cmd, then dist/ copy into romfs. |

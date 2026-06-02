@@ -606,7 +606,7 @@ the end-to-end template path for the windows-x64 target.
 | `/home/anl/picolet/packages/picolet-runtime/python/picolet_ui/_app.py` | The Application factory; PH10 ships a parallel `picolet_ui_win.Application` with the same surface. The romfs-HTML read-and-NavigateToString trick replaces the WebKit `load_html` call. |
 | `/home/anl/picolet/packages/picolet-bridge-js/src/index.ts` | The `_send` helper to be modified. Existing test set under `tests/phase-08/` to be extended with channel-detect cases. |
 | `/home/anl/picolet/packages/picolet-bridge-js/dist/picolet-bridge.js` | The compiled bundle to be rebuilt. CI checks it for drift. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/build_cmd.py` | The build pipeline that needs to also copy `WebView2Loader.dll` into the webview-variant romfs at `/rom/picolet/WebView2Loader.dll` (one extra small helper, parallel to `_copy_bridge_js`). |
+| `/home/anl/picolet/packages/picolet/picolet/build_cmd.py` | The build pipeline that needs to also copy `WebView2Loader.dll` into the webview-variant romfs at `/rom/picolet/WebView2Loader.dll` (one extra small helper, parallel to `_copy_bridge_js`). |
 | `/home/anl/picolet/packages/picolet-runtime/scripts/build-runtime.sh` | Lines 95–97 contain the `windows-x64/webview` PH10 stub error. PH10 replaces that stub with a real branch reusing `build_windows_x64` with `VARIANT=webview`. |
 | `/home/anl/picolet/packages/picolet-runtime/manifests/manifest_webview.py` | The current Linux manifest. PH10 introduces `manifest_webview.py`'s windows-aware split (one manifest that conditionally freezes `picolet_ui` for unix and `picolet_ui_win` for windows). Implementation detail: simplest path is a single manifest with a conditional `freeze()` based on the port being built; the mbm manifest DSL supports a guard. If conditional freezing is awkward, two manifests (`manifest_webview_unix.py` and `manifest_webview_windows.py`) referenced by each port's variant `.mk` `FROZEN_MANIFEST` is the fallback. |
 | `https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution` (consulted at planning time) | WebView2 distribution model: loader DLL redistributable, runtime engine system-installed. Confirms AD1's bundle-loader choice. |
@@ -638,7 +638,7 @@ the end-to-end template path for the windows-x64 target.
 15. `packages/picolet-runtime/python/picolet_ui_win/_test.py` — `run_sanity_test()` and `run_callback_probe()` parallels of `picolet_ui/_test.py` for gates 5/6/8.
 16. `packages/picolet-bridge-js/src/index.ts` — modified `_send` helper per AD5.
 17. `packages/picolet-bridge-js/dist/picolet-bridge.js` — rebuilt bundle, committed.
-18. `packages/picolet-cli/picolet/build_cmd.py` — modified: when `variant == "webview"` and `target == "windows-x64"`, also copy `WebView2Loader.x64.dll` from the installed `picolet-runtime` package data into the romfs at `picolet/WebView2Loader.dll`. Parallel to existing `_copy_bridge_js`.
+18. `packages/picolet/picolet/build_cmd.py` — modified: when `variant == "webview"` and `target == "windows-x64"`, also copy `WebView2Loader.x64.dll` from the installed `picolet-runtime` package data into the romfs at `picolet/WebView2Loader.dll`. Parallel to existing `_copy_bridge_js`.
 19. `packages/picolet-runtime/scripts/build-runtime.sh` — modified: replace the `windows-x64/webview` PH10 stub error (lines 95–97) with a real branch routing through `build_windows_x64` with `VARIANT=webview`. Add a build-time pre-step that copies `redist/WebView2Loader.x64.dll` into the build staging so it gets embedded into the windows-x64 runtime's romfs at runtime-pack time. (Or — preferred — leave the loader DLL out of the runtime's empty-default romfs and have `picolet build` (deliverable 18) add it at app-build time; this matches the bridge-js model.)
 20. `packages/picolet-runtime/scripts/dockerfiles/windows-x64-build/` — *new directory*. The current Windows build uses `dockcross/windows-static-x64-posix` directly; PH10 may need either no Dockerfile customisation (if the vendored WebView2 headers are sufficient) or a thin wrapper image that adds `cabextract` / `unzip` if any header extraction needs to happen at image-build time. The vendored-headers approach (preferred) needs no Dockerfile change.
 21. `tests/phase-10/run.sh` — tester harness. Mirrors `tests/phase-09/run.sh`. Groups:
@@ -1263,7 +1263,7 @@ open)**.
 
 Two remediation paths, both out of PH10 scope:
 
-1. Patch `packages/picolet-templates/picolet_templates/hello-webview/src/main.py`
+1. Patch `packages/picolet/picolet/templates/hello-webview/src/main.py`
    to:
    ```python
    try:

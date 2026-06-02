@@ -410,8 +410,8 @@ pipeline and the cli/PH06 baseline.
 | `/home/anl/picolet/packages/picolet-runtime/micropython/ports/unix/modffi.c` | Confirmed: `ffi.callback(rettype, fn, paramtypes, lock=True)` is supported (lines 322-369). Callback args marshalled as mp_int_t (lines 274-287) — see D1 limitation. Closure allocation via `ffi_closure_alloc` (line 343). This is the core "is libffi enough?" question and the answer is yes for PH07. |
 | `/home/anl/picolet/packages/picolet-runtime/micropython/extmod/asyncio/event.py` | `Event` and `ThreadSafeFlag` semantics. PH07 uses plain `Event` (single-thread design); ThreadSafeFlag is the fallback if Option B (worker-thread GTK) is needed. |
 | `/home/anl/pydfu-win/micropython/tools/pydfu_app/lib/usb/core.py` | Reference implementation of the pure-libffi pattern. Lines 99-118 show the ffi.open + ffi.func table. PH07's `picolet_ui/_gtk_ffi.py` mirrors this exact shape. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/validator.py` | `[window]` schema (lines 41-42, 64): `title: str`, `size: list`. The validator already accepts the schema; PH07 needs to *consume* it inside the runtime, which means reading `/rom/picolet.toml`. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/build_cmd.py` | Confirmed: `picolet build` does NOT inject `picolet.toml` into the romfs automatically. PH07 must add `picolet.toml` to the romfs for the webview path (or document that users add it to `[romfs] include`). Decision: PH07's `picolet build` change copies `picolet.toml` into the romfs root when `[ui] renderer = "webview"` — automatic and invisible to the user. |
+| `/home/anl/picolet/packages/picolet/picolet/validator.py` | `[window]` schema (lines 41-42, 64): `title: str`, `size: list`. The validator already accepts the schema; PH07 needs to *consume* it inside the runtime, which means reading `/rom/picolet.toml`. |
+| `/home/anl/picolet/packages/picolet/picolet/build_cmd.py` | Confirmed: `picolet build` does NOT inject `picolet.toml` into the romfs automatically. PH07 must add `picolet.toml` to the romfs for the webview path (or document that users add it to `[romfs] include`). Decision: PH07's `picolet build` change copies `picolet.toml` into the romfs root when `[ui] renderer = "webview"` — automatic and invisible to the user. |
 | `/usr/include/webkitgtk-4.1/webkit/*.h` (host introspection) | API surface confirmation — every WebKit function PH07 calls exists and has the expected signature in webkit2gtk-4.1 (Ubuntu 22.04 ships 2.36, Ubuntu 24.04 ships 2.52). Stable ABI within the 4.1 series; minor differences are documented per the gtk-doc deprecation notes. |
 | `/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0` | Confirmed present on the developer host; symlinks to `libwebkit2gtk-4.1.so.0.21.7`. The runtime `ffi.open("libwebkit2gtk-4.1.so.0")` resolves this. |
 | `apt-cache show libwebkit2gtk-4.1-0` | Confirmed: the runtime user installs *exactly* `libwebkit2gtk-4.1-0` (binary package) — the `-dev` headers are NOT required at runtime. NFR-8 holds. |
@@ -455,7 +455,7 @@ pipeline and the cli/PH06 baseline.
 | `packages/picolet-runtime/scripts/build-runtime.sh` | Lines 86–96 — replace the `linux-x64/webview` stub error with a real branch that calls `build_linux_x64` (the existing function, parameterised on `VARIANT_NAME=picolet-webview`). The `manifest_webview.py` resolution is automatic via `mpconfigvariant.mk`'s `FROZEN_MANIFEST`. The Windows webview branch (line ~90) stays as the PH10 stub. |
 | `packages/picolet-runtime/scripts/dockerfiles/linux-x64-build/Dockerfile` | Add `libwebkit2gtk-4.1-0 xvfb` to the apt install line. Bump the image tag (e.g. `picolet-linux-x64-build:22.04-webview` or just rebuild against the existing tag — the developer chooses, with a note in the build script). |
 | `packages/picolet-runtime/README.md` | Add `## Webview variant` section: variant name, `apt install libwebkit2gtk-4.1-0` requirement, how to run inside xvfb on a headless host. Gate 20. |
-| `packages/picolet-cli/picolet/build_cmd.py` | Add: when `[ui] renderer == "webview"`, copy the source `picolet.toml` (a clean subset, just `[window]` and `[ui]`) into the romfs root so the runtime can read it at startup. Single-function addition. The `[romfs] include` user list is preserved. This is the minimum mechanism to satisfy FR-WV-3 without requiring users to add `picolet.toml` to `[romfs] include` manually. |
+| `packages/picolet/picolet/build_cmd.py` | Add: when `[ui] renderer == "webview"`, copy the source `picolet.toml` (a clean subset, just `[window]` and `[ui]`) into the romfs root so the runtime can read it at startup. Single-function addition. The `[romfs] include` user list is preserved. This is the minimum mechanism to satisfy FR-WV-3 without requiring users to add `picolet.toml` to `[romfs] include` manually. |
 | `packages/picolet-runtime/manifests/manifest_cli.py` | None expected. The cli variant must not pick up `picolet_ui` (it would be size + import surface for nothing). The split-manifest pattern guarantees this. |
 | `packages/picolet-runtime/overlay/ports/unix/main.c` | None expected. The webview variant's `main.py` (the user's, frozen via romfs) calls `import picolet_ui; picolet_ui.run()`; this is the same auto-run path the cli variant uses. The main.c overlay does not need to know about variants — variant-specific behaviour is entirely in the frozen Python. **Confirmed: no overlay/ports/unix/main.c changes needed.** |
 
@@ -870,10 +870,10 @@ Key file:line references:
   - `packages/picolet-runtime/scripts/build-runtime.sh:244-260` —
     size gate is variant-aware: NFR-1 (1 MiB) for cli, NFR-2 (2 MiB)
     for webview, NFR-3 (3 MiB) reserved for lvgl.
-  - `packages/picolet-cli/picolet/build_cmd.py:128-148` — `[ui]
+  - `packages/picolet/picolet/build_cmd.py:128-148` — `[ui]
     renderer = "webview"` now resolves to variant=webview; rate-
     limited NotImplementedError remains for lvgl.
-  - `packages/picolet-cli/picolet/build_cmd.py:233-280` —
+  - `packages/picolet/picolet/build_cmd.py:233-280` —
     `_emit_webview_toml` writes the sanitised picolet.toml into the
     romfs root so the runtime can read [window] + [ui] (FR-WV-3).
 

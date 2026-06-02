@@ -221,7 +221,7 @@ else
     NAME="C1 picolet-build-webview"
     (
         cd "$FIXTURE" && \
-        uv run python -m picolet_cli build \
+        uv run python -m picolet.cli build \
             --target linux-x64 \
             --runtime "$WEBVIEW_RUNTIME" \
             --keep-staging \

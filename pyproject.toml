@@ -1,8 +1,6 @@
 [tool.uv.workspace]
 members = [
-    "packages/picolet-cli",
-    "packages/picolet-templates",
-    "packages/picolet-testing",
+    "packages/picolet",
 ]
 
 [dependency-groups]

@@ -78,19 +78,19 @@ echo
 # ---------------------------------------------------------------------------
 echo "=== Gate A: CLI wiring ==="
 
-if (cd "$REPO_ROOT" && uv run python -m picolet_cli --help 2>&1 | grep -q "test"); then
+if (cd "$REPO_ROOT" && uv run python -m picolet.cli --help 2>&1 | grep -q "test"); then
     pass "picolet --help lists 'test' subcommand"
 else
     fail "picolet --help missing 'test' subcommand"
 fi
 
-if (cd "$REPO_ROOT" && uv run python -m picolet_cli test --help 2>&1 | grep -q "\-\-screenshot"); then
+if (cd "$REPO_ROOT" && uv run python -m picolet.cli test --help 2>&1 | grep -q "\-\-screenshot"); then
     pass "picolet test --help shows --screenshot flag"
 else
     fail "picolet test --help missing --screenshot flag"
 fi
 
-if (cd "$REPO_ROOT" && uv run python -m picolet_cli test --help 2>&1 | grep -q "\-\-browser"); then
+if (cd "$REPO_ROOT" && uv run python -m picolet.cli test --help 2>&1 | grep -q "\-\-browser"); then
     pass "picolet test --help shows --browser flag"
 else
     fail "picolet test --help missing --browser flag"
@@ -210,7 +210,7 @@ else
     # Use picolet test --no-build --screenshot against the webview runtime.
     # Do not pass a file:// URL as a positional arg — the MicroPython runtime
     # interprets positional args as Python file paths (BUG-E fix).
-    if (cd "$REPO_ROOT" && timeout 30 uv run python -m picolet_cli test \
+    if (cd "$REPO_ROOT" && timeout 30 uv run python -m picolet.cli test \
         --no-build --screenshot "$PNG_C" \
         "$WV_RUNTIME" \
         2>/dev/null); then
@@ -244,7 +244,7 @@ if [[ ! -x "$LV_RUNTIME" ]]; then
     skip "Gate D: lvgl runtime not built: $LV_RUNTIME"
 else
     PNG_D="$WORKDIR/lv.png"
-    if (cd "$REPO_ROOT" && timeout 30 uv run python -m picolet_cli test \
+    if (cd "$REPO_ROOT" && timeout 30 uv run python -m picolet.cli test \
         --no-build --screenshot "$PNG_D" \
         "$LV_RUNTIME" \
         2>/dev/null); then
@@ -393,7 +393,7 @@ else
     T_START_NS=$(date +%s%N 2>/dev/null || echo 0)
 
     # Do not pass a file:// URL as a positional arg (BUG-E fix).
-    (cd "$REPO_ROOT" && timeout 15 uv run python -m picolet_cli test \
+    (cd "$REPO_ROOT" && timeout 15 uv run python -m picolet.cli test \
         --no-build --screenshot "$PNG_G" \
         "$WV_RUNTIME" \
         2>/dev/null) && T_RC=0 || T_RC=$?
@@ -428,7 +428,7 @@ elif [[ "$(uname -s)" != "Linux" ]]; then
     skip "Gate H: Linux-only test"
 else
     # Do not pass a file:// URL as a positional arg (BUG-E fix).
-    if (cd "$REPO_ROOT" && uv run python -m picolet_cli test \
+    if (cd "$REPO_ROOT" && uv run python -m picolet.cli test \
         --no-build --browser chromium \
         "$WV_RUNTIME" \
         2>&1) | grep -qi "chromium is not supported"; then
@@ -436,7 +436,7 @@ else
     else
         # Accept any non-zero exit code as evidence of the guard.
         EXIT_CODE=0
-        (cd "$REPO_ROOT" && uv run python -m picolet_cli test \
+        (cd "$REPO_ROOT" && uv run python -m picolet.cli test \
             --no-build --browser chromium \
             "$WV_RUNTIME" \
             2>/dev/null) || EXIT_CODE=$?
@@ -480,7 +480,7 @@ raise SystemExit(0)
 PYEOF
 
     # Do not pass a file:// URL as a positional arg (BUG-E fix).
-    if (cd "$REPO_ROOT" && timeout 20 uv run python -m picolet_cli test \
+    if (cd "$REPO_ROOT" && timeout 20 uv run python -m picolet.cli test \
         --no-build --run "$ASSERT_READY" \
         "$WV_RUNTIME" \
         2>/dev/null); then

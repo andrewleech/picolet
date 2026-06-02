@@ -63,10 +63,10 @@ No FR/NFR outside the above is touched.
 - `lv.indev_create()`, `lv.indev_t.set_type(...)`,
   `lv.indev_t.set_read_cb(cb)`, and `lv.INDEV_TYPE.{POINTER,KEYPAD}` are
   bound (gen/lv_mpy_example.c:32124, 4138–4141). Reuse for synthetic devs.
-- `picolet_cli` argparse subcommand registration shape at
-  `packages/picolet-cli/picolet_cli/__main__.py:54`. Add `test_cmd` here.
-- `picolet_cli.run_cmd.run` rebuild-if-stale pattern at
-  `packages/picolet-cli/picolet_cli/run_cmd.py:62` — `picolet test` reuses the
+- `picolet.cli` argparse subcommand registration shape at
+  `packages/picolet/picolet/__main__.py:54`. Add `test_cmd` here.
+- `picolet.cli.run_cmd.run` rebuild-if-stale pattern at
+  `packages/picolet/picolet/run_cmd.py:62` — `picolet test` reuses the
   same `resolve_app` + `sources_newer_than` + `build_cmd.run` flow.
 
 **What later phases need from PH17:**
@@ -102,18 +102,18 @@ interpretations:
 | Interpretation | Where the module lands | Verdict |
 |---|---|---|
 | **A: `picolet.testing` is runtime-frozen** | `packages/picolet-runtime/python/picolet/testing.py`; frozen into every variant. | **Rejected.** AppHarness needs `subprocess`, `playwright`, `tempfile`, `socket` — none of which the runtime ships (NFR-2 budget, MICROPY_PY_DEFLATE=0, no `socket` module). The runtime is a 666 KB MicroPython; Playwright weighs orders of magnitude more. |
-| **B: `picolet.testing` is a host-side CPython package shipped with `picolet-cli` (chosen)** | `packages/picolet-cli/picolet_cli/testing/__init__.py`, re-exported as `picolet.testing` via a thin shim package. | **Selected.** Host-side tests run under CPython + `uv run`. The spec wording is preserved — user `import picolet.testing` resolves at test time, not at runtime. |
+| **B: `picolet.testing` is a host-side CPython package shipped with `picolet-cli` (chosen)** | `packages/picolet/picolet/testing/__init__.py`, re-exported as `picolet.testing` via a thin shim package. | **Selected.** Host-side tests run under CPython + `uv run`. The spec wording is preserved — user `import picolet.testing` resolves at test time, not at runtime. |
 
 **Naming the import path.** The user writes `from picolet.testing import
 AppHarness`. The simplest way to make that work without colliding with
 the runtime-frozen `picolet` package on the host is to ship a separate
-host-only PyPI namespace package. `packages/picolet-testing/picolet/testing/`
+host-only PyPI namespace package. `packages/picolet/picolet/testing/`
 is the layout: a sibling top-level `picolet/` directory that contains
 only the `testing` submodule, declared as a PEP 420 namespace package
 so it composes with anything else named `picolet` on the host's
 `sys.path`. `picolet-cli` declares `picolet-testing` as an install
 dependency. (Alternative considered: place the harness directly at
-`picolet_cli.testing` and require users to write `from picolet_cli.testing
+`picolet.cli.testing` and require users to write `from picolet.cli.testing
 import AppHarness`. Rejected — FR-TEST-5 specifies the import path
 `picolet.testing.AppHarness`.)
 
@@ -452,7 +452,7 @@ Goal: the `picolet test` entry point.
 
 **Files touched:**
 
-- `packages/picolet-cli/picolet_cli/test_cmd.py` — new. Argparse:
+- `packages/picolet/picolet/test_cmd.py` — new. Argparse:
   ```
   picolet test [--target TARGET]
              [--no-build]
@@ -477,9 +477,9 @@ Goal: the `picolet test` entry point.
       the test's exit code.
   - `--browser auto` (default): on linux-x64 → `webkit`, on
     windows-x64 → `chromium`. Override is rare.
-- `packages/picolet-cli/picolet_cli/__main__.py` — register `test_cmd` in
+- `packages/picolet/picolet/__main__.py` — register `test_cmd` in
   `_build_parser` (line ~52). One line.
-- `packages/picolet-cli/picolet_cli/_paths.py` — no change (reuse
+- `packages/picolet/picolet/_paths.py` — no change (reuse
   `resolve_app`, `sources_newer_than`).
 
 **Wait-for-port logic:** spawn the binary with `PICOLET_TEST_MODE=1` set
@@ -496,7 +496,7 @@ Goal: the `picolet.testing.AppHarness` class.
 
 **Files touched:**
 
-- `packages/picolet-testing/` — new package. Layout:
+- `packages/picolet/` — new package. Layout:
   - `pyproject.toml` — declares the package, depends on `playwright`
     and `websockets` (the latter for the WebKit Inspector path).
   - `picolet/testing/__init__.py` — re-exports `AppHarness`.
@@ -504,7 +504,7 @@ Goal: the `picolet.testing.AppHarness` class.
   - `picolet/testing/_chromium.py` — Playwright `connect_over_cdp` path.
   - `picolet/testing/_webkit.py` — WebKit Inspector Protocol thin client
     + Page-shaped duck.
-- `packages/picolet-cli/pyproject.toml` — add `picolet-testing` as a
+- `packages/picolet/pyproject.toml` — add `picolet-testing` as a
   dependency.
 
 **API surface:**
@@ -567,7 +567,7 @@ Goal: `picolet test` runs the child under `xvfb-run -a -s "-screen 0
 
 **Files touched:**
 
-- `packages/picolet-cli/picolet_cli/test_cmd.py` — wrap the subprocess
+- `packages/picolet/picolet/test_cmd.py` — wrap the subprocess
   arglist before `subprocess.Popen` is called. If
   `sys.platform == "linux"` and `not os.environ.get("DISPLAY")` and
   `shutil.which("xvfb-run")`, prepend `["xvfb-run", "-a", "-s",

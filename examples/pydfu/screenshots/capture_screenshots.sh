@@ -12,22 +12,22 @@ if [ ! -f "$BINARY" ]; then
     exit 1
 fi
 
-PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet-cli" \
+PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet" \
     python3 "$SHOTS/scripts/device_list_empty.py"
 
-PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet-cli" \
+PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet" \
     python3 "$SHOTS/scripts/device_list_populated.py"
 
-PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet-cli" \
+PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet" \
     python3 "$SHOTS/scripts/flash_start.py"
 
-PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet-cli" \
+PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet" \
     python3 "$SHOTS/scripts/flash_mid_progress.py"
 
-PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet-cli" \
+PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet" \
     python3 "$SHOTS/scripts/flash_complete.py"
 
-PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet-cli" \
+PICOLET_PYDFU_MOCK=1 uv run --project "$REPO_ROOT/packages/picolet" \
     python3 "$SHOTS/scripts/flash_error.py"
 
 echo "All screenshots captured in $SHOTS/"

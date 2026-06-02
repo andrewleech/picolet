@@ -48,8 +48,8 @@ filesystem; no USB or ffi is involved.
 
 #### From PH17 (already landed)
 
-- `picolet.testing.AppHarness` at `packages/picolet-testing/picolet/testing/_harness.py`.
-- `picolet test --screenshot` CLI at `packages/picolet-cli/picolet_cli/test_cmd.py`.
+- `picolet.testing.AppHarness` at `packages/picolet/picolet/testing/_harness.py`.
+- `picolet test --screenshot` CLI at `packages/picolet/picolet/test_cmd.py`.
 - `window.picolet.__ready__ === true` contract waited on by AppHarness.
 
 #### From PH18 (already landed)
@@ -73,7 +73,7 @@ filesystem; no USB or ffi is involved.
 #### What PH23 needs from PH20
 
 - `examples/notes/` present and buildable. PH23's mirror script copies it to
-  `packages/picolet-templates/picolet_templates/notes/`.
+  `packages/picolet/picolet/templates/notes/`.
 - `examples/notes/screenshots/` non-empty. PH23's CI screenshot job validates.
 
 ---
@@ -1223,13 +1223,13 @@ uv run --with pytest --with pytest-asyncio pytest tests/ -v
 of the notes app with `{{name}}` substituted.
 
 **Pattern reference:**
-- `packages/picolet-cli/picolet_cli/init_cmd.py` — `_KNOWN_TEMPLATES` list,
+- `packages/picolet/picolet/init_cmd.py` — `_KNOWN_TEMPLATES` list,
   `_copy_template` function, `{{name}}` substitution rules.
 - PH19 added `"pydfu"` to `_KNOWN_TEMPLATES` using the same mechanism.
 
 **Files to create:**
 
-- `packages/picolet-templates/picolet_templates/notes/` — structurally identical
+- `packages/picolet/picolet/templates/notes/` — structurally identical
   to `examples/notes/` with `{{name}}` substitutions:
   - `picolet.toml`: `name = "{{name}}"`, window `title = "{{name}}"`.
   - `package.json`: `"name": "{{name}}"`.
@@ -1246,7 +1246,7 @@ of the notes app with `{{name}}` substituted.
 
 **Files to modify:**
 
-- `packages/picolet-cli/picolet_cli/init_cmd.py`:
+- `packages/picolet/picolet/init_cmd.py`:
   - Add `"notes"` to `_KNOWN_TEMPLATES`.
   - Update help string to include `"notes"` in the listed templates.
 

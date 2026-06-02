@@ -4,9 +4,9 @@
 Python 3.11+ and is installed via pip or uv:
 
 ```bash
-pip install picolet-cli
+pip install picolet
 # or
-uv tool install picolet-cli
+uv tool install picolet
 ```
 
 ---
@@ -263,10 +263,13 @@ picolet test --run tests/test_flow.py -- --some-arg-for-the-binary
 picolet test --browser webkit --timeout 30 --verbose
 ```
 
-`--screenshot` and `--run` require `picolet-testing` to be installed:
+`--screenshot` and `--run` require the optional `testing` extra (Playwright +
+websockets + Pillow):
 
 ```bash
-pip install picolet-testing
+uv tool install 'picolet[testing]'    # recommended
+# or
+pip install 'picolet[testing]'
 ```
 
 ---

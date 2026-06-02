@@ -41,16 +41,16 @@ FR-IPC-2 across the wire is the primary exit gate (per v1-plan.md §PH09).
 | `/home/anl/picolet/docs/v1-spec.md` | FR-IPC-2, FR-WV-{2,3,4,5}, FR-CLI-2, FR-BP-{1,3,4,5}. |
 | `/home/anl/picolet/docs/v1-plan.md` §PH09 | Phase scope, deliverables, exit gate. |
 | `/home/anl/picolet/CLAUDE.md` | Branch / commit / signing conventions, phase file conventions. |
-| `/home/anl/picolet/packages/picolet-templates/picolet_templates/hello-cli/` | Existing template structure and `{{name}}` substitution contract. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/init_cmd.py` | Template resolution order, `_KNOWN_TEMPLATES` guard, `_copy_template` substitution mechanics. |
-| `/home/anl/picolet/packages/picolet-templates/pyproject.toml` | Package structure; templates live under `picolet_templates/`. |
+| `/home/anl/picolet/packages/picolet/picolet/templates/hello-cli/` | Existing template structure and `{{name}}` substitution contract. |
+| `/home/anl/picolet/packages/picolet/picolet/init_cmd.py` | Template resolution order, `_KNOWN_TEMPLATES` guard, `_copy_template` substitution mechanics. |
+| `/home/anl/picolet/packages/picolet/pyproject.toml` | Package structure; templates live under `picolet.templates/`. |
 | `/home/anl/picolet/tests/phase-07/fixtures/hello-webview-min/` | Minimal webview fixture pattern (picolet.toml shape, `picolet_ui.Application` usage). |
 | `/home/anl/picolet/tests/phase-08/fixtures/invoke-roundtrip/` | `@picolet.command` + JS `invoke` + postMessage echo pattern (invoke and error paths). |
 | `/home/anl/picolet/tests/phase-08/fixtures/event-push/` | `picolet.emit` from Python + JS `on()` + echo-back pattern (event path). |
 | `/home/anl/picolet/tests/phase-07/run.sh` | Harness structure: groups A–F, `pass/fail/skip` helpers, `_run_fixture` helper. |
 | `/home/anl/picolet/tests/phase-08/run.sh` | Integration fixture runner, `--skip-integration` / `--skip-rebuild` flags, regression group. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/build_cmd.py` | Webview variant already fully wired (lines 132–220); `picolet build` works for webview apps today. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/validator.py` | `renderer = "webview"` accepted; `[ui]`, `[window]`, `[romfs]` all validated. |
+| `/home/anl/picolet/packages/picolet/picolet/build_cmd.py` | Webview variant already fully wired (lines 132–220); `picolet build` works for webview apps today. |
+| `/home/anl/picolet/packages/picolet/picolet/validator.py` | `renderer = "webview"` accepted; `[ui]`, `[window]`, `[romfs]` all validated. |
 
 ### Codebase state entering PH09
 
@@ -67,7 +67,7 @@ operational as of PH08. The build pipeline:
 `picolet init` already works for `hello-cli`. `init_cmd.py`'s
 `_KNOWN_TEMPLATES` set (`frozenset({"hello-cli"})`) is the only guard
 that must be extended. Template files live under
-`packages/picolet-templates/picolet_templates/<template-name>/`.
+`packages/picolet/picolet/templates/<template-name>/`.
 
 The IPC round-trip (invoke, error propagation, Python emit → JS on) has
 already been verified by PH08's fixtures. PH09 does not re-prove the
@@ -78,7 +78,7 @@ plumbing; it verifies that the canonical template uses it correctly.
 #### Location
 
 ```
-packages/picolet-templates/picolet_templates/hello-webview/
+packages/picolet/picolet/templates/hello-webview/
     picolet.toml
     src/
         main.py
@@ -88,7 +88,7 @@ packages/picolet-templates/picolet_templates/hello-webview/
         app.js
 ```
 
-The template lives under `picolet_templates/` (not `hello-cli/` — same
+The template lives under `picolet.templates/` (not `hello-cli/` — same
 parent directory). `init_cmd.py`'s `_resolve_template` finds it via
 `importlib.resources` or `__file__`-relative fallback; no change to the
 resolver logic is needed.
@@ -368,17 +368,17 @@ guards each group with the same `command -v xvfb-run`, `command -v uv`,
 
 ### Deliverables
 
-1. `packages/picolet-templates/picolet_templates/hello-webview/picolet.toml` —
+1. `packages/picolet/picolet/templates/hello-webview/picolet.toml` —
    template manifest with `{{name}}` substitution.
-2. `packages/picolet-templates/picolet_templates/hello-webview/src/main.py` —
+2. `packages/picolet/picolet/templates/hello-webview/src/main.py` —
    two `@picolet.command` handlers plus `picolet_ui.Application().run()`.
-3. `packages/picolet-templates/picolet_templates/hello-webview/ui/index.html` —
+3. `packages/picolet/picolet/templates/hello-webview/ui/index.html` —
    two buttons wired to `invoke`, `<title>{{name}}</title>`.
-4. `packages/picolet-templates/picolet_templates/hello-webview/ui/style.css` —
+4. `packages/picolet/picolet/templates/hello-webview/ui/style.css` —
    minimal stylesheet.
-5. `packages/picolet-templates/picolet_templates/hello-webview/ui/app.js` —
+5. `packages/picolet/picolet/templates/hello-webview/ui/app.js` —
    button event listeners calling `window.picolet.invoke`.
-6. `packages/picolet-cli/picolet/init_cmd.py` — `"hello-webview"` added to
+6. `packages/picolet/picolet/init_cmd.py` — `"hello-webview"` added to
    `_KNOWN_TEMPLATES`; `--template` help text updated.
 7. `tests/phase-09/fixtures/hello-webview-e2e/picolet.toml` — fixture
    manifest.
@@ -407,7 +407,7 @@ Commit:
 ```
 [PH09] Add hello-webview template.
 
-Adds packages/picolet-templates/picolet_templates/hello-webview/ with
+Adds packages/picolet/picolet/templates/hello-webview/ with
 picolet.toml, src/main.py, ui/{index.html,style.css,app.js}. Registers
 a greet command, a fail_example command, and two buttons. Template uses
 {{name}} substitution for [app] name and [window] title.

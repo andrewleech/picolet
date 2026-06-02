@@ -211,8 +211,8 @@ romfs entry point is `vfs_rom_ioctl.c`.
 | `/home/anl/picolet/packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.{c,h}` | The Linux trailer code that PH04 must amend with `#ifdef _WIN32`. |
 | `/home/anl/picolet/packages/picolet-runtime/overlay/ports/unix/main.c` | How PH03 spliced the trailer call into `load_romfs_image()` — Windows uses the same pattern in `vfs_rom_ioctl.c` instead. |
 | `/home/anl/picolet/packages/picolet-runtime/scripts/build-runtime.sh` | The build orchestrator PH04 extends with a `windows-x64/cli` branch. The script already has a `windows-x64/*` error stub at line 80. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/build_cmd.py` | `_host_target()` raises `NotImplementedError` for non-linux (line 232–236). Step 3 checks `target != "linux-x64"` (line 136). Both must be loosened for windows-x64. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/runtime_resolver.py` | `resolve_runtime()` is already target-agnostic (constructs `picolet-runtime-{target}-{variant}`). For windows-x64 the artifact name becomes `picolet-runtime-windows-x64-cli.exe` — the resolver needs an `.exe` suffix on the artifact name. |
+| `/home/anl/picolet/packages/picolet/picolet/build_cmd.py` | `_host_target()` raises `NotImplementedError` for non-linux (line 232–236). Step 3 checks `target != "linux-x64"` (line 136). Both must be loosened for windows-x64. |
+| `/home/anl/picolet/packages/picolet/picolet/runtime_resolver.py` | `resolve_runtime()` is already target-agnostic (constructs `picolet-runtime-{target}-{variant}`). For windows-x64 the artifact name becomes `picolet-runtime-windows-x64-cli.exe` — the resolver needs an `.exe` suffix on the artifact name. |
 | `/home/anl/pydfu-win/micropython/ports/windows/variants/pydfu/mpconfigvariant.h` | pydfu Windows variant precedent for macros. PH04's `picolet-cli` Windows variant has more overlap with the unix `picolet-cli` config than with pydfu, but the GC split heap, FFI, terse error, debug-printers, builtins-help disables all carry across. |
 | `/home/anl/pydfu-win/micropython/ports/windows/variants/pydfu/mpconfigvariant.mk` | `MICROPY_PY_FFI=1 MICROPY_ENABLE_COMPILER=0`. PH04 keeps compiler on for the same reasons as PH01. |
 | `/home/anl/pydfu-win/micropython/ports/windows/vfs_rom_ioctl.c` | The upstream `vfs_rom_ioctl.c` that PH04's overlay amends. Confirmed: `load_romfs_image()` at line 47 (embedded path) and line 60 (file-load path) are both amendment targets. |
@@ -236,8 +236,8 @@ romfs entry point is `vfs_rom_ioctl.c`.
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.c` | Add `#ifdef _WIN32` / `#else` / `#endif` block around the binary-self-open section. Windows path uses `GetModuleFileNameA(NULL, buf, MAX_PATH)` and `#include <windows.h>`. Linux path keeps `fopen("/proc/self/exe", "rb")`. See "romfs_trailer.c amendment" below. |
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.h` | Update comment in `picolet_load_romfs_trailer` doc block to mention both `/proc/self/exe` (Linux) and `GetModuleFileNameA` (Windows). |
 | `packages/picolet-runtime/scripts/build-runtime.sh` | Replace the `windows-x64/*` error stub (lines 80–83) with a working Windows build branch. See "build-runtime.sh extension" below. |
-| `packages/picolet-cli/picolet/build_cmd.py` | (a) `_host_target()`: extend to return `"windows-x64"` when `sys.platform == "win32"`. (b) The `target != "linux-x64"` guard at line 136: replace with an allow-list `{linux-x64, windows-x64}` check. No other changes — the rest of the pipeline is already target-agnostic (the `.exe` suffix at line 201 was pre-written in PH03). |
-| `packages/picolet-cli/picolet/runtime_resolver.py` | `resolve_runtime()`: when `target == "windows-x64"`, append `.exe` to the artifact name before constructing the path. The current code constructs `picolet-runtime-windows-x64-cli` — the Windows build produces `picolet-runtime-windows-x64-cli.exe`. |
+| `packages/picolet/picolet/build_cmd.py` | (a) `_host_target()`: extend to return `"windows-x64"` when `sys.platform == "win32"`. (b) The `target != "linux-x64"` guard at line 136: replace with an allow-list `{linux-x64, windows-x64}` check. No other changes — the rest of the pipeline is already target-agnostic (the `.exe` suffix at line 201 was pre-written in PH03). |
+| `packages/picolet/picolet/runtime_resolver.py` | `resolve_runtime()`: when `target == "windows-x64"`, append `.exe` to the artifact name before constructing the path. The current code constructs `picolet-runtime-windows-x64-cli` — the Windows build produces `picolet-runtime-windows-x64-cli.exe`. |
 
 ### Variant config plan (Windows picolet-cli)
 
@@ -609,8 +609,8 @@ git add packages/picolet-runtime/overlay/ports/windows/ \
         packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.c \
         packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.h \
         packages/picolet-runtime/scripts/build-runtime.sh \
-        packages/picolet-cli/picolet/build_cmd.py \
-        packages/picolet-cli/picolet/runtime_resolver.py
+        packages/picolet/picolet/build_cmd.py \
+        packages/picolet/picolet/runtime_resolver.py
 git commit -s -m "[PH04] Add windows-x64 cli variant and extend build pipeline
 
 Closes: FR-CLI-3, FR-CLI-4, FR-RT-{1,3,4,5,6,7,8}, NFR-1, NFR-9"

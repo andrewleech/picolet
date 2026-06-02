@@ -22,7 +22,7 @@ import pytest
 _REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "picolet-cli"))
 
-from picolet_cli.sbom_gen import (
+from picolet.cli.sbom_gen import (
     emit_app_sbom,
     find_upylib_manifest,
     parse_upylib_manifest,
@@ -309,7 +309,7 @@ class TestUpylibWarningAndGuard:
 
     def test_repo_root_none_with_upylib_raises(self):
         """_app_dep_components raises ValueError when repo_root is None and micropython-lib is declared."""
-        from picolet_cli.sbom_gen import _app_dep_components
+        from picolet.cli.sbom_gen import _app_dep_components
         app_data = {
             "app": {"name": "test", "version": "0.1.0", "entry": "src/main.py"},
             "dependencies": {"micropython-lib": ["fnmatch"]},

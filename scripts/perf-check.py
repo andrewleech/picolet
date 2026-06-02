@@ -14,7 +14,7 @@ If the median exceeds the bound the exit code is non-zero.
 If the median is within the bound but any individual run exceeds 2× the bound,
 a soft warning is emitted (the gate still passes on that single run).
 
-Timing is centralised in AppHarness (packages/picolet-testing):
+Timing is centralised in AppHarness (packages/picolet):
   spawn_ms — epoch ms recorded immediately after Popen() inside _spawn().
   ready_ms — epoch ms recorded at the end of start() (port found + driver
              attached, or just port-found when no inspector is available).

@@ -105,7 +105,7 @@ The aesthetic is editorially distinctive — the app reads as a serious writing 
 
 | # | Source | Requirement | Implemented? | Evidence | Test Coverage |
 |---|---|---|---|---|---|
-| 1 | FR-EX-2 | `picolet init --template notes` scaffolds notes app | Yes | `init_cmd.py:26` adds "notes"; `picolet_templates/notes/` | run.sh gate L |
+| 1 | FR-EX-2 | `picolet init --template notes` scaffolds notes app | Yes | `init_cmd.py:26` adds "notes"; `picolet.templates/notes/` | run.sh gate L |
 | 2 | FR-EX-2 | Persists to `~/.config/<app-name>/notes/` Linux | Partial | `notes_store.py:37` stores to `~/.config/notes/` (missing `/notes` subdirectory; see Finding 3) | `TestCreateNote`, gate G |
 | 3 | FR-EX-5 | `tests/` with Playwright integration tests verifying CRUD flow | Yes | `examples/notes/tests/test_notes_flow.py` — 4 tests covering create→edit→save→reopen→delete | 4 tests skip on xvfb (see Finding 2) |
 | 4 | FR-EX-6 | `screenshots/` with 6 auto-generated PNGs | Yes | 6 PNGs present; `generate_screenshots.py` uses Playwright headless Chromium | `TestScreenshots` (13 tests) |

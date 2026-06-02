@@ -1,5 +1,5 @@
 """
-Unit tests for packages/picolet-cli/picolet_cli/runtime_resolver.py — PH05.
+Unit tests for packages/picolet/picolet/runtime_resolver.py — PH05.
 
 Each test isolates the resolver from the real user cache and real network
 by setting PICOLET_CACHE_DIR and PICOLET_RUNTIME_SOURCE to temporary directories.
@@ -15,13 +15,13 @@ import unittest
 import unittest.mock as mock
 from pathlib import Path
 
-# Ensure picolet_cli package is importable without installation.
+# Ensure picolet.cli package is importable without installation.
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _PKG_PARENT = _REPO_ROOT / "packages" / "picolet-cli"
 if str(_PKG_PARENT) not in sys.path:
     sys.path.insert(0, str(_PKG_PARENT))
 
-from picolet_cli.runtime_resolver import (
+from picolet.cli.runtime_resolver import (
     ResolvedRuntime,
     RuntimeIntegrityError,
     RuntimeNotFound,
@@ -188,7 +188,7 @@ class TestResolverUnit(unittest.TestCase):
         os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.tmp / "nonexistent")
 
         # Patch _intree_fallback to return None so in-tree binary doesn't save us.
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_intree_fallback", return_value=None):
             with self.assertRaises(RuntimeNotFound):
                 resolve_runtime("linux-x64", "cli")
@@ -210,7 +210,7 @@ class TestResolverUnit(unittest.TestCase):
 
         os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(tampered_dir)
 
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_intree_fallback", return_value=None):
             with self.assertRaises(RuntimeNotFound) as ctx:
                 resolve_runtime("linux-x64", "cli")
@@ -298,7 +298,7 @@ class TestResolverUnit(unittest.TestCase):
         os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.tmp / "nonexistent")
 
         # Patch _intree_fallback to return None so in-tree binary doesn't save us.
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_intree_fallback", return_value=None):
             with self.assertRaises(RuntimeNotFound) as ctx:
                 resolve_runtime("linux-x64", "cli")
@@ -319,7 +319,7 @@ class TestResolverUnit(unittest.TestCase):
         """--no-cache + network unavailable: hard error; no in-tree fallback attempted."""
         os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.tmp / "nonexistent")
 
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         # Patch _intree_fallback to ensure it is NOT called with no_cache=True.
         with mock.patch.object(rr, "_intree_fallback") as mock_fallback:
             with self.assertRaises(RuntimeNotFound):
@@ -341,7 +341,7 @@ class TestResolverUnit(unittest.TestCase):
         intree_bin.write_bytes(b"INTREE")
 
         # Patch _find_repo_root to return our fake repo root.
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_find_repo_root", return_value=self.tmp / "fake-repo"):
             with mock.patch("sys.stderr", new_callable=io.StringIO) as mock_stderr:
                 result = resolve_runtime("linux-x64", "cli")
@@ -363,7 +363,7 @@ class TestResolverUnit(unittest.TestCase):
         intree_dir.mkdir(parents=True, exist_ok=True)
         (intree_dir / artifact).write_bytes(b"INTREE")
 
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_find_repo_root", return_value=self.tmp / "fake-repo"):
             with mock.patch("sys.stderr", new_callable=io.StringIO) as mock_stderr:
                 resolve_runtime("linux-x64", "cli")
@@ -379,7 +379,7 @@ class TestResolverUnit(unittest.TestCase):
         # Remove env override so sidecar is consulted.
         del os.environ["PICOLET_RUNTIME_TAG"]
 
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
 
         with mock.patch.object(rr, "_read_runtime_tag_sidecar", return_value="runtime-v0.0.1"):
             cfg = _load_config()
@@ -537,7 +537,7 @@ class TestResolverUnit(unittest.TestCase):
         # Point at nonexistent source to force download failure.
         os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.tmp / "nonexistent")
 
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_intree_fallback", return_value=None):
             with self.assertRaises(RuntimeNotFound):
                 resolve_runtime("linux-x64", "cli")
@@ -554,7 +554,7 @@ class TestResolverUnit(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_from_source_docker_absent_raises_clear_error(self) -> None:
         """from_source=True with Docker absent raises RuntimeNotFound with clear message."""
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_check_docker", return_value=False):
             with self.assertRaises(RuntimeNotFound) as ctx:
                 resolve_runtime("linux-x64", "cli", from_source=True)
@@ -567,7 +567,7 @@ class TestResolverUnit(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_from_source_invokes_build_script(self) -> None:
         """from_source=True with Docker available calls _build_from_source."""
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
 
         fake_built = self.tmp / "fake-built-runtime"
         fake_built.write_bytes(b"BUILT")
@@ -629,7 +629,7 @@ class TestUrlSchemeAllowList(unittest.TestCase):
         os.environ["PICOLET_ALLOW_FILE_URLS"] = "1"
         # Should NOT raise the scheme-rejection message; it'll go on to attempt
         # the download and fail with a different error path.
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_intree_fallback", return_value=None):
             with self.assertRaises(RuntimeNotFound) as ctx:
                 resolve_runtime("linux-x64", "cli")
@@ -651,7 +651,7 @@ class TestUrlSchemeAllowList(unittest.TestCase):
     def test_https_url_accepted(self) -> None:
         """https:// passes the scheme check (downstream connection may fail)."""
         os.environ["PICOLET_RUNTIME_SOURCE"] = "https://example.invalid/releases"
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_intree_fallback", return_value=None):
             with self.assertRaises(RuntimeNotFound) as ctx:
                 resolve_runtime("linux-x64", "cli")
@@ -695,14 +695,14 @@ class TestUnverifiedCacheRefusal(unittest.TestCase):
 
     def test_cache_hit_without_sha256_refuses_by_default(self) -> None:
         """Cache hit + no sidecar + no opt-in → RuntimeIntegrityError."""
-        from picolet_cli.runtime_resolver import RuntimeIntegrityError
+        from picolet.cli.runtime_resolver import RuntimeIntegrityError
 
         self._stage_unverified_cache_entry()
         # Point at a non-existent source so the resolver cannot re-download
         # and "fix" the missing sidecar.
         os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(self.tmp / "nonexistent")
 
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_intree_fallback", return_value=None):
             with self.assertRaises(RuntimeIntegrityError) as ctx:
                 resolve_runtime("linux-x64", "cli")
@@ -730,13 +730,13 @@ class TestUnverifiedCacheRefusal(unittest.TestCase):
 
     def test_download_without_sha256_refuses_by_default(self) -> None:
         """Download succeeds but source has no .sha256 → RuntimeIntegrityError."""
-        from picolet_cli.runtime_resolver import RuntimeIntegrityError
+        from picolet.cli.runtime_resolver import RuntimeIntegrityError
 
         release_dir = self.tmp / "no-sha-release"
         _make_fake_release(release_dir, tag=self.tag, include_sha256=False)
         os.environ["PICOLET_RUNTIME_SOURCE"] = _file_url(release_dir)
 
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         with mock.patch.object(rr, "_intree_fallback", return_value=None):
             with self.assertRaises(RuntimeIntegrityError) as ctx:
                 resolve_runtime("linux-x64", "cli")
@@ -748,17 +748,17 @@ class TestPathsNoCrossModulePrivateImport(unittest.TestCase):
     """PH05 fixup (Q7): _paths.resolve_app must not import private names from build_cmd."""
 
     def test_resolve_app_does_not_import_build_cmd_private(self) -> None:
-        """_paths module text must not contain ``from picolet_cli.build_cmd import _``."""
-        from picolet_cli import _paths
+        """_paths module text must not contain ``from picolet.cli.build_cmd import _``."""
+        from picolet.cli import _paths
 
         source = Path(_paths.__file__).read_text()
         # No private-name imports from build_cmd anywhere in the module.
-        self.assertNotIn("from picolet_cli.build_cmd import", source)
-        self.assertNotIn("import picolet_cli.build_cmd", source)
+        self.assertNotIn("from picolet.cli.build_cmd import", source)
+        self.assertNotIn("import picolet.cli.build_cmd", source)
 
     def test_find_picolet_toml_lives_in_paths(self) -> None:
         """find_picolet_toml is a public helper in _paths."""
-        from picolet_cli._paths import find_picolet_toml
+        from picolet.cli._paths import find_picolet_toml
         self.assertTrue(callable(find_picolet_toml))
 
 
@@ -767,15 +767,15 @@ class TestRepoRootSingleHelper(unittest.TestCase):
 
     def test_repo_root_and_find_repo_root_agree(self) -> None:
         """_find_repo_root (back-compat alias) returns the same path as _repo_root."""
-        from picolet_cli.runtime_resolver import _find_repo_root, _repo_root
+        from picolet.cli.runtime_resolver import _find_repo_root, _repo_root
         self.assertEqual(_repo_root(), _find_repo_root())
 
     def test_locate_mpy_cross_uses_repo_root(self) -> None:
         """locate_mpy_cross error message names the repo-root path when PATH lookup fails."""
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
         fake_repo = Path("/tmp/fake-picolet-repo-test")
         # Suppress PATH lookup so the repo-walk error path is exercised.
-        with mock.patch("picolet_cli.runtime_resolver.shutil.which", return_value=None):
+        with mock.patch("picolet.cli.runtime_resolver.shutil.which", return_value=None):
             with mock.patch.object(rr, "_repo_root", return_value=fake_repo):
                 try:
                     rr.locate_mpy_cross()
@@ -801,7 +801,7 @@ class TestValidatorRuntimeSection(unittest.TestCase):
     def test_runtime_section_absent_is_valid(self) -> None:
         """picolet.toml without [runtime] is valid (table is optional)."""
         import tempfile
-        from picolet_cli.validator import validate_toml
+        from picolet.cli.validator import validate_toml
 
         with tempfile.TemporaryDirectory() as d:
             toml = self._make_toml(Path(d))
@@ -811,7 +811,7 @@ class TestValidatorRuntimeSection(unittest.TestCase):
     def test_runtime_section_valid(self) -> None:
         """[runtime] with source and tag passes validation."""
         import tempfile
-        from picolet_cli.validator import validate_toml
+        from picolet.cli.validator import validate_toml
 
         with tempfile.TemporaryDirectory() as d:
             toml = self._make_toml(
@@ -824,7 +824,7 @@ class TestValidatorRuntimeSection(unittest.TestCase):
     def test_runtime_section_source_only_valid(self) -> None:
         """[runtime] with only source (no tag) passes validation."""
         import tempfile
-        from picolet_cli.validator import validate_toml
+        from picolet.cli.validator import validate_toml
 
         with tempfile.TemporaryDirectory() as d:
             toml = self._make_toml(
@@ -837,7 +837,7 @@ class TestValidatorRuntimeSection(unittest.TestCase):
     def test_runtime_section_tag_only_valid(self) -> None:
         """[runtime] with only tag (no source) passes validation."""
         import tempfile
-        from picolet_cli.validator import validate_toml
+        from picolet.cli.validator import validate_toml
 
         with tempfile.TemporaryDirectory() as d:
             toml = self._make_toml(
@@ -850,7 +850,7 @@ class TestValidatorRuntimeSection(unittest.TestCase):
     def test_runtime_section_wrong_type(self) -> None:
         """[runtime] tag with wrong type (integer) yields a validation error."""
         import tempfile
-        from picolet_cli.validator import validate_toml
+        from picolet.cli.validator import validate_toml
 
         with tempfile.TemporaryDirectory() as d:
             toml = self._make_toml(
@@ -864,7 +864,7 @@ class TestValidatorRuntimeSection(unittest.TestCase):
     def test_runtime_section_source_wrong_type(self) -> None:
         """[runtime] source with wrong type (integer) yields a validation error."""
         import tempfile
-        from picolet_cli.validator import validate_toml
+        from picolet.cli.validator import validate_toml
 
         with tempfile.TemporaryDirectory() as d:
             toml = self._make_toml(
@@ -878,7 +878,7 @@ class TestValidatorRuntimeSection(unittest.TestCase):
     def test_runtime_both_source_and_tag_wrong_type(self) -> None:
         """[runtime] with both source and tag as wrong types yields two errors."""
         import tempfile
-        from picolet_cli.validator import validate_toml
+        from picolet.cli.validator import validate_toml
 
         with tempfile.TemporaryDirectory() as d:
             toml = self._make_toml(
@@ -894,7 +894,7 @@ class TestValidatorRuntimeSection(unittest.TestCase):
     def test_unknown_section_rejected(self) -> None:
         """Top-level section not in the allowed list is rejected."""
         import tempfile
-        from picolet_cli.validator import validate_toml
+        from picolet.cli.validator import validate_toml
 
         with tempfile.TemporaryDirectory() as d:
             toml = self._make_toml(Path(d), "\n[notavalidsection]\nfoo = 1\n")
@@ -909,12 +909,12 @@ class TestRuntimeTagResourceLookup(unittest.TestCase):
     # test_package_resource_provides_runtime_tag
     # -------------------------------------------------------------------------
     def test_package_resource_provides_runtime_tag(self) -> None:
-        """importlib.resources.files('picolet_cli') / 'RUNTIME_TAG' is readable."""
+        """importlib.resources.files('picolet.cli') / 'RUNTIME_TAG' is readable."""
         import importlib.resources
 
-        ref = importlib.resources.files("picolet_cli").joinpath("RUNTIME_TAG")
+        ref = importlib.resources.files("picolet.cli").joinpath("RUNTIME_TAG")
         content = ref.read_text(encoding="utf-8").strip()
-        self.assertTrue(content, "RUNTIME_TAG is empty inside picolet_cli package")
+        self.assertTrue(content, "RUNTIME_TAG is empty inside picolet.cli package")
         self.assertTrue(content.startswith("runtime-"), f"unexpected tag format: {content!r}")
 
     # -------------------------------------------------------------------------
@@ -922,7 +922,7 @@ class TestRuntimeTagResourceLookup(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_read_runtime_tag_sidecar_uses_package_resource(self) -> None:
         """_read_runtime_tag_sidecar() returns the tag from the package resource."""
-        from picolet_cli.runtime_resolver import _read_runtime_tag_sidecar
+        from picolet.cli.runtime_resolver import _read_runtime_tag_sidecar
 
         tag = _read_runtime_tag_sidecar()
         self.assertTrue(tag, "tag is empty")
@@ -933,7 +933,7 @@ class TestRuntimeTagResourceLookup(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_package_resource_takes_priority_over_repo_walk(self) -> None:
         """Package resource is used even when the repo-walk sidecar has a different value."""
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
 
         # Patch _repo_root to return a non-existent path so the repo-walk
         # step would produce a different (or absent) sidecar.
@@ -950,10 +950,10 @@ class TestRuntimeTagResourceLookup(unittest.TestCase):
     def test_repo_walk_fallback_used_when_package_resource_missing(self) -> None:
         """Repo-walk fallback is used when importlib.resources raises FileNotFoundError."""
         import importlib.resources
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
 
         # Simulate the package resource being absent (e.g. running from raw
-        # source tree without picolet_cli/RUNTIME_TAG installed).
+        # source tree without picolet.cli/RUNTIME_TAG installed).
         class _FakeTraversable:
             def joinpath(self, *a):
                 return self
@@ -985,7 +985,7 @@ class TestRuntimeTagResourceLookup(unittest.TestCase):
     def test_last_resort_default_when_all_sources_missing(self) -> None:
         """Last-resort default is returned when package resource and repo-walk both fail."""
         import importlib.resources
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
 
         class _FakeTraversable:
             def joinpath(self, *a):
@@ -1009,7 +1009,7 @@ class TestRuntimeTagResourceLookup(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_load_config_uses_package_resource_tag_by_default(self) -> None:
         """_load_config() uses the package-bundled RUNTIME_TAG when no env/toml override."""
-        from picolet_cli.runtime_resolver import _load_config
+        from picolet.cli.runtime_resolver import _load_config
 
         env_backup = os.environ.pop("PICOLET_RUNTIME_TAG", None)
         os.environ.pop("PICOLET_RUNTIME_SOURCE", None)
@@ -1031,14 +1031,14 @@ class TestLocateMpyCrossPathFirst(unittest.TestCase):
     def test_path_lookup_wins_over_intree(self) -> None:
         """When mpy-cross is on PATH it is returned without touching repo-walk."""
         import tempfile
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
 
         with tempfile.TemporaryDirectory() as d:
             fake_mpy = Path(d) / "mpy-cross"
             fake_mpy.write_bytes(b"fake")
             fake_mpy.chmod(0o755)
 
-            with mock.patch("picolet_cli.runtime_resolver.shutil.which", return_value=str(fake_mpy)):
+            with mock.patch("picolet.cli.runtime_resolver.shutil.which", return_value=str(fake_mpy)):
                 result = rr.locate_mpy_cross()
 
         self.assertEqual(result, fake_mpy.resolve())
@@ -1049,7 +1049,7 @@ class TestLocateMpyCrossPathFirst(unittest.TestCase):
     def test_intree_fallback_when_not_on_path(self) -> None:
         """When mpy-cross is not on PATH, repo-walk in-tree path is tried."""
         import tempfile
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
 
         with tempfile.TemporaryDirectory() as d:
             # Create a fake in-tree mpy-cross.
@@ -1065,7 +1065,7 @@ class TestLocateMpyCrossPathFirst(unittest.TestCase):
             intree.parent.mkdir(parents=True, exist_ok=True)
             intree.write_bytes(b"fake-mpy-cross")
 
-            with mock.patch("picolet_cli.runtime_resolver.shutil.which", return_value=None):
+            with mock.patch("picolet.cli.runtime_resolver.shutil.which", return_value=None):
                 with mock.patch.object(rr, "_repo_root", return_value=Path(d)):
                     result = rr.locate_mpy_cross()
 
@@ -1076,9 +1076,9 @@ class TestLocateMpyCrossPathFirst(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_clear_error_when_neither_available(self) -> None:
         """RuntimeNotFound with both remedy options when neither PATH nor in-tree works."""
-        from picolet_cli import runtime_resolver as rr
+        from picolet.cli import runtime_resolver as rr
 
-        with mock.patch("picolet_cli.runtime_resolver.shutil.which", return_value=None):
+        with mock.patch("picolet.cli.runtime_resolver.shutil.which", return_value=None):
             with mock.patch.object(rr, "_repo_root", return_value=Path("/nonexistent")):
                 with self.assertRaises(rr.RuntimeNotFound) as ctx:
                     rr.locate_mpy_cross()

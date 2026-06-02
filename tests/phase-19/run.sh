@@ -49,7 +49,7 @@ _ok()    { echo "  PASS  $*"; PASS=$((PASS + 1)); }
 _fail()  { echo "  FAIL  $*"; FAIL=$((FAIL + 1)); }
 _skip()  { echo "  SKIP  $*"; SKIP=$((SKIP + 1)); }
 
-PICOLET="uv run --project $REPO_ROOT/packages/picolet-cli picolet"
+PICOLET="uv run --project $REPO_ROOT/packages/picolet picolet"
 
 echo "=== PH19 exit gate ==="
 echo "REPO_ROOT: $REPO_ROOT"
@@ -108,7 +108,7 @@ if [ "$SKIP_SLOW" -eq 1 ]; then
     _skip "startup time (--skip-slow)"
 elif [ -f "$BINARY" ]; then
     START_MS=$(date +%s%3N)
-    timeout 10 uv run --project "$REPO_ROOT/packages/picolet-cli" python3 - <<'EOF' 2>/dev/null
+    timeout 10 uv run --project "$REPO_ROOT/packages/picolet" python3 - <<'EOF' 2>/dev/null
 import asyncio, time, sys
 from picolet.testing import AppHarness
 async def main():
@@ -131,7 +131,7 @@ fi
 
 # --- Gate F: list_devices IPC round-trip ---
 echo "[F] FR-EX-1: list_devices IPC smoke test"
-if uv run --project "$REPO_ROOT/packages/picolet-cli" \
+if uv run --project "$REPO_ROOT/packages/picolet" \
     python3 "$SCRIPT_DIR/smoke_list_devices.py" "$BINARY" 2>&1; then
     _ok "list_devices"
 else
@@ -140,7 +140,7 @@ fi
 
 # --- Gate G: read_dfu IPC round-trip ---
 echo "[G] FR-EX-1: read_dfu smoke test"
-if uv run --project "$REPO_ROOT/packages/picolet-cli" \
+if uv run --project "$REPO_ROOT/packages/picolet" \
     python3 "$SCRIPT_DIR/smoke_read_dfu.py" 2>&1; then
     _ok "read_dfu"
 else
@@ -184,7 +184,7 @@ echo "[I] FR-EX-5: pytest examples/pydfu/tests/"
 if [ "$SKIP_SLOW" -eq 1 ]; then
     _skip "pytest (--skip-slow)"
 elif [ -f "$BINARY" ]; then
-    if uv run --project "$REPO_ROOT/packages/picolet-cli" \
+    if uv run --project "$REPO_ROOT/packages/picolet" \
         --with pytest --with pytest-asyncio \
         pytest "$EXAMPLE_DIR/tests/" -v --tb=short -q 2>&1 | tail -10; then
         _ok "pytest suite"

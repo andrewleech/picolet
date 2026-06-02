@@ -124,7 +124,7 @@ Gates B, C, D, and I all require the runtime binary to receive a `PICOLET_TEST_M
 
 ### BUG-1 — `AppHarness._wait_for_port` uses deprecated `asyncio.get_event_loop()` in daemon thread
 
-**File**: `packages/picolet-testing/picolet/testing/_harness.py`, line 182  
+**File**: `packages/picolet/picolet/testing/_harness.py`, line 182  
 **Severity**: High (runtime correctness risk under Python 3.12+)
 
 The `_reader` daemon thread inside `_wait_for_port` calls `asyncio.get_event_loop().call_soon_threadsafe(done.set)`. In Python 3.10+, `asyncio.get_event_loop()` raises `DeprecationWarning` in non-main threads and in Python 3.12 raises `RuntimeError: There is no current event loop in thread '<name>'` when called from a daemon thread that was started by `asyncio.run()`.

@@ -15,7 +15,7 @@
 #   ./tests/phase-02/run.sh [--installed]
 #
 #   --installed   Use the `picolet` entry-point (requires `uv pip install -e
-#                 packages/picolet-cli` or equivalent). Default: uv run path.
+#                 packages/picolet` or equivalent). Default: uv run path.
 #
 # The script detects uv / python3 >=3.11 before proceeding.
 # Returns 0 if all enabled subtests pass, non-zero otherwise.
@@ -28,7 +28,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MAIN_PY="$REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py"
+MAIN_PY="$REPO_ROOT/packages/picolet/picolet/__main__.py"
 FIXTURES="$SCRIPT_DIR/fixtures"
 
 # ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ fi
 if [[ "$USE_INSTALLED" -eq 1 ]]; then
     if ! command -v picolet >/dev/null 2>&1; then
         echo "error: --installed requested but 'picolet' not on PATH" >&2
-        echo "       Run: uv pip install -e packages/picolet-cli" >&2
+        echo "       Run: uv pip install -e packages/picolet" >&2
         exit 1
     fi
     PICOLET() { picolet "$@"; }
@@ -435,7 +435,7 @@ NAME="D1 uv-run-matches-installed-version"
 if [[ "$HAVE_UV" -eq 0 ]]; then
     skip "$NAME" "uv not available"
 elif ! command -v picolet >/dev/null 2>&1; then
-    skip "$NAME" "picolet not on PATH; install with: uv pip install -e packages/picolet-cli"
+    skip "$NAME" "picolet not on PATH; install with: uv pip install -e packages/picolet"
 else
     UV_VER=$(uv run "$MAIN_PY" --version 2>&1 || true)
     EP_VER=$(picolet --version 2>&1 || true)
@@ -449,7 +449,7 @@ fi
 # D2 — Installed entry-point works end-to-end (--version + init + validate).
 NAME="D2 installed-entrypoint-version"
 if ! command -v picolet >/dev/null 2>&1; then
-    skip "$NAME" "picolet not on PATH; install with: uv pip install -e packages/picolet-cli"
+    skip "$NAME" "picolet not on PATH; install with: uv pip install -e packages/picolet"
 else
     assert_exit0 "$NAME" picolet --version
 fi
@@ -487,13 +487,13 @@ echo
 echo "--- Group E: binary-safe template copy ---"
 
 FAKE_TMPL_PKG="$WORKDIR/fake_pkg"
-FAKE_TMPL_DIR="$FAKE_TMPL_PKG/picolet_templates/hello-binary-test"
+FAKE_TMPL_DIR="$FAKE_TMPL_PKG/picolet.templates/hello-binary-test"
 
 # Create a minimal Python package layout that importlib.resources can see.
 mkdir -p "$FAKE_TMPL_DIR/src"
 # Mark as a namespace package — init file not strictly required but keeps
 # importlib.resources happy across Python versions.
-touch "$FAKE_TMPL_PKG/picolet_templates/__init__.py"
+touch "$FAKE_TMPL_PKG/picolet.templates/__init__.py"
 
 # picolet.toml with {{name}} placeholder (text file).
 cat > "$FAKE_TMPL_DIR/picolet.toml" <<'TOML_EOF'
@@ -529,9 +529,9 @@ NAME="E1 binary-copy-via-copy-template"
 E1_RC=0
 python3 - <<PYEOF || E1_RC=$?
 import sys
-sys.path.insert(0, "$REPO_ROOT/packages/picolet-cli")
+sys.path.insert(0, "$REPO_ROOT/packages/picolet")
 from pathlib import Path
-from picolet_cli.init_cmd import _copy_template
+from picolet.cli.init_cmd import _copy_template
 _copy_template(
     Path("$FAKE_TMPL_DIR"),
     Path("$BINARY_OUTDIR"),

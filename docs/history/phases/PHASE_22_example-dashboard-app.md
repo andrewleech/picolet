@@ -59,9 +59,9 @@ Both are resolved in the Key Research Findings section below.
 #### From PH17 (already landed)
 
 - `picolet.testing.AppHarness` at
-  `packages/picolet-testing/picolet/testing/_harness.py`.
+  `packages/picolet/picolet/testing/_harness.py`.
 - `picolet test --screenshot` CLI at
-  `packages/picolet-cli/picolet_cli/test_cmd.py`.
+  `packages/picolet/picolet/test_cmd.py`.
 - `window.picolet.__ready__ === true` contract waited on by AppHarness.
 
 #### From PH18 (already landed)
@@ -87,7 +87,7 @@ Both are resolved in the Key Research Findings section below.
 
 - `init_cmd._KNOWN_TEMPLATES` already includes `"notes"` and `"config-editor"`;
   PH22 adds `"dashboard"` using the identical mechanism in
-  `packages/picolet-cli/picolet_cli/init_cmd.py`.
+  `packages/picolet/picolet/init_cmd.py`.
 - Screenshot `generate_screenshots.py` structure with `window.__initState`
   pre-population strategy from PH20/PH21.
 - `App.vue` `window.__PICOLET_SCREENSHOT_MODE__` + `.no-animation` class from
@@ -96,7 +96,7 @@ Both are resolved in the Key Research Findings section below.
 #### What PH23 needs from PH22
 
 - `examples/dashboard/` present and buildable. PH23's mirror script copies it to
-  `packages/picolet-templates/picolet_templates/dashboard/`.
+  `packages/picolet/picolet/templates/dashboard/`.
 - `examples/dashboard/screenshots/` non-empty. PH23's CI screenshot job validates.
 
 ---
@@ -957,7 +957,7 @@ inspector is available (CI path with no display).
 
 #### Chunk 7 — `init_cmd` wiring
 
-Edit `packages/picolet-cli/picolet_cli/init_cmd.py` to add `"dashboard"` to
+Edit `packages/picolet/picolet/init_cmd.py` to add `"dashboard"` to
 `_KNOWN_TEMPLATES` (the same one-line addition made by PH20 for `"notes"` and
 PH21 for `"config-editor"`). No other changes needed.
 

@@ -7,8 +7,8 @@ CLI script) to a multi-module app, then to a GUI app with an IPC bridge.
 
 - Python 3.11+
 - Install the CLI:
-  - **`uv tool install picolet-cli`** (recommended — fastest, isolated)
-  - or **`pipx install picolet-cli`** (fallback)
+  - **`uv tool install picolet`** (recommended — fastest, isolated)
+  - or **`pipx install picolet`** (fallback)
   - Plain `pip install` is not recommended: most modern distros block
     system-wide pip per PEP 668.
 

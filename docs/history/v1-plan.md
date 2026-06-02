@@ -92,7 +92,7 @@ tester `sonnet`.
 `picolet.toml` validation.
 
 **Deliverables**:
-- `packages/picolet-cli/picolet/__main__.py` as a PEP 723 uv-runnable
+- `packages/picolet/picolet/__main__.py` as a PEP 723 uv-runnable
   script.
 - TOML schema validation with structured error reporting.
 - `picolet init <name> --template hello-cli` scaffolds a working
@@ -199,7 +199,7 @@ tester `sonnet`.
 **Goal**: `hello-webview` template builds, runs, and round-trips IPC.
 
 **Deliverables**:
-- `packages/picolet-templates/hello-webview/` with a button that calls
+- `packages/picolet/hello-webview/` with a button that calls
   `picolet.invoke('greet', { name: 'World' })`.
 - Test harness that drives the webview headlessly (or asserts via
   screenshot / DOM inspection).
@@ -271,7 +271,7 @@ tester `sonnet`.
 **Goal**: Wire all three templates into `picolet init`.
 
 **Deliverables**:
-- `packages/picolet-templates/{hello-webview,hello-lvgl,hello-cli}/`.
+- `packages/picolet/{hello-webview,hello-lvgl,hello-cli}/`.
 - `picolet init <name> --template <t>` copies the named template and
   templates `[app] name`.
 

@@ -58,12 +58,12 @@ _SRC_DIR = _UI_DIR / "src"
 _ASSETS_DIR = _SRC_DIR / "assets"
 _FONTS_DIR = _UI_DIR / "public" / "fonts"
 _ROUTER_DIR = _SRC_DIR / "router"
-_TEMPLATES_ROOT = _REPO_ROOT / "packages" / "picolet-templates" / "picolet_templates"
-_CLI_ROOT = _REPO_ROOT / "packages" / "picolet-cli" / "picolet_cli"
+_TEMPLATES_ROOT = _REPO_ROOT / "packages" / "picolet-templates" / "picolet.templates"
+_CLI_ROOT = _REPO_ROOT / "packages" / "picolet-cli" / "picolet.cli"
 _SCREENSHOTS_DIR = _PYDFU_DIR / "screenshots"
 
 sys.path.insert(0, str(_REPO_ROOT / "packages" / "picolet-cli"))
-from picolet_cli.init_cmd import _KNOWN_TEMPLATES
+from picolet.cli.init_cmd import _KNOWN_TEMPLATES
 
 _WOFF2_MAGIC = b"\x77\x4F\x46\x32"
 
@@ -388,7 +388,7 @@ class TestFontFiles(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# pydfu template (packages/picolet-templates/picolet_templates/pydfu/)
+# pydfu template (packages/picolet/picolet/templates/pydfu/)
 # ---------------------------------------------------------------------------
 
 _PYDFU_TEMPLATE_DIR = _TEMPLATES_ROOT / "pydfu"

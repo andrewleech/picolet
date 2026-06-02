@@ -99,7 +99,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _EXAMPLES_DIR = _REPO_ROOT / "examples"
-_TEMPLATES_DIR = _REPO_ROOT / "packages" / "picolet-templates" / "picolet_templates"
+_TEMPLATES_DIR = _REPO_ROOT / "packages" / "picolet-templates" / "picolet.templates"
 _MIRROR_SCRIPT = _REPO_ROOT / "scripts" / "mirror-examples-to-templates.sh"
 _SCREENSHOTS_YML = _REPO_ROOT / ".github" / "workflows" / "screenshots.yml"
 _RELEASE_YML = _REPO_ROOT / ".github" / "workflows" / "release.yml"

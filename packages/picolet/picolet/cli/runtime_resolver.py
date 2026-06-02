@@ -110,8 +110,8 @@ class _Config:
 #
 # The RUNTIME_TAG sidecar is the one piece of data that is needed for every
 # normal `picolet build` invocation and that broke in wheel installs.  It is
-# now shipped inside the picolet_cli package at picolet_cli/RUNTIME_TAG and
-# resolved first via importlib.resources.files("picolet_cli"); the repo-walk
+# now shipped inside the picolet.cli package at picolet.cli/RUNTIME_TAG and
+# resolved first via importlib.resources.files("picolet.cli"); the repo-walk
 # below acts as a fallback for development workflows where the package may
 # not be installed (e.g. running directly from the source tree with PYTHONPATH).
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ class _Config:
 def _repo_root() -> Path:
     """Return the monorepo root for dev-only operations.
 
-    This file lives at packages/picolet-cli/picolet_cli/runtime_resolver.py.
+    This file lives at packages/picolet/picolet/runtime_resolver.py.
     The repo root is three levels up.
 
     This path is only valid when running from a source checkout.  Callers that
@@ -132,7 +132,7 @@ def _repo_root() -> Path:
 # Back-compat alias.  Existing tests (and external callers) patch
 # ``rr._find_repo_root`` via mock.patch.object; keep the name so they
 # continue to work while internal code uses _repo_root() directly.
-# DeprecationWarning: use _resource_for("picolet_cli", ...) for package data;
+# DeprecationWarning: use _resource_for("picolet.cli", ...) for package data;
 #   use _repo_root() directly for source-checkout-only operations.
 def _find_repo_root() -> Path:
     """Deprecated alias for :func:`_repo_root`.
@@ -186,19 +186,19 @@ def _read_runtime_tag_sidecar() -> str:
 
     Resolution order (first match wins):
 
-    1. ``importlib.resources.files("picolet_cli") / "RUNTIME_TAG"`` — the tag
+    1. ``importlib.resources.files("picolet.cli") / "RUNTIME_TAG"`` — the tag
        file shipped inside the picolet-cli wheel.  Works from both a wheel
        install and an editable install (A6 fix).
     2. ``<repo-root>/packages/picolet-runtime/RUNTIME_TAG`` — repo-walk
        fallback for development workflows where the package is executed
-       directly from source without installation (e.g. ``python -m picolet_cli``
+       directly from source without installation (e.g. ``python -m picolet.cli``
        with PYTHONPATH set but no ``pip install -e``).
     3. Hard-coded last-resort default when neither source is available.
     """
     # Step 1: package resource (works from wheel and editable install).
     try:
         tag_text = (
-            importlib.resources.files("picolet_cli")
+            importlib.resources.files("picolet.cli")
             .joinpath("RUNTIME_TAG")
             .read_text(encoding="utf-8")
             .strip()
@@ -285,7 +285,7 @@ def _artifact_name(target: str, variant: str) -> str:
     e.g. linux-x64 / cli → picolet-runtime-linux-x64-cli
          windows-x64 / cli → picolet-runtime-windows-x64-cli.exe
     """
-    from picolet_cli._targets import target_exe_suffix
+    from picolet.cli._targets import target_exe_suffix
     return f"picolet-runtime-{target}-{variant}{target_exe_suffix(target)}"
 
 

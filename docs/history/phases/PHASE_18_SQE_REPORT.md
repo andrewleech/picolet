@@ -92,7 +92,7 @@ Checks `init_cmd` constants and `_copy_template` behaviour for Vue file types.
 | `test_copy_template_substitutes_name_in_ts_file` | `{{name}}` replaced in .ts files |
 
 ### TestHelloVueTemplate (10 tests)
-Structural assertions against the committed `packages/picolet-templates/picolet_templates/hello-vue/`
+Structural assertions against the committed `packages/picolet/picolet/templates/hello-vue/`
 tree. No file generation; reads committed files.
 
 | Test | What it verifies |

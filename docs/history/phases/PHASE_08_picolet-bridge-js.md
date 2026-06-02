@@ -367,7 +367,7 @@ independently of the runtime. Gates 14–16 are safety/regression gates.
 3. `packages/picolet-bridge-js/build.sh` — one-line build helper: `node_modules/.bin/esbuild src/index.ts --bundle --format=iife --outfile=dist/picolet-bridge.js --minify`.
 4. `packages/picolet-bridge-js/dist/picolet-bridge.js` — compiled IIFE bundle, committed to the repo.
 5. `packages/picolet-bridge-js/tsconfig.json` — TypeScript configuration (editor tooling only; esbuild does not use it for compilation).
-6. `packages/picolet-cli/picolet/build_cmd.py` — modified to copy `dist/picolet-bridge.js` from the installed `picolet-bridge-js` package into the romfs staging directory at `picolet/picolet-bridge.js` for every webview-variant build.
+6. `packages/picolet/picolet/build_cmd.py` — modified to copy `dist/picolet-bridge.js` from the installed `picolet-bridge-js` package into the romfs staging directory at `picolet/picolet-bridge.js` for every webview-variant build.
 7. `packages/picolet-runtime/python/picolet_ui/_webview.py` — modified: replace stub injection with bridge-bundle injection from `/rom/picolet/picolet-bridge.js`.
 8. `tests/phase-08/test_api_surface.js` — JS unit test for gate 3.
 9. `tests/phase-08/test_invoke_roundtrip.js` — JS unit test for gates 4 and 14.
@@ -541,7 +541,7 @@ All JS tests must run with `node <testfile>` on a host that has Node ≥ 18.
 
 **6. Modify `picolet build` to include the bridge bundle.**
 
-In `packages/picolet-cli/picolet/build_cmd.py`, add a step in the
+In `packages/picolet/picolet/build_cmd.py`, add a step in the
 webview-variant romfs assembly path:
 
 ```python
@@ -556,7 +556,7 @@ if renderer == "webview":
 ```
 
 The `picolet-bridge-js` package must be on `sys.path` when `picolet build`
-runs. Add it to `packages/picolet-cli/pyproject.toml` as a dependency
+runs. Add it to `packages/picolet/pyproject.toml` as a dependency
 (path dependency for local development; tagged release for distribution).
 
 The module name used in `importlib.resources` must match the Python

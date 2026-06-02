@@ -68,11 +68,11 @@ not two.
 ### D5a — Resource resolution strategy (A6, wheel distribution)
 
 `picolet-cli` ships as an installable wheel. Package data that is needed at
-runtime is accessed via `importlib.resources.files("picolet_cli")`, not by
+runtime is accessed via `importlib.resources.files("picolet.cli")`, not by
 walking up from `__file__` to a repo root.
 
 **RUNTIME_TAG** — the default runtime version tag — is shipped as
-`picolet_cli/RUNTIME_TAG` inside the wheel. `_read_runtime_tag_sidecar()` reads
+`picolet.cli/RUNTIME_TAG` inside the wheel. `_read_runtime_tag_sidecar()` reads
 it via `importlib.resources.files` first, with a repo-walk fallback for
 bare-source-tree execution (no `pip install -e`).
 
@@ -230,7 +230,7 @@ to 127.0.0.1 only (NFR-TEST-2 loopback restriction).
 
 ### AppHarness
 
-`picolet.testing.AppHarness` (in `packages/picolet-testing/`) is the
+`picolet.testing.AppHarness` (in `packages/picolet/`) is the
 host-side helper for writing automated tests against a running picolet app.
 
 ```python
@@ -455,7 +455,7 @@ In a standalone project scaffolded from `hello-vue`, a local copy of
 
 - `examples/with-vue/` commits `package-lock.json` for reproducible,
   offline-capable builds (`npm install --prefer-offline` respects it).
-- `packages/picolet-templates/picolet_templates/hello-vue/` does NOT commit a
+- `packages/picolet/picolet/templates/hello-vue/` does NOT commit a
   lockfile. Users get the latest compatible versions at `picolet init` time.
   PH23's mirror script must not copy `package-lock.json` from examples into
   templates.

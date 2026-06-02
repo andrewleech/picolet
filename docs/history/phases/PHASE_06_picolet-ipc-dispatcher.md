@@ -611,7 +611,7 @@ namespaces that occupy different runtimes:
 
 | Package | Lives in | Imported by | Runtime |
 |---|---|---|---|
-| `packages/picolet-cli/picolet/` | the build host (CPython) | the developer's shell | host |
+| `packages/picolet/picolet/` | the build host (CPython) | the developer's shell | host |
 | `packages/picolet-runtime/python/picolet/` | the user-app runtime (MicroPython) | the user's `main.py` | app |
 
 They share the name `picolet` but never coexist in one Python process:
@@ -683,8 +683,8 @@ build pipeline.
 | `/home/anl/picolet/packages/picolet-runtime/micropython/extmod/asyncio/event.py` | Confirmed: `Event.set` / `wait` / `clear` / `is_set` all present; `ThreadSafeFlag` available — useful for PH07's webview-thread → asyncio-loop callback. |
 | `/home/anl/picolet/packages/picolet-runtime/micropython/extmod/asyncio/lock.py` | `Lock` is present; PH06 uses it (or, more likely, avoids it) for the transport-write-serialisation contract. |
 | `/home/anl/picolet/packages/picolet-runtime/micropython/extmod/asyncio/manifest.py` | Confirms `task.py` is NOT frozen via micropython-lib (it's provided by the C `_asyncio` module under `core.py`'s try-import fallback). PH06's freeze() call is structurally identical: pure-Python files plus the manifest mechanism. |
-| `/home/anl/picolet/packages/picolet-templates/picolet_templates/hello-cli/src/main.py` | Current `main.py` is two lines (`print("Hello from {{name}}")`). PH06 does not modify hello-cli, but the gate-6 test app does follow the same `[app] entry = "src/main.py"` pattern. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/build_cmd.py` | The build pipeline freezes `[app] entry` to `main.mpy` and copies it into the romfs. For gate-6's test app, `picolet build` produces a working binary whose `main.py` does `import picolet; @picolet.command async def greet(...); picolet.run()`. No changes to build_cmd.py for PH06. |
+| `/home/anl/picolet/packages/picolet/picolet/templates/hello-cli/src/main.py` | Current `main.py` is two lines (`print("Hello from {{name}}")`). PH06 does not modify hello-cli, but the gate-6 test app does follow the same `[app] entry = "src/main.py"` pattern. |
+| `/home/anl/picolet/packages/picolet/picolet/build_cmd.py` | The build pipeline freezes `[app] entry` to `main.mpy` and copies it into the romfs. For gate-6's test app, `picolet build` produces a working binary whose `main.py` does `import picolet; @picolet.command async def greet(...); picolet.run()`. No changes to build_cmd.py for PH06. |
 
 ### Files to create
 

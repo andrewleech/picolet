@@ -46,18 +46,18 @@
 
 ### CLI — picolet test subcommand
 
-- `packages/picolet-cli/picolet_cli/test_cmd.py` — `picolet test` subcommand; reads `picolet:test-port=<N>` from stderr; auto-detects browser (webkit/chromium); xvfb-run wrapping; bare/screenshot/run modes.
-- `packages/picolet-cli/picolet_cli/__main__.py` — (modified) register `test_cmd`.
-- `packages/picolet-cli/pyproject.toml` — (modified) add `picolet-testing` dependency.
+- `packages/picolet/picolet/test_cmd.py` — `picolet test` subcommand; reads `picolet:test-port=<N>` from stderr; auto-detects browser (webkit/chromium); xvfb-run wrapping; bare/screenshot/run modes.
+- `packages/picolet/picolet/__main__.py` — (modified) register `test_cmd`.
+- `packages/picolet/pyproject.toml` — (modified) add `picolet-testing` dependency.
 
 ### picolet.testing host package
 
-- `packages/picolet-testing/pyproject.toml`
-- `packages/picolet-testing/picolet/__init__.py` — PEP 420 namespace package.
-- `packages/picolet-testing/picolet/testing/__init__.py` — re-exports `AppHarness`.
-- `packages/picolet-testing/picolet/testing/_harness.py` — `AppHarness` class; start/stop, stderr port reader, `_wait_for_ready` (polls `window.picolet.__ready__ === true`), LVGL stdio path.
-- `packages/picolet-testing/picolet/testing/_chromium.py` — `attach_chromium()` via `playwright.chromium.connect_over_cdp`.
-- `packages/picolet-testing/picolet/testing/_webkit.py` — `WebKitPage` duck facade over the WebKit Inspector Protocol (WebSocket JSON-RPC).
+- `packages/picolet/pyproject.toml`
+- `packages/picolet/picolet/__init__.py` — PEP 420 namespace package.
+- `packages/picolet/picolet/testing/__init__.py` — re-exports `AppHarness`.
+- `packages/picolet/picolet/testing/_harness.py` — `AppHarness` class; start/stop, stderr port reader, `_wait_for_ready` (polls `window.picolet.__ready__ === true`), LVGL stdio path.
+- `packages/picolet/picolet/testing/_chromium.py` — `attach_chromium()` via `playwright.chromium.connect_over_cdp`.
+- `packages/picolet/picolet/testing/_webkit.py` — `WebKitPage` duck facade over the WebKit Inspector Protocol (WebSocket JSON-RPC).
 
 ### Bridge JS
 
@@ -69,7 +69,7 @@
 - `docs/architecture.md` — (modified) append "Test surface" section.
 - `docs/phases/PHASE_17_DEV_REPORT.md` — this file.
 - `.github/workflows/release.yml` — (modified) add step asserting `PICOLET_TEST_MODE` is not set in the release job environment (NFR-TEST-2).
-- `pyproject.toml` (root workspace) — (modified) add `packages/picolet-testing` to workspace members.
+- `pyproject.toml` (root workspace) — (modified) add `packages/picolet` to workspace members.
 
 ### Micropython submodule (Chunk 8 fix)
 
@@ -123,7 +123,7 @@ The `windows-x64/lvgl` NFR-3 violation (2048 bytes over limit) is confirmed pre-
 | FR-TEST-2 | `picolet._test.tap()`, `.press()`, `.snapshot()` on LVGL |
 | FR-TEST-3 | `picolet test <binary>` returns Playwright-compatible page facade |
 | FR-TEST-4 | `picolet test --screenshot <png>` + xvfb-run autodetect |
-| FR-TEST-5 | `picolet.testing.AppHarness` in `packages/picolet-testing` |
+| FR-TEST-5 | `picolet.testing.AppHarness` in `packages/picolet` |
 | FR-TEST-6 | LVGL harness same `snapshot()` / stdio path via `AppHarness` |
 | NFR-TEST-1 | Harness retries up to 10 s for port; binary itself has no added startup cost |
 | NFR-TEST-2 | Port bound to 127.0.0.1; release workflow asserts `PICOLET_TEST_MODE` not set |

@@ -4,7 +4,7 @@
 
 ### Bug 1: OFL-1.1 not in SBOM default allow-list
 
-`packages/picolet-cli/picolet_cli/sbom_gen.py` — added `"OFL-1.1"` to
+`packages/picolet/picolet/sbom_gen.py` — added `"OFL-1.1"` to
 `_DEFAULT_ALLOW_LICENCES`. PH19 added JetBrains Mono and IBM Plex Sans
 (both OFL-1.1, `link_type = "static"`) to `runtime.toml` without extending
 the allow-list. The omission caused 2 phase-13 tests to fail on any SBOM

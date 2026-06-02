@@ -32,8 +32,8 @@ import sys
 import tomllib
 from pathlib import Path
 
-from picolet_cli._paths import find_picolet_toml as _find_picolet_toml
-from picolet_cli._targets import (
+from picolet.cli._paths import find_picolet_toml as _find_picolet_toml
+from picolet.cli._targets import (
     SUPPORTED_RENDERERS,
     SUPPORTED_TARGETS,
     TARGET_WINDOWS_X64,
@@ -44,16 +44,16 @@ from picolet_cli._targets import (
     target_exe_suffix,
     variant_for_renderer,
 )
-from picolet_cli._trailer import pack_trailer
-from picolet_cli.runtime_resolver import (
+from picolet.cli._trailer import pack_trailer
+from picolet.cli.runtime_resolver import (
     locate_mpy_cross,
     resolve_runtime,
     ResolvedRuntime,
     RuntimeIntegrityError,
     RuntimeNotFound,
 )
-from picolet_cli.sbom_gen import emit_app_sbom, SbomViolation
-from picolet_cli.validator import validate_toml
+from picolet.cli.sbom_gen import emit_app_sbom, SbomViolation
+from picolet.cli.validator import validate_toml
 
 
 class BuildFailed(Exception):
@@ -373,9 +373,9 @@ def _do_build(args) -> int:
 def _find_repo_root() -> Path:
     """Return the repository root (three levels up from this file).
 
-    This file lives at packages/picolet-cli/picolet_cli/build_cmd.py.
+    This file lives at packages/picolet/picolet/build_cmd.py.
     """
-    here = Path(__file__).parent      # packages/picolet-cli/picolet_cli/
+    here = Path(__file__).parent      # packages/picolet/picolet/
     return here.parent.parent.parent  # repo root
 
 
@@ -603,9 +603,9 @@ def _copy_bridge_js(romfs_root: Path, verbose: bool) -> None:
     DOCUMENT_START.
     """
     # Resolve relative to this file: build_cmd.py is in
-    # packages/picolet-cli/picolet_cli/; the bridge dist is at
+    # packages/picolet/picolet/; the bridge dist is at
     # packages/picolet-bridge-js/dist/picolet-bridge.js.
-    here = Path(__file__).parent            # packages/picolet-cli/picolet_cli/
+    here = Path(__file__).parent            # packages/picolet/picolet/
     bridge_src = (
         here.parent.parent                  # packages/
         / "picolet-bridge-js"

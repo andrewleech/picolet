@@ -34,8 +34,8 @@ All 15 exit gates pass:
 → **127 passed, 31 subtests passed**
 
 The `test_no_package_lock_json_in_template` test, which was FAIL at SQE time, now
-PASSES — commit `5d861cd` removed the stray `packages/picolet-templates/
-picolet_templates/config-editor/package-lock.json`.
+PASSES — commit `5d861cd` removed the stray `packages/picolet/
+picolet.templates/config-editor/package-lock.json`.
 
 ### Cross-phase regression
 
@@ -81,7 +81,7 @@ dependencies, SBOM is clean.
 
 | # | Source | Requirement | Implemented? | Evidence | Test Coverage |
 |---|--------|-------------|-------------|---------|---------------|
-| 1 | FR-EX-3 | `picolet init --template config-editor` scaffolds schema-driven editor | Yes | `init_cmd.py:26`; template at `packages/picolet-templates/picolet_templates/config-editor/` | `TestTemplate` (9 tests) |
+| 1 | FR-EX-3 | `picolet init --template config-editor` scaffolds schema-driven editor | Yes | `init_cmd.py:26`; template at `packages/picolet/picolet/templates/config-editor/` | `TestTemplate` (9 tests) |
 | 2 | FR-EX-3 | load→edit→validate→save→diff flow | Yes | `src/main.py` (5 IPC commands); `PickerView`, `EditView`, `DiffView` | `TestTomlRoundTrip`, `TestYamlRoundTrip`, `TestJsonRoundTrip`, `TestSchemaValidation`, `TestUnifiedDiff` |
 | 3 | FR-EX-3 | TOML read+write | Yes | `config_store.py`: `_parse`/`_toml_dumps`; `src/tomllib.py` | 20 TOML tests; Gate F |
 | 4 | FR-EX-3 | YAML read+write | Yes | `config_store.py`: `_parse`/`_yaml_dumps`; `src/micro_yaml.py` | 18 YAML tests; Gate G |

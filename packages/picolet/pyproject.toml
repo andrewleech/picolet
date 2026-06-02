@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "picolet"
+version = "0.2.0"
+description = "Compile Python programs to small self-contained native binaries via MicroPython"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Andrew Leech", email = "andrew@alelec.net" },
+]
+keywords = ["micropython", "binary", "bundler", "freeze", "webview", "lvgl"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+    "mpremote",
+    # picolet.testing optional dep group below provides playwright/websockets/
+    # pillow.  The CLI's `picolet test` works without those (it can still spawn
+    # binaries + read stdout); the harness is needed only for screenshot /
+    # webview-driving flows.
+]
+
+[project.optional-dependencies]
+testing = [
+    "playwright>=1.40",
+    "websockets>=12.0",
+    "pillow>=10.0",
+]
+
+[project.scripts]
+picolet = "picolet.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/andrewleech/picolet"
+Source = "https://github.com/andrewleech/picolet"
+Issues = "https://github.com/andrewleech/picolet/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["picolet"]
+# Templates ship as resource files inside the wheel — picolet.templates uses
+# importlib.resources.files() at runtime.  They're naturally part of the
+# `picolet` package collection above (since they live at picolet/templates/),
+# so no explicit force-include is needed.

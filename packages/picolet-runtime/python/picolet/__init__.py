@@ -7,7 +7,7 @@
 # external stdio harness) can drive.
 #
 # The host-side build tool `picolet build` lives in
-# packages/picolet-cli/picolet_cli/ as the `picolet_cli` package; the two
+# packages/picolet/picolet/ as the `picolet.cli` package; the two
 # never share a name now (the post-review A2 rename eliminated the
 # collision and the PYTHONPATH discipline that previously masked it).
 

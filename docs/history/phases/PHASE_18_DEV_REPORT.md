@@ -19,7 +19,7 @@ Eight chunks implemented in order. All 10 phase exit gates pass (9 PASS, 1 SKIP 
 ### Chunk 2 — `build_cmd` Vue frontend build hook (FR-VUE-4, FR-VUE-5)
 
 **Modified:**
-- `packages/picolet-cli/picolet_cli/build_cmd.py`:
+- `packages/picolet/picolet/build_cmd.py`:
   - Added `import shlex`.
   - Added `_run_frontend_build(data, app_root, verbose)`: no-op when `framework == "vanilla"`, otherwise runs `npm install --prefer-offline --no-fund --no-audit` then the configured `build_cmd`. Clear error when `npm` is absent (shutil.which check + message naming Node ≥ 18 LTS). Called as step 4b between runtime resolution and mpy-cross compilation.
   - Added `_copy_dist_to_ui_root(data, app_root, romfs_root, verbose)`: copies `<dist_dir>/` into `romfs_root/<ui_root>/` via `shutil.copytree(dirs_exist_ok=True)`. Called as step 6a after `_copy_includes`. No-op for vanilla.
@@ -27,8 +27,8 @@ Eight chunks implemented in order. All 10 phase exit gates pass (9 PASS, 1 SKIP 
 ### Chunk 3 — `dev_cmd` Vite integration + `_paths.py` + `_app.py` (FR-VUE-2)
 
 **Modified:**
-- `packages/picolet-cli/picolet_cli/_paths.py` — added `"node_modules"` and `"dist"` to `_IGNORE_DIRS` (F6).
-- `packages/picolet-cli/picolet_cli/dev_cmd.py`:
+- `packages/picolet/picolet/_paths.py` — added `"node_modules"` and `"dist"` to `_IGNORE_DIRS` (F6).
+- `packages/picolet/picolet/dev_cmd.py`:
   - Added `import os`.
   - Reads `[ui.frontend].framework` and `dev_url` from `picolet.toml`.
   - Spawns `npm run dev` in `start_new_session=True` process group (D3) before the first build.
@@ -63,18 +63,18 @@ Eight chunks implemented in order. All 10 phase exit gates pass (9 PASS, 1 SKIP 
 
 ### Chunk 5 — `hello-vue` template + `init_cmd` + `validator` (FR-VUE-1, FR-VUE-5)
 
-**Created** under `packages/picolet-templates/picolet_templates/hello-vue/`:
+**Created** under `packages/picolet/picolet/templates/hello-vue/`:
 - Mirrors `examples/with-vue/` with `{{name}}` substitution in `picolet.toml`, `package.json`, `ui/index.html`, `src/main.py`, `ui/src/App.vue`.
 - No `package-lock.json` (O3).
 - `ui/src/picolet.d.ts` — local copy of the declaration for standalone projects.
 - `ui/src/env.d.ts` — references `./picolet.d.ts` (relative, self-contained).
 
 **Modified:**
-- `packages/picolet-cli/picolet_cli/init_cmd.py`:
+- `packages/picolet/picolet/init_cmd.py`:
   - `_KNOWN_TEMPLATES`: added `"hello-vue"`.
   - `_TEXT_EXTENSIONS`: added `".ts"` and `".vue"` (F9).
   - `--template` help string updated.
-- `packages/picolet-cli/picolet_cli/validator.py`:
+- `packages/picolet/picolet/validator.py`:
   - `_UI_SCHEMA`: added `"frontend": dict` and `"index": str` (the latter was missing, causing unnecessary "unknown key" warnings).
   - Added `_UI_FRONTEND_SCHEMA` (framework, build_cmd, dist_dir, dev_url — all str).
   - Added `_UI_FRONTEND_FRAMEWORK_VALUES = frozenset({"vanilla", "vue", "react"})`.
@@ -140,7 +140,7 @@ cd examples/with-vue && npm run typecheck
 
 | ID | Requirement | File:line evidence |
 |---|---|---|
-| FR-VUE-1 | `picolet init --template hello-vue` scaffolds a working Vue 3 skeleton | `packages/picolet-templates/picolet_templates/hello-vue/` (all files); `init_cmd.py:26` (`_KNOWN_TEMPLATES`); Gate F passes |
+| FR-VUE-1 | `picolet init --template hello-vue` scaffolds a working Vue 3 skeleton | `packages/picolet/picolet/templates/hello-vue/` (all files); `init_cmd.py:26` (`_KNOWN_TEMPLATES`); Gate F passes |
 | FR-VUE-2 | `picolet dev` runs Vite alongside watcher; webview loads from localhost:5173 | `dev_cmd.py:113–140` (Vite spawn); `_app.py:219–228` (PICOLET_DEV_URL Linux path) |
 | FR-VUE-3 | `picolet-bridge-js` ships `picolet.d.ts` | `packages/picolet-bridge-js/src/picolet.d.ts:1`; Gates G+H pass |
 | FR-VUE-4 | `picolet build` detects Vue, runs npm, packs dist/ | `build_cmd.py:265–270` (step 4b call), `build_cmd.py:345–413` (`_run_frontend_build`+`_copy_dist_to_ui_root`); Gates C+E pass |

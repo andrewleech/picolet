@@ -55,10 +55,10 @@ counter button to demonstrate LVGL widget interaction.
 
 | File | Change |
 |------|--------|
-| `packages/picolet-templates/picolet_templates/hello-cli/picolet.toml` | Add `description` key (nice to have; not schema-required) — actually skip this, validator doesn't know description key. Keep as-is. |
-| `packages/picolet-templates/picolet_templates/hello-cli/src/main.py` | Add `@picolet.command` pattern example. |
-| `packages/picolet-templates/picolet_templates/hello-lvgl/` | Create directory + `picolet.toml` + `src/main.py`. |
-| `packages/picolet-cli/picolet/init_cmd.py` | Add `"hello-lvgl"` to `_KNOWN_TEMPLATES`. |
+| `packages/picolet/picolet/templates/hello-cli/picolet.toml` | Add `description` key (nice to have; not schema-required) — actually skip this, validator doesn't know description key. Keep as-is. |
+| `packages/picolet/picolet/templates/hello-cli/src/main.py` | Add `@picolet.command` pattern example. |
+| `packages/picolet/picolet/templates/hello-lvgl/` | Create directory + `picolet.toml` + `src/main.py`. |
+| `packages/picolet/picolet/init_cmd.py` | Add `"hello-lvgl"` to `_KNOWN_TEMPLATES`. |
 | `tests/phase-14/run.sh` | New test harness: scaffold + build + run for all three templates. |
 
 ### Test harness design

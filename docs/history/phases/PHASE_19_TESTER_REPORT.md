@@ -106,7 +106,7 @@ The real libusb USB path in `pydfu_adapter.py` has comments noting deferred work
 
 | # | Source | Requirement | Implemented? | File:Line Evidence | Test Coverage | Notes |
 |---|---|---|---|---|---|---|
-| 1 | Spec FR-EX-1 | `picolet init --template pydfu` scaffolds DFU flasher GUI | Yes | `init_cmd.py:26` (`_KNOWN_TEMPLATES`); `picolet_templates/pydfu/` exists | `TestPydfuTemplate` (9 tests); Gate L | Template + `{{name}}` substitution verified |
+| 1 | Spec FR-EX-1 | `picolet init --template pydfu` scaffolds DFU flasher GUI | Yes | `init_cmd.py:26` (`_KNOWN_TEMPLATES`); `picolet.templates/pydfu/` exists | `TestPydfuTemplate` (9 tests); Gate L | Template + `{{name}}` substitution verified |
 | 2 | Spec FR-EX-1 | Functional end-to-end: detect devices, pick .dfu, flash, progress | Partial | `pydfu_adapter.py`: real `list_dfu_devices` returns `[]` (stub); `flash_device` raises `RuntimeError` on real path | Mock-only tests; integration tests all skip | Real USB path is a stub beyond ffi.open; all functional behaviour is mock-only |
 | 3 | Spec FR-EX-5 | `examples/pydfu/tests/` verifies user flow | Partial | `test_device_list.py`, `test_flash_flow.py` exist; 4 tests all skip at runtime | Tests exist but all skip | WebKit inspector not available on Xvfb; tests have correct guard (`page is None → skip`) |
 | 4 | Spec FR-EX-6 | `screenshots/` with auto-generated PNGs covering 6 UI states | Yes | `screenshots/` directory; 6 PNGs present, 1200×800, non-blank | `TestScreenshots` (11 tests) | Screenshots generated via Playwright/Chromium; see NFR-EX-6 note |

@@ -89,7 +89,7 @@ automatically.
 
 #### AD2 — SBOM generator location and interface
 
-The generator lives at `packages/picolet-cli/picolet/sbom_gen.py`. This
+The generator lives at `packages/picolet/picolet/sbom_gen.py`. This
 keeps all build-pipeline tooling in one Python package, matching the
 existing pattern for `build_cmd.py`, `validator.py`, `runtime_resolver.py`.
 
@@ -307,13 +307,13 @@ populates the cache on user machines automatically.
 
 1. `packages/picolet-runtime/sbom/runtime.toml` — hand-curated component
    declarations for all native dependencies across all six variants.
-2. `packages/picolet-cli/picolet/sbom_gen.py` — SBOM generator implementing
+2. `packages/picolet/picolet/sbom_gen.py` — SBOM generator implementing
    `emit_runtime_sbom`, `emit_app_sbom`, `SbomViolation`, and the
    CLI shim.
-3. `packages/picolet-cli/picolet/validator.py` — `_SBOM_SCHEMA` populated
+3. `packages/picolet/picolet/validator.py` — `_SBOM_SCHEMA` populated
    with typed keys for `allow_licences`, `allow_dynamic`, `warn_unknown`,
    `fail_unknown`.
-4. `packages/picolet-cli/picolet/build_cmd.py` — step 10 wired in, calling
+4. `packages/picolet/picolet/build_cmd.py` — step 10 wired in, calling
    `emit_app_sbom` and `_handle_sbom_violations`.
 5. `packages/picolet-runtime/scripts/build-runtime.sh` — post-build step
    calling the generator CLI shim to emit the runtime `.cdx.json`.
@@ -474,8 +474,8 @@ inside the container.
 
 Mitigation options (developer evaluates in sequence):
 1. The container's entrypoint already sets `PYTHONPATH` to include
-   `packages/picolet-cli` (check first).
-2. Add `PYTHONPATH=$(pwd)/packages/picolet-cli` to the `python -m
+   `packages/picolet` (check first).
+2. Add `PYTHONPATH=$(pwd)/packages/picolet` to the `python -m
    picolet.sbom_gen` call in `build-runtime.sh`.
 3. Move the runtime SBOM emission step out of the container invocation
    entirely: have the build script call the generator from the *host*
@@ -580,9 +580,9 @@ in AD2.
 | `/home/anl/picolet/docs/v1-plan.md` §PH13 + §PH15 | Phase scope, deliverables, critical path (PH13 feeds PH15). |
 | `/home/anl/picolet/docs/sbom.md` | Component table, format decision (CycloneDX 1.5), LGPL relinking approach, build-time enforcement config shape, open questions. |
 | `/home/anl/picolet/CLAUDE.md` | Branch/commit policy, escalation policy, dependency policy (new native deps must enter `runtime.toml`). |
-| `/home/anl/picolet/packages/picolet-cli/picolet/build_cmd.py` | Pipeline step numbers; `resolved.sbom` hook point at line 181; `_find_repo_root` helper pattern; `_copy_webview2_loader` NuGet version string. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/validator.py` | `_SBOM_SCHEMA = {}` stub at line 54; `_ALLOWED_SECTIONS` at line 21; `_check_section` pattern for adding typed keys. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/runtime_resolver.py` | `ResolvedRuntime.sbom` field; `sbom_url` / `sbom_path` download logic (lines 283–356); `_find_repo_root` pattern. |
+| `/home/anl/picolet/packages/picolet/picolet/build_cmd.py` | Pipeline step numbers; `resolved.sbom` hook point at line 181; `_find_repo_root` helper pattern; `_copy_webview2_loader` NuGet version string. |
+| `/home/anl/picolet/packages/picolet/picolet/validator.py` | `_SBOM_SCHEMA = {}` stub at line 54; `_ALLOWED_SECTIONS` at line 21; `_check_section` pattern for adding typed keys. |
+| `/home/anl/picolet/packages/picolet/picolet/runtime_resolver.py` | `ResolvedRuntime.sbom` field; `sbom_url` / `sbom_path` download logic (lines 283–356); `_find_repo_root` pattern. |
 | `/home/anl/picolet/packages/picolet-runtime/mbm.toml` | PR list (7 entries) that feeds the MicroPython component notes. |
 | `/home/anl/picolet/docs/phases/PHASE_11_lvgl-renderer-linux.md` | Phase file format and section structure reference. |
 

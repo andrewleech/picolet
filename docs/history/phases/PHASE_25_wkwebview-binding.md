@@ -298,7 +298,7 @@ else:
 The macOS branch initialises the NSApplication and runs the NSRunLoop
 pump identically to the GTK pump pattern on Linux.
 
-### `packages/picolet-testing/picolet/testing/_harness.py` (modify)
+### `packages/picolet/picolet/testing/_harness.py` (modify)
 
 Update `_autodetect_browser`:
 ```python

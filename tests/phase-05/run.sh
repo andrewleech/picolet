@@ -23,7 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PICOLET="uv run $REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py"
+PICOLET="uv run $REPO_ROOT/packages/picolet/picolet/__main__.py"
 LINUX_RUNTIME="$REPO_ROOT/packages/picolet-runtime/build/picolet-runtime-linux-x64-cli"
 FIXTURE_DIR="$SCRIPT_DIR/fixtures/hello-cli"
 
@@ -503,8 +503,8 @@ echo "--- Group G: cross-target artifact naming ---"
 # G1 — linux-x64 artifact name has no .exe suffix.
 NAME="G1 linux-x64-artifact-no-exe"
 LINUX_ART="$(python3 -c "
-import sys; sys.path.insert(0, '$REPO_ROOT/packages/picolet-cli')
-from picolet_cli.runtime_resolver import _artifact_name
+import sys; sys.path.insert(0, '$REPO_ROOT/packages/picolet')
+from picolet.cli.runtime_resolver import _artifact_name
 print(_artifact_name('linux-x64', 'cli'))
 ")"
 if [[ "$LINUX_ART" == "picolet-runtime-linux-x64-cli" ]]; then
@@ -516,8 +516,8 @@ fi
 # G2 — windows-x64 artifact name has .exe suffix.
 NAME="G2 windows-x64-artifact-has-exe"
 WIN_ART="$(python3 -c "
-import sys; sys.path.insert(0, '$REPO_ROOT/packages/picolet-cli')
-from picolet_cli.runtime_resolver import _artifact_name
+import sys; sys.path.insert(0, '$REPO_ROOT/packages/picolet')
+from picolet.cli.runtime_resolver import _artifact_name
 print(_artifact_name('windows-x64', 'cli'))
 ")"
 if [[ "$WIN_ART" == "picolet-runtime-windows-x64-cli.exe" ]]; then

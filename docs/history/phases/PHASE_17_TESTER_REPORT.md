@@ -132,7 +132,7 @@ wrapping the existing functions as async command handlers.
 
 ### BUG-C — `AppHarness._spawn()` does not open stdin/stdout pipes for LVGL (Critical, FR-TEST-6)
 
-**File**: `packages/picolet-testing/picolet/testing/_harness.py:155-159`  
+**File**: `packages/picolet/picolet/testing/_harness.py:155-159`  
 **Root cause**: `_spawn()` calls `subprocess.Popen(cmd, env=..., stderr=subprocess.PIPE)`.
 `stdin` and `stdout` are inherited (not piped). `_lvgl_screenshot()`, `tap()`, and
 `key()` all write to `self._proc.stdin` and read from `self._proc.stdout`, which are
@@ -146,7 +146,7 @@ stdout=subprocess.PIPE` to Popen.
 
 ### BUG-D — `test_cmd.run()` always waits for inspector port, including for LVGL binaries (Critical, FR-TEST-4 LVGL path)
 
-**File**: `packages/picolet-cli/picolet_cli/test_cmd.py` (around line 285)  
+**File**: `packages/picolet/picolet/test_cmd.py` (around line 285)  
 **Root cause**: After resolving `browser = "lvgl"`, `test_cmd.run()` spawns the
 binary and unconditionally calls `_wait_for_port()`. LVGL binaries do not emit a
 `picolet:test-port=<N>` line (they use stdio, not an inspector port). The wait always

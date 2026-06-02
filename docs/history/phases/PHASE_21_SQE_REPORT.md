@@ -26,8 +26,8 @@ objects instead of strings. The O4 datetime test was fixed to load the
 vendored `tomllib.py` by file path via `importlib.util.spec_from_file_location`,
 bypassing the module cache.
 
-The `package-lock.json` found in the template (`packages/picolet-templates/
-picolet_templates/config-editor/package-lock.json`) is a confirmed implementation
+The `package-lock.json` found in the template (`packages/picolet/
+picolet.templates/config-editor/package-lock.json`) is a confirmed implementation
 bug. The file should not be committed to the template; users who run
 `picolet init --template config-editor` will receive a locked dependency tree
 from the dev's environment, defeating the portability of the scaffold.
@@ -192,7 +192,7 @@ from the dev's environment, defeating the portability of the scaffold.
 AssertionError: True is not false : package-lock.json must not be committed in the template
 ```
 
-`packages/picolet-templates/picolet_templates/config-editor/package-lock.json` exists.
+`packages/picolet/picolet/templates/config-editor/package-lock.json` exists.
 Per the PH20 `test_notes_app_structure.py` precedent (same test, same rule), this
 file should not be committed to the template directory. Users who scaffold a new
 app from this template will receive the dev's locked dependency tree.
@@ -247,7 +247,7 @@ This is unrelated to PH21.
 
 ### BUG-1: `package-lock.json` committed in config-editor template (SEVERITY: MEDIUM)
 
-**File:** `packages/picolet-templates/picolet_templates/config-editor/package-lock.json`
+**File:** `packages/picolet/picolet/templates/config-editor/package-lock.json`
 
 **Symptom:** `picolet init <name> --template config-editor` copies
 `package-lock.json` into the new project. Users get a lockfile pinned to
@@ -256,7 +256,7 @@ versions or platforms and defeats template portability.
 
 **Precedent:** The PH20 notes template does not include a `package-lock.json`
 (verified — `examples/notes/` has no lockfile). The fix is to delete
-`packages/picolet-templates/picolet_templates/config-editor/package-lock.json`
+`packages/picolet/picolet/templates/config-editor/package-lock.json`
 and add it to the template's `.gitignore` or the top-level `.gitignore`.
 
 **Test detecting this:** `TestTemplate::test_no_package_lock_json_in_template`

@@ -11,7 +11,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PICOLET="uv run $REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py"
+PICOLET="uv run $REPO_ROOT/packages/picolet/picolet/__main__.py"
 RUNTIME="$REPO_ROOT/packages/picolet-runtime/build/picolet-runtime-linux-x64-cli"
 WORKDIR="/tmp/picolet-ph03-test-$$"
 PASS=0

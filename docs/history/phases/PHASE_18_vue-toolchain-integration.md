@@ -31,7 +31,7 @@ existing app breaks.
 #### From v1 and PH17 (already landed)
 
 - `build_cmd._do_build` pipeline at
-  `packages/picolet-cli/picolet_cli/build_cmd.py:175` — steps 1–10 are
+  `packages/picolet/picolet/build_cmd.py:175` — steps 1–10 are
   the existing pipeline; PH18 inserts a new step after step 4 and
   before step 5 to run the npm frontend build when `[ui.frontend]`
   specifies a non-vanilla framework.
@@ -45,7 +45,7 @@ existing app breaks.
   emits `[ui]` including `root` and `index` into the romfs
   `picolet.toml`. No change needed; the emitted values correctly point
   the runtime at the packed Vue assets.
-- `dev_cmd.run` at `packages/picolet-cli/picolet_cli/dev_cmd.py:65` —
+- `dev_cmd.run` at `packages/picolet/picolet/dev_cmd.py:65` —
   the main loop. PH18 spawns a Vite child process alongside the
   existing watcher loop and cleans it up on exit via the same
   `_kill_child` pattern (extended to a process group to kill Vite's
@@ -56,17 +56,17 @@ existing app breaks.
   extends) and Vue source lives under `ui/src/` which is watched.
   Python-side changes still trigger the full rebuild; JS-side changes
   are handled by Vite HMR without a rebuild.
-- `_paths.py:_IGNORE_DIRS` at `packages/picolet-cli/picolet_cli/_paths.py:21`
+- `_paths.py:_IGNORE_DIRS` at `packages/picolet/picolet/_paths.py:21`
   — currently `{"target", ".picolet-cache", "__pycache__"}`. PH18 adds
   `"node_modules"` and `"dist"` so the watcher never crawls those trees.
 - `validator.py:_ALLOWED_SECTIONS` and `_UI_SCHEMA` at
-  `packages/picolet-cli/picolet_cli/validator.py:27, 41` — PH18 adds the
+  `packages/picolet/picolet/validator.py:27, 41` — PH18 adds the
   `[ui.frontend]` sub-table schema. Validator currently processes
   `[ui]` as a flat table; `[ui.frontend]` is a TOML dotted sub-table
   (`[ui.frontend]` → `data["ui"]["frontend"]`), so the validator
   needs a new schema dict and check block inside the `[ui]` handler.
 - `init_cmd._KNOWN_TEMPLATES` at
-  `packages/picolet-cli/picolet_cli/init_cmd.py:26` — PH18 adds
+  `packages/picolet/picolet/init_cmd.py:26` — PH18 adds
   `"hello-vue"`.
 - `init_cmd._TEXT_EXTENSIONS` at `init_cmd.py:154` — already includes
   `.ts`, `.toml`, `.json`, `.html`. `.vue` files need to be added for
@@ -78,7 +78,7 @@ existing app breaks.
   setting, or shipped as a hand-authored `.d.ts`). Hand-authored is
   correct here since the bridge is an IIFE injected at document-start,
   not a module — see Research F3.
-- `packages/picolet-testing/` and `AppHarness` from PH17 — used by
+- `packages/picolet/` and `AppHarness` from PH17 — used by
   `tests/phase-18/run.sh` to drive the Playwright invoke round-trip.
 - `window.picolet.__ready__` flag in `index.ts:200` (PH17) — already
   landed; the PH18 test harness waits on it.
@@ -208,9 +208,9 @@ and the runtime reads it.
 
 **F13 — `examples/with-vue/` is the authoritative source.** Per
 v1.1-plan.md conventions, `examples/<name>/` is the checked-in source
-tree; it is mirrored into `picolet_templates/` by a script in PH23. For
+tree; it is mirrored into `picolet.templates/` by a script in PH23. For
 PH18, the `hello-vue` template at
-`packages/picolet-templates/picolet_templates/hello-vue/` is maintained
+`packages/picolet/picolet/templates/hello-vue/` is maintained
 manually in sync with `examples/with-vue/`. PH23 automates this mirror.
 
 ---
@@ -329,7 +329,7 @@ Packs `dist/` into romfs at `[ui] root`.
 
 **Files to modify:**
 
-- `packages/picolet-cli/picolet_cli/build_cmd.py`:
+- `packages/picolet/picolet/build_cmd.py`:
   - Add `_run_frontend_build(data, app_root, verbose)` helper. Logic:
     - Read `frontend = data.get("ui", {}).get("frontend", {})`.
     - `framework = frontend.get("framework", "vanilla")`.
@@ -372,7 +372,7 @@ rebuild loop; the webview loads from `http://localhost:5173/` during dev.
 
 **Files to modify:**
 
-- `packages/picolet-cli/picolet_cli/dev_cmd.py`:
+- `packages/picolet/picolet/dev_cmd.py`:
   - In `run(args)`, after resolving `toml_path`/`data`, read
     `frontend = data.get("ui", {}).get("frontend", {})`.
     `framework = frontend.get("framework", "vanilla")`.
@@ -400,7 +400,7 @@ rebuild loop; the webview loads from `http://localhost:5173/` during dev.
     (one-line change; this file is shared by dev_cmd and build_cmd
     indirectly via watch path collection).
 
-- `packages/picolet-cli/picolet_cli/_paths.py`:
+- `packages/picolet/picolet/_paths.py`:
   - `_IGNORE_DIRS = frozenset({"target", ".picolet-cache", "__pycache__",
     "node_modules", "dist"})`.
 
@@ -502,7 +502,7 @@ increments.
 ready-to-build Vue 3 + Vite skeleton.
 
 **Files to create** (under
-`packages/picolet-templates/picolet_templates/hello-vue/`):
+`packages/picolet/picolet/templates/hello-vue/`):
 
 - Structurally identical to `examples/with-vue/` with `{{name}}`
   substituted for `"with-vue"` in:
@@ -517,13 +517,13 @@ ready-to-build Vue 3 + Vite skeleton.
 
 **Files to modify:**
 
-- `packages/picolet-cli/picolet_cli/init_cmd.py`:
+- `packages/picolet/picolet/init_cmd.py`:
   - `_KNOWN_TEMPLATES`: add `"hello-vue"`.
   - `_TEXT_EXTENSIONS`: add `".vue"`.
   - `add_parser`: update the `--template` help string to include
     `"hello-vue"`.
 
-- `packages/picolet-cli/picolet_cli/validator.py`:
+- `packages/picolet/picolet/validator.py`:
   - `_UI_SCHEMA`: add `"frontend": dict` (maps the sub-table key to its
     Python type; the existing `_check_section` will type-check it as a
     dict and not warn "unknown key").
@@ -574,7 +574,7 @@ This chunk is partly in the `package.json` scripts and partly in the
 **Files to modify:**
 
 - `examples/with-vue/package.json` and
-  `packages/picolet-templates/picolet_templates/hello-vue/package.json`:
+  `packages/picolet/picolet/templates/hello-vue/package.json`:
   - `"build": "vue-tsc --noEmit && vite build"` — typechecks before
     bundling. Failures abort the picolet build cleanly (non-zero exit
     from `npm run build` → `BuildFailed`).

@@ -100,9 +100,9 @@ avoid double-parsing toml and to keep process tree simple.
 
 | File | Action |
 |------|--------|
-| `packages/picolet-cli/picolet/run_cmd.py` | Create — `picolet run` subcommand |
-| `packages/picolet-cli/picolet/dev_cmd.py` | Create — `picolet dev` subcommand |
-| `packages/picolet-cli/picolet/__main__.py` | Modify — wire `run_cmd` + `dev_cmd` |
+| `packages/picolet/picolet/run_cmd.py` | Create — `picolet run` subcommand |
+| `packages/picolet/picolet/dev_cmd.py` | Create — `picolet dev` subcommand |
+| `packages/picolet/picolet/__main__.py` | Modify — wire `run_cmd` + `dev_cmd` |
 | `tests/phase-16/run.sh` | Create — PH16 test harness |
 | `docs/phases/PHASE_16_picolet-dev.md` | This file |
 

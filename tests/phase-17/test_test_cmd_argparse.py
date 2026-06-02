@@ -1,5 +1,5 @@
 """
-PH17 unit tests — picolet_cli.test_cmd: argument parsing and CLI wiring.
+PH17 unit tests — picolet.cli.test_cmd: argument parsing and CLI wiring.
 
 Covers:
   - The 'test' subcommand is registered in the top-level parser.
@@ -35,8 +35,8 @@ _CLI_PKG = _REPO_ROOT / "packages" / "picolet-cli"
 if str(_CLI_PKG) not in sys.path:
     sys.path.insert(0, str(_CLI_PKG))
 
-from picolet_cli import test_cmd
-from picolet_cli.__main__ import _build_parser
+from picolet.cli import test_cmd
+from picolet.cli.__main__ import _build_parser
 
 
 # ---------------------------------------------------------------------------

@@ -322,10 +322,10 @@ it could in principle occur naturally inside the runtime's `.rodata`,
 | `/home/anl/picolet/docs/phases/PHASE_00_verify-mbm-baseline.md` | rerere cache + integration branch flow PH03 inherits. |
 | `/home/anl/picolet/docs/phases/PHASE_01_picolet-runtime-linux-x64-cli.md` | Variant config, build-runtime.sh shape, how the test romfs is currently embedded at link time. PH03's amendment lands as a new file in the same overlay tree. |
 | `/home/anl/picolet/docs/phases/PHASE_02_picolet-cli-skeleton.md` | argparse subcommand wiring pattern; validator + init module layout; hello-cli template stub. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/__main__.py` | argparse wiring — `build_cmd.add_parser(subparsers)` slots in alongside `init_cmd` and `validate_cmd`. |
-| `/home/anl/picolet/packages/picolet-cli/picolet/init_cmd.py` | Module shape PH03's `build_cmd.py` follows (`add_parser` + `run`). |
-| `/home/anl/picolet/packages/picolet-cli/picolet/validator.py` | Used by `build_cmd.py` for the FR-CLI-8 pre-flight check before any build work. |
-| `/home/anl/picolet/packages/picolet-templates/picolet_templates/hello-cli/{picolet.toml,src/main.py}` | The template body PH03 builds against; `main.py` already prints `Hello from {{name}}`, which is the gate-5 distinctive output. |
+| `/home/anl/picolet/packages/picolet/picolet/__main__.py` | argparse wiring — `build_cmd.add_parser(subparsers)` slots in alongside `init_cmd` and `validate_cmd`. |
+| `/home/anl/picolet/packages/picolet/picolet/init_cmd.py` | Module shape PH03's `build_cmd.py` follows (`add_parser` + `run`). |
+| `/home/anl/picolet/packages/picolet/picolet/validator.py` | Used by `build_cmd.py` for the FR-CLI-8 pre-flight check before any build work. |
+| `/home/anl/picolet/packages/picolet/picolet/templates/hello-cli/{picolet.toml,src/main.py}` | The template body PH03 builds against; `main.py` already prints `Hello from {{name}}`, which is the gate-5 distinctive output. |
 | `/home/anl/picolet/packages/picolet-runtime/scripts/build-runtime.sh` | step [5/8] currently bakes a **test** romfs into the runtime via `ROMFS_IMG=`. PH03 amends it to bake the empty romfs instead, restoring the "blank-slate runtime" the user expects. |
 | `/home/anl/picolet/packages/picolet-runtime/build/picolet-runtime-linux-x64-cli` | The PH01-built runtime — 620 848 bytes, dynamic-PIE, dynamically linked against libc/libm/libpthread/libdl per `ldd`. Section header table at file offset `0x97000`; trailing append is safe. |
 | `/home/anl/picolet/packages/picolet-runtime/micropython/ports/unix/main.c` lines 964-1057 | The `MICROPY_VFS_ROM_IOCTL && !MICROPY_VFS_ROM_IOCTL_USE_EXTERNAL` block currently inlining `load_romfs_image()` and `mp_vfs_rom_ioctl()`. PH03 amends this block to delegate to the trailer-detection function before falling back to `MICROPY_ROMFS_EMBEDDED`. |
@@ -345,9 +345,9 @@ it could in principle occur naturally inside the runtime's `.rodata`,
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.c` | Trailer detection + CRC32 helper, compiled into the variant. Provides `picolet_load_romfs_trailer(const uint8_t **buf_out, size_t *size_out) → bool`. Returns true on hit, false on miss. Port-agnostic (uses only libc; argv[0] passed in via init). |
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/romfs_trailer.h` | Header for the above; the unix `main.c` and the windows `vfs_rom_ioctl.c` both `#include` it. Exports the trailer struct, the magic constant, and the loader function. |
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/mpconfigvariant_main_c_patch.h` | The minimum delta to `main.c`'s `load_romfs_image()` to call `picolet_load_romfs_trailer()` first. **Not a real patch file** — it's a header included from the bottom of `mpconfigvariant.h` that re-`#define`s the symbol `load_romfs_image` to a wrapper. See "Avoiding a `main.c` patch" below. |
-| `packages/picolet-cli/picolet/build_cmd.py` | The `picolet build` subcommand. Roughly 250 lines: parse args → load + validate toml → resolve runtime variant + target → compile `.py`→`.mpy` → stage romfs → invoke `mpremote romfs build` → append + trailer → write to `target/<target>/<app.name>`. |
-| `packages/picolet-cli/picolet/runtime_resolver.py` | Resolve the runtime artifact for a given (target, variant) tuple. PH03 implementation: hardcoded `packages/picolet-runtime/build/picolet-runtime-{target}-{variant}` with a `TODO(PH05)` comment for the cache + download path. Single function `resolve_runtime(target, variant) → Path` that raises `RuntimeNotFound` if absent. |
-| `packages/picolet-cli/picolet/_trailer.py` | Python-side encoder for the 24-byte trailer. Single function `pack_trailer(payload: bytes) → bytes`. Mirrors the C struct exactly. Pure-stdlib `struct` + `zlib.crc32`. Importable by tests for round-trip verification. |
+| `packages/picolet/picolet/build_cmd.py` | The `picolet build` subcommand. Roughly 250 lines: parse args → load + validate toml → resolve runtime variant + target → compile `.py`→`.mpy` → stage romfs → invoke `mpremote romfs build` → append + trailer → write to `target/<target>/<app.name>`. |
+| `packages/picolet/picolet/runtime_resolver.py` | Resolve the runtime artifact for a given (target, variant) tuple. PH03 implementation: hardcoded `packages/picolet-runtime/build/picolet-runtime-{target}-{variant}` with a `TODO(PH05)` comment for the cache + download path. Single function `resolve_runtime(target, variant) → Path` that raises `RuntimeNotFound` if absent. |
+| `packages/picolet/picolet/_trailer.py` | Python-side encoder for the 24-byte trailer. Single function `pack_trailer(payload: bytes) → bytes`. Mirrors the C struct exactly. Pure-stdlib `struct` + `zlib.crc32`. Importable by tests for round-trip verification. |
 | `tests/phase-03/run.sh` | Tester harness exercising gates 1–14. Mirrors the shape of `tests/phase-02/run.sh`. |
 | `tests/phase-03/fixtures/hello-cli-with-assets/` | Fixture app for gate 8 — includes an `assets/` directory and `[romfs] include = ["assets"]` to verify FR-BP-4's include-directory path. |
 
@@ -358,8 +358,8 @@ it could in principle occur naturally inside the runtime's `.rodata`,
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/mpconfigvariant.h` | Add `#define MICROPY_VFS_ROM_TRAILER (1)` macro and (at end of file) `#include "mpconfigvariant_main_c_patch.h"`. |
 | `packages/picolet-runtime/overlay/ports/unix/variants/picolet-cli/mpconfigvariant.mk` | Append `romfs_trailer.c` to `SRC_C` for the variant build. The unix port's Makefile honours per-variant `SRC_C` extensions; the existing standard/minimal variants use this pattern. |
 | `packages/picolet-runtime/scripts/build-runtime.sh` | step [5/8]: replace the default test romfs with an **empty** romfs (just the 4-byte `d2 cd 31 00` sentinel — `python3 -m mpremote romfs build empty_dir` where empty_dir contains a single file `.empty`). Reason: the runtime PH03 ships must come up cleanly with no user romfs. Existing `--test-romfs` flag continues to work for PH01's own smoke tests. step [7a]: assert `! strings $ARTIFACT \| grep -F PYLT` to catch false-positive magic. |
-| `packages/picolet-cli/picolet/__main__.py` | Add `from picolet import build_cmd; build_cmd.add_parser(subparsers)`. One-line change in `_build_parser()`. |
-| `packages/picolet-cli/pyproject.toml` | Already lists `picolet-cli` package. If the build pipeline imports anything new (it shouldn't — stdlib-only), no edit needed. PEP-723 inline script block in `__main__.py` also needs no edit. |
+| `packages/picolet/picolet/__main__.py` | Add `from picolet import build_cmd; build_cmd.add_parser(subparsers)`. One-line change in `_build_parser()`. |
+| `packages/picolet/pyproject.toml` | Already lists `picolet-cli` package. If the build pipeline imports anything new (it shouldn't — stdlib-only), no edit needed. PEP-723 inline script block in `__main__.py` also needs no edit. |
 
 #### No-touch (called out)
 
@@ -615,20 +615,20 @@ All from `/home/anl/picolet` on `dev`.
    PH01's gate 4 with the empty fixture).
 
 6. **Land the CLI side.**
-   - Write `packages/picolet-cli/picolet/_trailer.py`.
-   - Write `packages/picolet-cli/picolet/runtime_resolver.py` (hardcoded
+   - Write `packages/picolet/picolet/_trailer.py`.
+   - Write `packages/picolet/picolet/runtime_resolver.py` (hardcoded
      path + `TODO(PH05)` markers).
-   - Write `packages/picolet-cli/picolet/build_cmd.py`.
+   - Write `packages/picolet/picolet/build_cmd.py`.
    - Add the `build_cmd.add_parser(subparsers)` line to
      `__main__.py:_build_parser()`.
 
 7. **End-to-end smoke test.**
    ```
    cd /tmp && rm -rf hello-cli-test
-   uv run /home/anl/picolet/packages/picolet-cli/picolet/__main__.py \
+   uv run /home/anl/picolet/packages/picolet/picolet/__main__.py \
        init hello-cli-test --template hello-cli
    cd hello-cli-test
-   uv run /home/anl/picolet/packages/picolet-cli/picolet/__main__.py build
+   uv run /home/anl/picolet/packages/picolet/picolet/__main__.py build
    ./target/linux-x64/hello-cli-test
    # expect: Hello from hello-cli-test
    ```
@@ -658,11 +658,11 @@ codes and a final pass/fail line.
 ```
 rm -rf /tmp/hello-cli-test
 cd /tmp
-uv run /home/anl/picolet/packages/picolet-cli/picolet/__main__.py \
+uv run /home/anl/picolet/packages/picolet/picolet/__main__.py \
     init hello-cli-test --template hello-cli
 
 cd /tmp/hello-cli-test
-uv run /home/anl/picolet/packages/picolet-cli/picolet/__main__.py build
+uv run /home/anl/picolet/packages/picolet/picolet/__main__.py build
 
 test -x target/linux-x64/hello-cli-test
 out="$(./target/linux-x64/hello-cli-test)"
@@ -674,11 +674,11 @@ test "$out" = "Hello from hello-cli-test"
 ```
 cd /tmp/hello-cli-test
 rm -rf target
-uv run /home/anl/picolet/packages/picolet-cli/picolet/__main__.py build
+uv run /home/anl/picolet/packages/picolet/picolet/__main__.py build
 cp target/linux-x64/hello-cli-test /tmp/out1
 
 rm -rf target
-uv run /home/anl/picolet/packages/picolet-cli/picolet/__main__.py build
+uv run /home/anl/picolet/packages/picolet/picolet/__main__.py build
 cmp /tmp/out1 target/linux-x64/hello-cli-test
 ```
 
@@ -767,7 +767,7 @@ scrum-developer's detailed write-up lives at
   the planner's "header-include" pattern was incompatible with
   `rebuild-integration.sh`'s copy-overlay model, so the patched
   main.c is shipped verbatim (commit `e161c13`).
-- `picolet build` subcommand in `packages/picolet-cli/picolet/build_cmd.py`
+- `picolet build` subcommand in `packages/picolet/picolet/build_cmd.py`
   (480 lines, 10 steps): runtime resolve → mpy-cross version check →
   variant inference → .py→.mpy compile → asset include →  mtime zero
   for FR-BP-6 → romfs build via mpremote → trailer append → output.

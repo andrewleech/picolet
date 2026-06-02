@@ -176,7 +176,7 @@ containing exactly one line, e.g. `runtime-v0.1.0`.
 The CLI reads this file at runtime using:
 
 ```python
-here = Path(__file__).parent          # packages/picolet-cli/picolet/
+here = Path(__file__).parent          # packages/picolet/picolet/
 repo_root = here.parent.parent.parent
 tag_file = repo_root / "packages" / "picolet-runtime" / "RUNTIME_TAG"
 ```
@@ -318,7 +318,7 @@ helper it calls), not scattered across `build_cmd.py`.
 1. **`packages/picolet-runtime/RUNTIME_TAG`** — plain text file with the
    current default tag, e.g. `runtime-v0.1.0`.
 
-2. **`packages/picolet-cli/picolet/runtime_resolver.py`** — rewritten to
+2. **`packages/picolet/picolet/runtime_resolver.py`** — rewritten to
    implement the full decision-tree. Replaces the PH03 hardcoded-path
    stub. Key public surface:
 
@@ -342,12 +342,12 @@ helper it calls), not scattered across `build_cmd.py`.
    ) -> ResolvedRuntime: ...
    ```
 
-3. **`packages/picolet-cli/picolet/build_cmd.py`** — add `--from-source` and
+3. **`packages/picolet/picolet/build_cmd.py`** — add `--from-source` and
    `--no-cache` to `add_parser()`. Update `run()` to pass the new args to
    `resolve_runtime()`. Replace the direct `resolve_runtime(target, variant)`
    call with the new signature.
 
-4. **`packages/picolet-cli/picolet/validator.py`** — extend TOML schema
+4. **`packages/picolet/picolet/validator.py`** — extend TOML schema
    validation to accept an optional `[runtime]` table with `source` (str)
    and `tag` (str) keys.
 

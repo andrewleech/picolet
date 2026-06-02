@@ -153,7 +153,7 @@ else:
 The CLI's runtime resolver (built in PH05) downloads pre-built artifacts
 from GitHub Releases. Adding `macos-x64` and `macos-arm64` as valid
 targets requires updating the target validation list in
-`packages/picolet-cli/picolet_cli/` (the exact file depends on the
+`packages/picolet/picolet/` (the exact file depends on the
 implementation). The artifact names follow the existing pattern, so no
 resolver logic changes are needed — only the allowed-target list.
 
@@ -250,12 +250,12 @@ perf-check-macos:
         retention-days: 90
 ```
 
-### `packages/picolet-cli/picolet_cli/` (target validation)
+### `packages/picolet/picolet/` (target validation)
 
 Add `"macos-x64"` and `"macos-arm64"` to the allowed target list.
 The exact file depends on the v1/PH05 implementation — find it by
 searching for `"linux-x64"` and `"windows-x64"` in
-`packages/picolet-cli/`.
+`packages/picolet/`.
 
 ### `CLAUDE.md`
 

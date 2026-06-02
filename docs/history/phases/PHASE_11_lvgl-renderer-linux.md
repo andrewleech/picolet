@@ -510,7 +510,7 @@ same pattern as PH07's `MockGtkBackend`.
 
 **17. Land the `hello-lvgl-min` fixture and the gate-6 e2e build.**
 ```
-./packages/picolet-cli/.../picolet build \
+./packages/picolet/.../picolet build \
     tests/phase-11/fixtures/hello-lvgl-min/
 xvfb-run -a timeout 5 ./target/linux-x64/hello-lvgl-min
 ```
@@ -679,7 +679,7 @@ only when the webview path is selected).
   PH15's workflow.
 - **`hello-lvgl` template registration in `picolet init`** — PH14. PH11
   ships only the test fixture under `tests/phase-11/fixtures/`; PH14
-  promotes it (or a richer variant) to `packages/picolet-templates/`.
+  promotes it (or a richer variant) to `packages/picolet/`.
 - **Live reload, additional LVGL widgets beyond the hello-world set,
   themes, fonts beyond `lv_font_default`** — out of v1 scope entirely.
 - **Multi-window LVGL apps** — out of scope; SDL2 driver is one

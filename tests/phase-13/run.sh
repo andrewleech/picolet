@@ -35,8 +35,8 @@ PKG_ROOT="$REPO_ROOT/packages/picolet-runtime"
 BUILD_DIR="$PKG_ROOT/build"
 RUNTIME_CLI="$BUILD_DIR/picolet-runtime-linux-x64-cli"
 RUNTIME_SBOM="$BUILD_DIR/picolet-runtime-linux-x64-cli.cdx.json"
-PICOLET="PYTHONPATH=$REPO_ROOT/packages/picolet-cli python3 $REPO_ROOT/packages/picolet-cli/picolet_cli/__main__.py"
-SBOM_GEN="PYTHONPATH=$REPO_ROOT/packages/picolet-cli python3 -m picolet_cli.sbom_gen"
+PICOLET="PYTHONPATH=$REPO_ROOT/packages/picolet python3 $REPO_ROOT/packages/picolet/picolet/__main__.py"
+SBOM_GEN="PYTHONPATH=$REPO_ROOT/packages/picolet python3 -m picolet.cli.sbom_gen"
 
 SKIP_BUILD=0
 SKIP_NON_REGRESSION=0
@@ -177,7 +177,7 @@ cd "$REPO_ROOT"
 
 echo "[Gate 5] app SBOM is a superset of runtime SBOM"
 if [[ -f "$RUNTIME_SBOM" && -f "$APP_SBOM" ]]; then
-    if PYTHONPATH="$REPO_ROOT/packages/picolet-cli" \
+    if PYTHONPATH="$REPO_ROOT/packages/picolet" \
         python3 "$SCRIPT_DIR/test_sbom_union.py" "$RUNTIME_SBOM" "$APP_SBOM"; then
         pass 5 "app SBOM is a superset of runtime SBOM"
     else

@@ -214,7 +214,7 @@ def _resolve_binary(args) -> Path | None:
 
     # Fall back to picolet.toml resolution (same as run_cmd).
     try:
-        from picolet_cli._paths import resolve_app
+        from picolet.cli._paths import resolve_app
         _, _, _, binary_path = resolve_app(args)
         if binary_path.exists():
             return binary_path
@@ -415,8 +415,8 @@ def run(args) -> int:
     if not args.no_build:
         # Rebuild if needed (same freshness logic as run_cmd).
         try:
-            from picolet_cli._paths import resolve_app, sources_newer_than
-            from picolet_cli import build_cmd
+            from picolet.cli._paths import resolve_app, sources_newer_than
+            from picolet.cli import build_cmd
             _, data, _, binary_path = resolve_app(args)
             if not binary_path.exists() or sources_newer_than(
                 binary_path.parent.parent.parent / "picolet.toml", data, binary_path

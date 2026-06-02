@@ -77,10 +77,10 @@ Evidence:
 
 Evidence:
 
-- `packages/picolet-testing/picolet/testing/_harness.py:128-150` — chromium path calls `attach_chromium(port)` and returns a Playwright `Page`; webkit path calls `attach_webkit(port)` and returns a `WebKitPage` duck type.
-- `packages/picolet-testing/picolet/testing/_webkit.py:170-314` — `WebKitPage` class exposes exactly the 8 required methods: `goto` (190), `wait_for_selector` (194), `screenshot` (224), `evaluate` (242), `click` (250), `type` (267), `fill` (284), `close` (296). Any method not listed raises `NotImplementedError` via `__getattr__` at line 185.
-- `packages/picolet-testing/picolet/testing/_chromium.py` wraps Playwright for the chromium path, returning the literal Playwright `Page`.
-- The CLI entry point at `packages/picolet-cli/picolet_cli/test_cmd.py:490-547` imports `AppHarness` and uses it for `--screenshot` and `--run` modes. This is the CLI entry point test code calls into.
+- `packages/picolet/picolet/testing/_harness.py:128-150` — chromium path calls `attach_chromium(port)` and returns a Playwright `Page`; webkit path calls `attach_webkit(port)` and returns a `WebKitPage` duck type.
+- `packages/picolet/picolet/testing/_webkit.py:170-314` — `WebKitPage` class exposes exactly the 8 required methods: `goto` (190), `wait_for_selector` (194), `screenshot` (224), `evaluate` (242), `click` (250), `type` (267), `fill` (284), `close` (296). Any method not listed raises `NotImplementedError` via `__getattr__` at line 185.
+- `packages/picolet/picolet/testing/_chromium.py` wraps Playwright for the chromium path, returning the literal Playwright `Page`.
+- The CLI entry point at `packages/picolet/picolet/test_cmd.py:490-547` imports `AppHarness` and uses it for `--screenshot` and `--run` modes. This is the CLI entry point test code calls into.
 
 Notes: FR-TEST-3 specifies "For Chromium this is the literal Playwright Page; for WebKit this is a Picolet-supplied duck" — both arms confirmed. On WSL2 headless with a manual Xvfb display (not the xvfb-run fallback), the WebKit inspector attachment is skipped and `page` is set to `None` (`_harness.py:132-137`); xwd screenshot is used instead. This is a documented environmental constraint, not a spec violation.
 
@@ -92,7 +92,7 @@ Notes: FR-TEST-3 specifies "For Chromium this is the literal Playwright Page; fo
 
 Evidence:
 
-- `packages/picolet-cli/picolet_cli/test_cmd.py:382-565` — `picolet test --screenshot PATH BINARY` spawns child with `PICOLET_TEST_MODE=1` (line 383), waits for `picolet:test-port=<N>` on stderr (lines 454-471), attaches AppHarness with the pre-known port (line 512), calls `harness.screenshot(args.screenshot)` (line 521).
+- `packages/picolet/picolet/test_cmd.py:382-565` — `picolet test --screenshot PATH BINARY` spawns child with `PICOLET_TEST_MODE=1` (line 383), waits for `picolet:test-port=<N>` on stderr (lines 454-471), attaches AppHarness with the pre-known port (line 512), calls `harness.screenshot(args.screenshot)` (line 521).
 - Xvfb integration: `test_cmd.py:390-419` — when `$DISPLAY` is unset on Linux, starts Xvfb directly (`_start_xvfb` at line 230-242) on a free display number, sets `DISPLAY` and `GDK_BACKEND=x11` in the child env, unsets `WAYLAND_DISPLAY`. Fallback to `xvfb-run` wrapper when `Xvfb` binary is absent (line 323).
 - AppHarness also spawns Xvfb in `_harness.py:206-242` when `_running_proc` is not pre-supplied.
 - Spec: "Headless via xvfb on Linux; native window on Windows." — Linux xvfb path confirmed; Windows path relies on headed window via WSL interop (consistent with spec and v1.1 plan).
@@ -105,10 +105,10 @@ Evidence:
 
 Evidence:
 
-- `packages/picolet-testing/picolet/testing/__init__.py:15` — `from picolet.testing._harness import AppHarness; __all__ = ["AppHarness"]`.
-- `packages/picolet-testing/picolet/testing/_harness.py:49-612` — `AppHarness` class: `__init__` (70-101) accepts `binary`, `browser`, `env`, `args`, `timeout`; `start()` (107-157) spawns or reuses a process, waits for port, attaches page, waits for `window.picolet.__ready__`; `screenshot(path)` (420-434); `stop()` (568-601) cleans up process and Xvfb.
+- `packages/picolet/picolet/testing/__init__.py:15` — `from picolet.testing._harness import AppHarness; __all__ = ["AppHarness"]`.
+- `packages/picolet/picolet/testing/_harness.py:49-612` — `AppHarness` class: `__init__` (70-101) accepts `binary`, `browser`, `env`, `args`, `timeout`; `start()` (107-157) spawns or reuses a process, waits for port, attaches page, waits for `window.picolet.__ready__`; `screenshot(path)` (420-434); `stop()` (568-601) cleans up process and Xvfb.
 - Supports async context manager protocol (`__aenter__`/`__aexit__` at 608-611).
-- `pyproject.toml:3-6` lists `packages/picolet-testing` as a workspace member.
+- `pyproject.toml:3-6` lists `packages/picolet` as a workspace member.
 
 ---
 
@@ -118,7 +118,7 @@ Evidence:
 
 Evidence:
 
-- `packages/picolet-testing/picolet/testing/_harness.py:141-148` — the LVGL path sets `self.page = None` and calls `_lvgl_wait_ready()` which sends a `__test__.ping` request over stdin and waits for "pong" reply.
+- `packages/picolet/picolet/testing/_harness.py:141-148` — the LVGL path sets `self.page = None` and calls `_lvgl_wait_ready()` which sends a `__test__.ping` request over stdin and waits for "pong" reply.
 - `_harness.py:548-562` — `tap()` and `key()` send JSON requests over `self._proc.stdin`.
 - `_harness.py:521-546` — `_lvgl_screenshot()` sends `__test__.snapshot` and decodes the base64 PNG reply.
 - The harness shape is the same as the webview path: spawn → wait-ready (`_lvgl_wait_ready`) → drive → assert → terminate. FR-TEST-6 "swapping the Playwright driver for the LVGL-side `_test` API" is met; the API surface (`tap`, `key`, `screenshot`) lives on the AppHarness itself rather than on a `page` attribute for the LVGL path.
@@ -131,9 +131,9 @@ Evidence:
 
 Evidence:
 
-- `packages/picolet-templates/picolet_templates/hello-vue/` — template directory exists with `picolet.toml`, `package.json`, `vite.config.ts`, `src/`, `ui/`.
-- `packages/picolet-cli/picolet_cli/init_cmd.py:26` — `"hello-vue"` in `_KNOWN_TEMPLATES`.
-- `packages/picolet-cli/picolet_cli/init_cmd.py:69-71` — `--list-templates` output includes `hello-vue` (confirmed live: `uv run picolet init --list-templates` lists it).
+- `packages/picolet/picolet/templates/hello-vue/` — template directory exists with `picolet.toml`, `package.json`, `vite.config.ts`, `src/`, `ui/`.
+- `packages/picolet/picolet/init_cmd.py:26` — `"hello-vue"` in `_KNOWN_TEMPLATES`.
+- `packages/picolet/picolet/init_cmd.py:69-71` — `--list-templates` output includes `hello-vue` (confirmed live: `uv run picolet init --list-templates` lists it).
 - Template uses Vue 3 + Vite + TypeScript; `package.json` has `"build": "vue-tsc --noEmit && vite build"`. `picolet build` works for Vue apps via the `_run_frontend_build` step.
 
 ---
@@ -144,7 +144,7 @@ Evidence:
 
 Evidence:
 
-- `packages/picolet-cli/picolet_cli/dev_cmd.py:72-191` — when `[ui.frontend].framework != "vanilla"`, reads `dev_url` from `frontend.get("dev_url", "http://localhost:5173/")` (line 79), spawns `npm run dev` as a subprocess in a new session (line 181-186) before the initial build.
+- `packages/picolet/picolet/dev_cmd.py:72-191` — when `[ui.frontend].framework != "vanilla"`, reads `dev_url` from `frontend.get("dev_url", "http://localhost:5173/")` (line 79), spawns `npm run dev` as a subprocess in a new session (line 181-186) before the initial build.
 - Child process receives `PICOLET_DEV_URL=<dev_url>` in its env (line 165), which the runtime reads at `packages/picolet-runtime/python/picolet_ui/_app.py:224` — if set, navigates the webview to the Vite dev server URL instead of the romfs path (lines 263-270 for Linux, 232-239 for Windows).
 - Vite process is killed cleanly via `SIGTERM` to the process group (POSIX) on exit (`dev_cmd.py:107-143`).
 - After `picolet build`, the Vite `dist/` is packed into romfs via `_copy_dist_to_ui_root` (`build_cmd.py:537-576`) so production path loads from `/rom/ui/`.
@@ -170,7 +170,7 @@ Evidence:
 
 Evidence:
 
-- `packages/picolet-cli/picolet_cli/build_cmd.py:265-268` — `_run_frontend_build(data, app_root, args.verbose)` is called at step 4b, before mpy-cross compilation and after runtime resolution.
+- `packages/picolet/picolet/build_cmd.py:265-268` — `_run_frontend_build(data, app_root, args.verbose)` is called at step 4b, before mpy-cross compilation and after runtime resolution.
 - `build_cmd.py:480-534` — `_run_frontend_build()`: reads `[ui.frontend].framework`; returns early if `"vanilla"` (line 495); checks `npm` is on PATH (line 498); runs `npm install --prefer-offline` (line 511-516); then runs `build_cmd_str = frontend.get("build_cmd", "npm run build")` (line 518).
 - `build_cmd.py:537-576` — `_copy_dist_to_ui_root()`: reads `dist_dir` from `frontend.get("dist_dir", "dist")` (line 556), copies `app_root/dist/` into `romfs_root/<ui_root>/` (line 570).
 - Detection is purely via `package.json`+`picolet.toml [ui.frontend]` presence — no extra subcommand required.
@@ -183,7 +183,7 @@ Evidence:
 
 Evidence:
 
-- `packages/picolet-cli/picolet_cli/validator.py:51-62` — `_UI_FRONTEND_SCHEMA` defines `framework: str`, `build_cmd: str`, `dist_dir: str`, `dev_url: str`. `_UI_FRONTEND_FRAMEWORK_VALUES = {"vanilla", "vue", "react"}` (line 60-62).
+- `packages/picolet/picolet/validator.py:51-62` — `_UI_FRONTEND_SCHEMA` defines `framework: str`, `build_cmd: str`, `dist_dir: str`, `dev_url: str`. `_UI_FRONTEND_FRAMEWORK_VALUES = {"vanilla", "vue", "react"}` (line 60-62).
 - `validator.py:41-48` — `_UI_SCHEMA` includes `"frontend": dict` so the sub-table is not flagged as an unknown key.
 - `examples/pydfu/picolet.toml:11-15` confirms the `[ui.frontend]` table with all four keys: `framework = "vue"`, `build_cmd = "npm run build"`, `dist_dir = "dist"`, `dev_url = "http://localhost:5173/"`.
 - Default is `"vanilla"` (`build_cmd.py:494`); v1 templates have no `[ui.frontend]` table and continue to work unchanged.

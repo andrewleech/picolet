@@ -55,9 +55,9 @@ required.
 #### From PH17 (already landed)
 
 - `picolet.testing.AppHarness` at
-  `packages/picolet-testing/picolet/testing/_harness.py` — the Playwright
+  `packages/picolet/picolet/testing/_harness.py` — the Playwright
   test driver used by `examples/pydfu/tests/`.
-- `picolet test --screenshot` CLI at `packages/picolet-cli/picolet_cli/test_cmd.py`
+- `picolet test --screenshot` CLI at `packages/picolet/picolet/test_cmd.py`
   — the screenshot capture pipeline.
 - `window.picolet.__ready__ === true` contract (set in `picolet-bridge-js`
   `index.ts` post-PH17) — AppHarness waits on this before driving.
@@ -77,7 +77,7 @@ required.
 #### What PH23 needs from PH19
 
 - `examples/pydfu/` present and buildable — PH23's mirror script copies
-  it into `packages/picolet-templates/picolet_templates/pydfu/`.
+  it into `packages/picolet/picolet/templates/pydfu/`.
 - `examples/pydfu/screenshots/` non-empty — PH23's CI screenshot job
   validates these exist.
 
@@ -174,7 +174,7 @@ files in `public/` (they are not processed, just copied). No extra config.
 **F7 — `init_cmd.py` `--template pydfu` wiring.**
 `init_cmd._KNOWN_TEMPLATES` already includes `"hello-vue"`. PH19 adds
 `"pydfu"`. The template dir lives at
-`packages/picolet-templates/picolet_templates/pydfu/`. The `_copy_template`
+`packages/picolet/picolet/templates/pydfu/`. The `_copy_template`
 function already handles `.vue` and `.woff2` (binary copy for non-text
 extensions). Font files are byte-copied correctly. The `{{name}}`
 substitution applies to `.py`, `.toml`, `.ts`, `.vue`, `.html`, `.json`
@@ -922,7 +922,7 @@ the pydfu app with `{{name}}` substituted.
 
 **Files to create:**
 
-- `packages/picolet-templates/picolet_templates/pydfu/` — structurally identical
+- `packages/picolet/picolet/templates/pydfu/` — structurally identical
   to `examples/pydfu/` with `{{name}}` in the appropriate places:
   - `picolet.toml`: `name = "{{name}}"`, window title `"{{name}}"`.
   - `package.json`: `"name": "{{name}}"`.
@@ -934,11 +934,11 @@ the pydfu app with `{{name}}` substituted.
 
 **Files to modify:**
 
-- `packages/picolet-cli/picolet_cli/init_cmd.py`:
+- `packages/picolet/picolet/init_cmd.py`:
   - `_KNOWN_TEMPLATES`: add `"pydfu"`.
   - `add_parser` help string: add `"pydfu"` to the listed templates.
 
-**Note:** Per the PH23 convention, the `packages/picolet-templates/pydfu/`
+**Note:** Per the PH23 convention, the `packages/picolet/pydfu/`
 copy is maintained manually until PH23's mirror script automates it. The
 `examples/pydfu/` copy is the authoritative source; changes there must be
 manually reflected in the template.

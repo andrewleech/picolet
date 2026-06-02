@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from picolet_cli.validator import validate_toml
+from picolet.cli.validator import validate_toml
 
 
 _VALIDATE_EPILOG = """\

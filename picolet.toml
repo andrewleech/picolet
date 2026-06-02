@@ -6,8 +6,8 @@
 [workspace]
 name = "picolet"
 packages = [
-    "packages/picolet-cli",
+    "packages/picolet",
     "packages/picolet-runtime",
     "packages/picolet-bridge-js",
-    "packages/picolet-templates",
+    "packages/picolet",
 ]
