@@ -74,9 +74,13 @@ if ! git -C "$SUBMODULE" config --get remote.origin.fetch | grep -q 'pull.*head'
     git -C "$SUBMODULE" fetch origin
 fi
 
-# Pre-create local branches for each PR.
-echo "[0/2] Creating local branches for the seven PRs"
-for pr_branch in pr/lib-pyusb-windows pr/mkrules-exe-fix pr/mkrules-frozen-str pr/gc-add-heap pr/ports-windows-ffi pr/unix-windows-romfs pr/ports-windows-variant-overrides; do
+# Pre-create local branches for every branch listed in mbm.toml.
+# Previously hard-coded — kept drifting out of sync when new branches
+# were added (e.g. pr/windows-extra-src-c, manifest_c_module).  Now
+# discovered from the same source-of-truth the merge loop reads below.
+echo "[0/2] Creating local branches for the branches listed in mbm.toml"
+mapfile -t ALL_BRANCHES < <(grep -E '^name = "' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
+for pr_branch in "${ALL_BRANCHES[@]}"; do
     if ! git -C "$SUBMODULE" show-ref --quiet "refs/heads/$pr_branch"; then
         git -C "$SUBMODULE" branch "$pr_branch" "origin/$pr_branch" 2>/dev/null || true
     fi
@@ -112,7 +116,11 @@ echo "[1/2] Compose integration_update from mbm.toml PR branches"
 
 git -C "$SUBMODULE" checkout -B integration_update upstream/master
 
-mapfile -t PR_BRANCHES < <(grep -E '^name = "pr/' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
+# Read all branch names from mbm.toml, not just those prefixed with `pr/`.
+# Branches like `manifest_c_module` (upstream micropython PRs we carry as
+# named branches on our fork) don't fit the `pr/...` convention but still
+# need to be merged into integration.
+mapfile -t PR_BRANCHES < <(grep -E '^name = "' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
 
 for branch in "${PR_BRANCHES[@]}"; do
     msg="Merge branch '$branch'"
