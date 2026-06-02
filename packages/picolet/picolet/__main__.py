@@ -28,7 +28,7 @@ try:
 
     VERSION = _pkg_version("picolet")
 except Exception:
-    VERSION = "0.2.0-dev"
+    VERSION = "0.0.1-dev"
 
 
 _TOP_DESCRIPTION = """\

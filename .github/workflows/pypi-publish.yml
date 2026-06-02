@@ -10,12 +10,9 @@
 # Auth model: PyPI Trusted Publishing via OIDC.  No API token is stored
 # anywhere — GitHub's signed OIDC token proves the workflow's identity
 # to PyPI, which has a configured trusted publisher matching the
-# (owner, repo, workflow, environment) tuple below.  See RELEASING.md
-# for the one-time PyPI-side configuration.
-#
-# Protection: the `pypi` GitHub environment is configured with a
-# required-reviewer rule, so each publish requires an explicit human
-# click in the Actions UI before the release-to-PyPI step runs.
+# (owner, repo, workflow) tuple.  See RELEASING.md for the one-time
+# PyPI-side configuration.  No GitHub environment is used; tag push
+# publishes directly.
 
 name: Publish picolet to PyPI
 
@@ -33,9 +30,6 @@ jobs:
   build-and-publish:
     name: Build wheel + publish to PyPI
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/project/picolet/
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -62,17 +56,19 @@ jobs:
           fi
 
       - name: Build wheel + sdist
-        working-directory: packages/picolet
+        # uv build from a workspace member puts the artefact in <workspace-
+        # root>/dist/ regardless of cwd, so call it from the repo root and
+        # pin the target with --package.
         run: |
-          uv build
+          uv build --package picolet
           ls -la dist/
 
       - name: Inspect wheel contents (sanity check)
         run: |
           set -e
-          WHEEL="$(ls packages/picolet/dist/picolet-*-py3-none-any.whl | head -1)"
+          WHEEL="$(ls dist/picolet-*-py3-none-any.whl | head -1)"
           if [ -z "$WHEEL" ]; then
-            echo "::error::No wheel found in packages/picolet/dist/"
+            echo "::error::No wheel found in dist/"
             exit 1
           fi
           uv run --no-project python -c "
@@ -92,7 +88,7 @@ jobs:
       - name: Publish to PyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: packages/picolet/dist/
+          packages-dir: dist/
           # No `password:` — OIDC handles auth.
           # No `repository-url:` — default is pypi.org.
           print-hash: true

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "picolet"
-version = "0.2.0"
+version = "0.0.1"
 description = "Compile Python programs to small self-contained native binaries via MicroPython"
 readme = "README.md"
 license = { text = "MIT" }

@@ -187,21 +187,18 @@ end users get when they run `uv tool install picolet`.  Published from
 
 No API tokens are stored anywhere.  GitHub Actions presents a signed OIDC
 token to PyPI; PyPI verifies it matches the registered trusted publisher
-for the project.  The publisher binding is a (owner, repo, workflow file,
-environment) tuple — anything outside that tuple cannot publish.
+for the project.  The publisher binding is a (owner, repo, workflow file)
+tuple — anything outside that tuple cannot publish.
 
 ### One-time setup
 
-These are manual steps run once, before the first publish.  They cannot
-be automated.
+One manual step, run once before the first publish.  Cannot be automated.
 
-**1. PyPI account.**  Sign up at https://pypi.org (or log in if you
-already have an account).  Confirm the account email.
+**Register a pending trusted publisher on PyPI.**
 
-**2. Register a pending trusted publisher on PyPI.**
-
-Go to https://pypi.org/manage/account/publishing/ → *Add a new pending
-publisher*.  Use exactly these values:
+Sign in at https://pypi.org, then go to
+https://pypi.org/manage/account/publishing/ → *Add a new pending publisher*.
+Use exactly these values:
 
 | Field | Value |
 |---|---|
@@ -209,21 +206,14 @@ publisher*.  Use exactly these values:
 | **Owner** | `andrewleech` |
 | **Repository name** | `picolet` |
 | **Workflow filename** | `pypi-publish.yml` |
-| **Environment name** | `pypi` |
+| **Environment name** | _(leave blank)_ |
 
 A "pending" publisher is needed because the project doesn't exist on PyPI
 yet.  The first successful publish from the matching workflow creates the
-project and binds the publisher.
+project and graduates the publisher to active.
 
-**3. Create the `pypi` environment in GitHub.**
-
-In the GitHub repo settings → *Environments* → *New environment* →
-name it `pypi`.  Under *Deployment protection rules*, enable *Required
-reviewers* and add your own GitHub username.  This means every publish
-waits for an explicit click on the Actions run before the upload step
-proceeds — a last chance to abort a mis-pushed tag.
-
-That's the one-time setup.
+Tag push triggers publish automatically — no GitHub environment / manual
+approval gate.
 
 ## Cutting a release
 
@@ -249,13 +239,12 @@ That's the one-time setup.
    git push origin picolet-v0.2.1
    ```
 
-3. GitHub Actions starts the publish workflow.  The run pauses at the
-   `pypi` environment gate.  Open the run and click *Review deployments*
-   → *Approve and deploy*.
+3. GitHub Actions runs end-to-end and publishes.  Monitor at
+   https://github.com/andrewleech/picolet/actions.
 
 4. Confirm the release landed at https://pypi.org/project/picolet/.
 
-5. The first run after step 3 (one-time only) graduates the pending
+5. The first successful publish (one-time only) graduates the pending
    publisher to an active one.  No more pending-publisher entry needed
    for subsequent releases.
 
