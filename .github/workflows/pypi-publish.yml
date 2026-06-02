@@ -1,0 +1,99 @@
+# .github/workflows/pypi-publish.yml
+#
+# Publish the `picolet` PyPI distribution.
+#
+# Trigger:
+#   - push of a tag matching picolet-v* (e.g. picolet-v0.2.0)
+#   - manual workflow_dispatch (for ad-hoc rebuilds; still goes to PyPI,
+#     guarded by the `pypi` environment's required-reviewer gate)
+#
+# Auth model: PyPI Trusted Publishing via OIDC.  No API token is stored
+# anywhere — GitHub's signed OIDC token proves the workflow's identity
+# to PyPI, which has a configured trusted publisher matching the
+# (owner, repo, workflow, environment) tuple below.  See RELEASING.md
+# for the one-time PyPI-side configuration.
+#
+# Protection: the `pypi` GitHub environment is configured with a
+# required-reviewer rule, so each publish requires an explicit human
+# click in the Actions UI before the release-to-PyPI step runs.
+
+name: Publish picolet to PyPI
+
+on:
+  push:
+    tags:
+      - 'picolet-v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write     # OIDC token for Trusted Publishing
+
+jobs:
+  build-and-publish:
+    name: Build wheel + publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/picolet/
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Verify tag matches pyproject version
+        # When triggered by a tag push, the tag must read `picolet-vX.Y.Z`
+        # and packages/picolet/pyproject.toml must declare version = "X.Y.Z".
+        # Catches the case where someone tags without bumping the version.
+        if: github.event_name == 'push'
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#picolet-v}"
+          PYPROJECT_VERSION="$(
+            grep '^version' packages/picolet/pyproject.toml | head -1 \
+              | sed -E 's/^version *= *"([^"]+)"/\1/'
+          )"
+          echo "tag version:      $TAG_VERSION"
+          echo "pyproject version: $PYPROJECT_VERSION"
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Tag picolet-v$TAG_VERSION does not match pyproject version $PYPROJECT_VERSION"
+            exit 1
+          fi
+
+      - name: Build wheel + sdist
+        working-directory: packages/picolet
+        run: |
+          uv build
+          ls -la dist/
+
+      - name: Inspect wheel contents (sanity check)
+        run: |
+          set -e
+          WHEEL="$(ls packages/picolet/dist/picolet-*-py3-none-any.whl | head -1)"
+          if [ -z "$WHEEL" ]; then
+            echo "::error::No wheel found in packages/picolet/dist/"
+            exit 1
+          fi
+          uv run --no-project python -c "
+          import zipfile, sys
+          z = zipfile.ZipFile('$WHEEL')
+          required = {'picolet/__main__.py', 'picolet/cli/__init__.py',
+                      'picolet/templates/__init__.py',
+                      'picolet/testing/__init__.py'}
+          present = set(z.namelist())
+          missing = required - present
+          if missing:
+              print('::error::missing from wheel:', missing)
+              sys.exit(1)
+          print('wheel contents OK ({} files)'.format(len(present)))
+          "
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/picolet/dist/
+          # No `password:` — OIDC handles auth.
+          # No `repository-url:` — default is pypi.org.
+          print-hash: true
+          verbose: true

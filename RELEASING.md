@@ -1,7 +1,24 @@
-# Releasing picolet runtimes
+# Releasing picolet
 
-This document describes how to cut a runtime release, what the CI pipeline
-publishes, and how `picolet build` consumes the released artifacts.
+Two release pipelines live here:
+
+- **Runtime artefacts** (`runtime-v*` tags) — the prebuilt MicroPython
+  runtime binaries that `picolet build` downloads from GitHub Releases.
+  Drives `.github/workflows/release.yml`.
+- **PyPI CLI distribution** (`picolet-v*` tags) — the `picolet` package
+  published to PyPI so end users can `uv tool install picolet`.  Drives
+  `.github/workflows/pypi-publish.yml`.
+
+The two pipelines are independent.  Most CLI releases will NOT need a new
+runtime release; runtime releases are cut only when the underlying
+MicroPython integration or variant config changes.
+
+---
+
+# Runtime artefact releases (`runtime-v*`)
+
+How to cut a runtime release, what the CI pipeline publishes, and how
+`picolet build` consumes the released artifacts.
 
 ## Tag pattern
 
@@ -157,3 +174,148 @@ listed in the SBOM with `link_type = "dynamic"`.
 `picolet build` merges the runtime SBOM with the app's own dependencies and
 enforces the `[sbom]` policy from `picolet.toml` (see FR-SBOM-3 in
 `docs/v1-spec.md`).
+
+---
+
+# PyPI CLI releases (`picolet-v*`)
+
+The `picolet` PyPI distribution carries the host-side CLI tool — what
+end users get when they run `uv tool install picolet`.  Published from
+`packages/picolet/` via `.github/workflows/pypi-publish.yml`.
+
+## Auth model: PyPI Trusted Publishing (OIDC)
+
+No API tokens are stored anywhere.  GitHub Actions presents a signed OIDC
+token to PyPI; PyPI verifies it matches the registered trusted publisher
+for the project.  The publisher binding is a (owner, repo, workflow file,
+environment) tuple — anything outside that tuple cannot publish.
+
+### One-time setup
+
+These are manual steps run once, before the first publish.  They cannot
+be automated.
+
+**1. PyPI account.**  Sign up at https://pypi.org (or log in if you
+already have an account).  Confirm the account email.
+
+**2. Register a pending trusted publisher on PyPI.**
+
+Go to https://pypi.org/manage/account/publishing/ → *Add a new pending
+publisher*.  Use exactly these values:
+
+| Field | Value |
+|---|---|
+| **PyPI Project Name** | `picolet` |
+| **Owner** | `andrewleech` |
+| **Repository name** | `picolet` |
+| **Workflow filename** | `pypi-publish.yml` |
+| **Environment name** | `pypi` |
+
+A "pending" publisher is needed because the project doesn't exist on PyPI
+yet.  The first successful publish from the matching workflow creates the
+project and binds the publisher.
+
+**3. Create the `pypi` environment in GitHub.**
+
+In the GitHub repo settings → *Environments* → *New environment* →
+name it `pypi`.  Under *Deployment protection rules*, enable *Required
+reviewers* and add your own GitHub username.  This means every publish
+waits for an explicit click on the Actions run before the upload step
+proceeds — a last chance to abort a mis-pushed tag.
+
+That's the one-time setup.
+
+## Cutting a release
+
+1. Bump the version in `packages/picolet/pyproject.toml`:
+
+   ```toml
+   [project]
+   version = "0.2.1"
+   ```
+
+   Commit:
+
+   ```bash
+   git add packages/picolet/pyproject.toml
+   git commit -s -m "[picolet] Bump to 0.2.1."
+   git push origin dev
+   ```
+
+2. Tag and push:
+
+   ```bash
+   git tag -s picolet-v0.2.1 -m "picolet 0.2.1"
+   git push origin picolet-v0.2.1
+   ```
+
+3. GitHub Actions starts the publish workflow.  The run pauses at the
+   `pypi` environment gate.  Open the run and click *Review deployments*
+   → *Approve and deploy*.
+
+4. Confirm the release landed at https://pypi.org/project/picolet/.
+
+5. The first run after step 3 (one-time only) graduates the pending
+   publisher to an active one.  No more pending-publisher entry needed
+   for subsequent releases.
+
+## Re-running a release
+
+PyPI does NOT allow re-uploading the same version, even after a delete.
+If the workflow fails mid-upload or you spot a bug after a successful
+publish, bump the patch version and tag again.  Never `git tag -f` over
+a previous `picolet-v*` tag.
+
+## Build details
+
+The workflow runs from a clean repo checkout:
+
+1. `uv build` (inside `packages/picolet/`) — produces `dist/picolet-X.Y.Z-py3-none-any.whl`
+   and `dist/picolet-X.Y.Z.tar.gz`.
+2. Sanity check that the wheel contains `picolet/__main__.py` +
+   `picolet/cli/`, `picolet/templates/`, `picolet/testing/`.
+3. Tag-vs-pyproject version assertion — refuses to publish if the tag
+   doesn't match the version in pyproject.toml.
+4. `pypa/gh-action-pypi-publish@release/v1` uploads to PyPI using the
+   OIDC token.
+
+## Dry-running before the first real publish
+
+Trusted Publishing has no built-in dry-run mode.  To verify the workflow
+without affecting PyPI:
+
+1. Build locally:
+
+   ```bash
+   cd packages/picolet && uv build
+   ```
+
+2. Inspect the wheel:
+
+   ```bash
+   unzip -l dist/picolet-*-py3-none-any.whl | head -30
+   ```
+
+3. Install into a temporary venv and exercise:
+
+   ```bash
+   uv tool install --reinstall ./packages/picolet
+   picolet --version
+   picolet init test-app --template hello-cli --output-dir /tmp/test-app
+   ```
+
+If all three steps pass, the CI workflow will too.
+
+## Optional extras (`picolet[testing]`)
+
+The `testing` extra brings in Playwright + websockets + Pillow.  This is
+declared in `pyproject.toml`'s `[project.optional-dependencies]` table.
+End users opt in with:
+
+```bash
+uv tool install 'picolet[testing]'
+```
+
+The base `picolet` install is intentionally lean — the CLI's core
+workflow (`init` / `build` / `dev` / `run`) doesn't need the testing
+deps.
