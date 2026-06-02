@@ -187,6 +187,7 @@ picolet/
 │   │   │   ├── cli/{unix,windows}/
 │   │   │   ├── webview/{unix,windows}/   — host-side webview glue
 │   │   │   ├── lvgl/{unix,windows}/
+│   │   │   ├── tui/{unix,windows}/       — picolet-tui `tuiterm` C shim
 │   │   │   └── common/    Shared C (romfs_trailer.c, …).
 │   │   ├── user_c_modules/   C sources that compile *into* the runtime
 │   │   │                  binary and are reached from Python via FFI

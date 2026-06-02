@@ -12,7 +12,8 @@
 #   --target linux-x64  --variant cli   (builds inside ubuntu:22.04 container)
 #   --target windows-x64 --variant cli  (cross-compiles inside dockcross/windows-static-x64-posix)
 #
-# PH07/PH11 will add --variant webview and --variant lvgl.
+# PH07/PH11 added --variant webview and --variant lvgl.
+# picolet-tui Phase 2a adds --variant tui (linux-x64 + windows-x64).
 #
 # Outputs:
 #   packages/picolet-runtime/build/picolet-runtime-{target}-{variant}[.exe]
@@ -104,6 +105,19 @@ case "${TARGET}/${VARIANT}" in
         # PH11: SDL2-backed LVGL variant.  USER_C_MODULES points at
         # the lv_binding_micropython submodule under overlay/lib/.
         # NFR-3 ceiling is 2 MiB.
+        ;;
+    linux-x64/tui)
+        # picolet-tui Phase 2a: Textual-inspired TUI framework.  Adds
+        # the `tuiterm` C module (variants/tui/unix/tuiterm.c, ~250 LoC,
+        # termios + SIGWINCH per docs/tui/research/04-terminal-handling.md
+        # §4) and freezes the picolet_tui Python package.  NFR-TUI-1
+        # ceiling is 2 MiB (matches webview, not cli).
+        ;;
+    windows-x64/tui)
+        # picolet-tui Phase 2a (Windows leg).  Adds variants/tui/windows/
+        # tuiterm.c (~300 LoC, conhost VT setup per research doc 04 §2).
+        # No extra link deps beyond what MinGW pulls by default
+        # (kernel32 is implicit).  NFR-TUI-1 ceiling is 2 MiB.
         ;;
     windows-x64/webview)
         # PH10: WebView2 (Edge Chromium) webview variant.  Built as
@@ -302,6 +316,10 @@ finish_artifact() {
     #   webview            → NFR-2, 2 MiB.
     #   lvgl (linux-x64)   → NFR-3, 2 MiB.
     #   lvgl (windows-x64) → NFR-3, 3 MiB.
+    #   tui                → NFR-TUI-1, 2 MiB.  Sub-budgets on the frozen
+    #     picolet_tui .mpy (NFR-TUI-19: core ≤ 120 KiB, _rich ≤ 60 KiB,
+    #     _shims ≤ 20 KiB) are gated separately at Phase 3+ via
+    #     `picolet inspect-romfs` once that surface exists.
     #     The windows-x64/lvgl ceiling is relaxed to 3 MiB because SDL2 is now
     #     sourced from the official upstream MinGW binary release (SDL2.dll,
     #     dynamic linkage) rather than a custom from-source build with
@@ -313,9 +331,11 @@ finish_artifact() {
         linux-x64/cli)       CEILING=1048576;  NFR_ID="NFR-1" ;;
         linux-x64/webview)   CEILING=2097152;  NFR_ID="NFR-2" ;;
         linux-x64/lvgl)      CEILING=2097152;  NFR_ID="NFR-3" ;;
+        linux-x64/tui)       CEILING=2097152;  NFR_ID="NFR-TUI-1" ;;
         windows-x64/cli)     CEILING=1048576;  NFR_ID="NFR-1" ;;
         windows-x64/webview) CEILING=2097152;  NFR_ID="NFR-2" ;;
         windows-x64/lvgl)    CEILING=3145728;  NFR_ID="NFR-3" ;;
+        windows-x64/tui)     CEILING=2097152;  NFR_ID="NFR-TUI-1" ;;
         macos-x64/cli)       CEILING=1048576;  NFR_ID="NFR-MAC-1" ;;
         macos-x64/webview)   CEILING=2097152;  NFR_ID="NFR-MAC-2" ;;
         macos-x64/lvgl)      CEILING=2097152;  NFR_ID="NFR-MAC-3" ;;
