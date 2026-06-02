@@ -25,3 +25,10 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Build-hook materialised resources (hatch_build.py copies these in
+# from sibling workspace packages; checked-in copies would drift).
+packages/picolet/picolet/_bridge/picolet-bridge.js
+packages/picolet/picolet/_runtime_data/sbom/runtime.toml
+packages/picolet/picolet/_runtime_data/mbm.toml
+packages/picolet/picolet/_runtime_data/RUNTIME_TAG
