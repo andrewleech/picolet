@@ -238,6 +238,7 @@ endif
 ifneq ($(MICROPY_MODULE_FROZEN_STR),0)
 CFLAGS += -DMICROPY_MODULE_FROZEN_STR
 endif
+endif  # close ifneq ($(FROZEN_MANIFEST),)
 
 ifneq ($(PROG),)
 # Build a standalone executable (unix does this)
