@@ -115,7 +115,15 @@ jobs:
           pip install --quiet mpremote
           python3 -m mpremote --help > /dev/null   # smoke-test
 
-      # 4. Build the Docker image used for linux-x64 builds.
+      # 4a. Install a buildx driver that supports --cache-to=type=local.
+      #     GitHub's default docker driver only supports the inline cache
+      #     backend; --cache-to=type=local needs the docker-container driver
+      #     (the default for setup-buildx-action).
+      - name: Set up Docker Buildx
+        if: matrix.target == 'linux-x64'
+        uses: docker/setup-buildx-action@v3
+
+      # 4b. Build the Docker image used for linux-x64 builds.
       #    The image is picolet-linux-x64-build:22.04; build-runtime.sh
       #    also builds it on first use, but building here with explicit
       #    cache allows GitHub Actions to persist and restore image layers.
