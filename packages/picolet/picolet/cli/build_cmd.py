@@ -22,6 +22,7 @@ Pipeline (FR-BP-1 through FR-BP-6):
 from __future__ import annotations
 
 import argparse
+import importlib.resources
 import os
 import platform
 import re
@@ -371,12 +372,12 @@ def _do_build(args) -> int:
 # ---------------------------------------------------------------------------
 
 def _find_repo_root() -> Path:
-    """Return the repository root (three levels up from this file).
+    """Return the repository root (four levels up from this file).
 
-    This file lives at packages/picolet/picolet/build_cmd.py.
+    This file lives at packages/picolet/picolet/cli/build_cmd.py.
     """
-    here = Path(__file__).parent      # packages/picolet/picolet/
-    return here.parent.parent.parent  # repo root
+    here = Path(__file__).parent            # packages/picolet/picolet/cli/
+    return here.parent.parent.parent.parent  # repo root
 
 
 def _handle_sbom_violations(
@@ -602,20 +603,37 @@ def _copy_bridge_js(romfs_root: Path, verbose: bool) -> None:
     construction time and injects it via webkit_user_script_new at
     DOCUMENT_START.
     """
-    # Resolve relative to this file: build_cmd.py is in
-    # packages/picolet/picolet/; the bridge dist is at
-    # packages/picolet-bridge-js/dist/picolet-bridge.js.
-    here = Path(__file__).parent            # packages/picolet/picolet/
-    bridge_src = (
-        here.parent.parent                  # packages/
-        / "picolet-bridge-js"
-        / "dist"
-        / "picolet-bridge.js"
-    )
-    if not bridge_src.is_file():
+    # Resolution order:
+    #   1. importlib.resources — bundled inside the installed picolet wheel
+    #      at picolet/_bridge/picolet-bridge.js (force-included by hatch).
+    #   2. Source-tree fallback at packages/picolet-bridge-js/dist/ when
+    #      running directly from a checkout without `pip install`.
+    bridge_src: Path | None = None
+    try:
+        bridge_resource = importlib.resources.files("picolet._bridge").joinpath(
+            "picolet-bridge.js"
+        )
+        if bridge_resource.is_file():
+            bridge_src = Path(str(bridge_resource))
+    except (ModuleNotFoundError, FileNotFoundError):
+        pass
+
+    if bridge_src is None or not bridge_src.is_file():
+        here = Path(__file__).parent            # packages/picolet/picolet/cli/
+        candidate = (
+            here.parent.parent.parent           # packages/
+            / "picolet-bridge-js"
+            / "dist"
+            / "picolet-bridge.js"
+        )
+        if candidate.is_file():
+            bridge_src = candidate
+
+    if bridge_src is None or not bridge_src.is_file():
         print(
-            f"error: picolet-bridge.js not found at {bridge_src}; "
-            "run: cd packages/picolet-bridge-js && node build.mjs",
+            "error: picolet-bridge.js not found in installed wheel or "
+            "source tree; run: cd packages/picolet-bridge-js && node build.mjs "
+            "and reinstall picolet",
             file=sys.stderr,
         )
         raise BuildFailed()

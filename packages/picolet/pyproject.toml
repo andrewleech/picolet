@@ -52,3 +52,11 @@ packages = ["picolet"]
 # importlib.resources.files() at runtime.  They're naturally part of the
 # `picolet` package collection above (since they live at picolet/templates/),
 # so no explicit force-include is needed.
+
+[tool.hatch.build.targets.wheel.force-include]
+# picolet-bridge.js is built from a sibling workspace package
+# (packages/picolet-bridge-js/) via TypeScript+esbuild.  It's needed at
+# `picolet build` time to inject window.picolet.invoke() into webviews.
+# Bundle the prebuilt dist into the wheel so wheel installs are self-
+# contained and don't have to resolve a sibling source dir at runtime.
+"../picolet-bridge-js/dist/picolet-bridge.js" = "picolet/_bridge/picolet-bridge.js"

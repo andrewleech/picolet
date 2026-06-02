@@ -119,14 +119,14 @@ class _Config:
 def _repo_root() -> Path:
     """Return the monorepo root for dev-only operations.
 
-    This file lives at packages/picolet/picolet/runtime_resolver.py.
-    The repo root is three levels up.
+    This file lives at packages/picolet/picolet/cli/runtime_resolver.py.
+    The repo root is five levels up (cli → picolet → picolet → packages → repo).
 
     This path is only valid when running from a source checkout.  Callers that
     need it in wheel installs must handle the case where the path does not
     contain the expected layout (packages/picolet-runtime/…).
     """
-    return Path(__file__).parent.parent.parent.parent
+    return Path(__file__).parent.parent.parent.parent.parent
 
 
 # Back-compat alias.  Existing tests (and external callers) patch
