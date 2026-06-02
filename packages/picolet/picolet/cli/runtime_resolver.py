@@ -195,18 +195,23 @@ def _read_runtime_tag_sidecar() -> str:
        with PYTHONPATH set but no ``pip install -e``).
     3. Hard-coded last-resort default when neither source is available.
     """
-    # Step 1: package resource (works from wheel and editable install).
-    try:
-        tag_text = (
-            importlib.resources.files("picolet.cli")
-            .joinpath("RUNTIME_TAG")
-            .read_text(encoding="utf-8")
-            .strip()
-        )
-        if tag_text:
-            return tag_text
-    except (ModuleNotFoundError, FileNotFoundError, TypeError):
-        pass
+    # Step 1: package resource bundled in the wheel.  After consolidation
+    # the canonical location is picolet/_runtime_data/RUNTIME_TAG (force-
+    # included from packages/picolet-runtime/RUNTIME_TAG at wheel-build
+    # time).  picolet.cli/RUNTIME_TAG is checked as a legacy fallback in
+    # case an older install layout is still on PYTHONPATH.
+    for pkg_name, leaf in (
+        ("picolet._runtime_data", "RUNTIME_TAG"),
+        ("picolet.cli", "RUNTIME_TAG"),
+    ):
+        try:
+            ref = importlib.resources.files(pkg_name).joinpath(leaf)
+            if ref.is_file():
+                tag_text = ref.read_text(encoding="utf-8").strip()
+                if tag_text:
+                    return tag_text
+        except (ModuleNotFoundError, FileNotFoundError, TypeError, AttributeError):
+            continue
 
     # Step 2: repo-walk fallback (development only).
     tag_file = _repo_root() / "packages" / "picolet-runtime" / "RUNTIME_TAG"

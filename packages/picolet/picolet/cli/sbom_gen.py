@@ -43,6 +43,7 @@ import argparse
 import ast
 import datetime
 import hashlib
+import importlib.resources
 import json
 import sys
 import tomllib
@@ -109,14 +110,44 @@ class SbomViolation:
 # ---------------------------------------------------------------------------
 
 def _runtime_toml_path(repo_root: Path) -> Path:
+    """Source-tree path to runtime.toml.
+
+    Used as a fallback when the package-resource lookup misses (e.g. running
+    directly from a checkout without `pip install`).
+    """
     return repo_root / "packages" / "picolet-runtime" / "sbom" / "runtime.toml"
 
 
+def _load_packaged_toml(resource_name: str) -> "dict | None":
+    """Read a bundled runtime data file via importlib.resources.
+
+    Returns the parsed TOML dict, or None if the resource isn't present
+    (which means we're running from a source checkout that didn't
+    pip-install picolet — fall back to the source-tree path).
+    """
+    try:
+        ref = importlib.resources.files("picolet._runtime_data").joinpath(
+            resource_name
+        )
+        if ref.is_file():
+            return tomllib.loads(ref.read_text(encoding="utf-8"))
+    except (ModuleNotFoundError, FileNotFoundError, AttributeError):
+        pass
+    return None
+
+
 def load_runtime_toml(repo_root: Path) -> list[dict]:
-    """Parse runtime.toml; return the raw list of component dicts."""
-    path = _runtime_toml_path(repo_root)
-    with open(path, "rb") as fh:
-        data = tomllib.load(fh)
+    """Parse runtime.toml; return the raw list of component dicts.
+
+    Resolution order:
+      1. Bundled at picolet/_runtime_data/sbom/runtime.toml (wheel install).
+      2. Source-tree at packages/picolet-runtime/sbom/runtime.toml (dev).
+    """
+    data = _load_packaged_toml("sbom/runtime.toml")
+    if data is None:
+        path = _runtime_toml_path(repo_root)
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
     return data.get("component", [])
 
 
@@ -151,12 +182,16 @@ def load_mbm_prs(repo_root: Path) -> list[str]:
 
     These are used to populate the MicroPython component's notes field
     in the runtime SBOM.  Returns an empty list if mbm.toml is absent.
+
+    Resolution order: package-resource first, source-tree fallback.
     """
-    path = _mbm_toml_path(repo_root)
-    if not path.is_file():
-        return []
-    with open(path, "rb") as fh:
-        data = tomllib.load(fh)
+    data = _load_packaged_toml("mbm.toml")
+    if data is None:
+        path = _mbm_toml_path(repo_root)
+        if not path.is_file():
+            return []
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
     titles = []
     for sub in data.get("submodules", []):
         for branch in sub.get("branches", []):

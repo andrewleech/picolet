@@ -60,3 +60,11 @@ packages = ["picolet"]
 # Bundle the prebuilt dist into the wheel so wheel installs are self-
 # contained and don't have to resolve a sibling source dir at runtime.
 "../picolet-bridge-js/dist/picolet-bridge.js" = "picolet/_bridge/picolet-bridge.js"
+
+# Runtime SBOM template + mbm PR list — needed by `picolet build` to
+# emit the per-app CycloneDX SBOM (FR-SBOM-1 .. -3).  These ship as a
+# sibling package data directory; sbom_gen.py loads them via
+# importlib.resources with a source-tree repo-walk fallback for dev.
+"../picolet-runtime/sbom/runtime.toml" = "picolet/_runtime_data/sbom/runtime.toml"
+"../picolet-runtime/mbm.toml" = "picolet/_runtime_data/mbm.toml"
+"../picolet-runtime/RUNTIME_TAG" = "picolet/_runtime_data/RUNTIME_TAG"
