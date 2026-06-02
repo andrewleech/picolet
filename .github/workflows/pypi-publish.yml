@@ -10,9 +10,13 @@
 # Auth model: PyPI Trusted Publishing via OIDC.  No API token is stored
 # anywhere — GitHub's signed OIDC token proves the workflow's identity
 # to PyPI, which has a configured trusted publisher matching the
-# (owner, repo, workflow) tuple.  See RELEASING.md for the one-time
-# PyPI-side configuration.  No GitHub environment is used; tag push
-# publishes directly.
+# (owner, repo, workflow, environment) tuple.  See RELEASING.md for the
+# one-time PyPI-side configuration.
+#
+# Environment: `pypi` is a label only — it lets PyPI's trusted-publisher
+# scope include the environment name as an extra match claim.  No
+# protection rules are configured in the GitHub environment, so tag push
+# publishes directly with no manual approval gate.
 
 name: Publish picolet to PyPI
 
@@ -30,6 +34,9 @@ jobs:
   build-and-publish:
     name: Build wheel + publish to PyPI
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/picolet/
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

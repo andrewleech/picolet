@@ -206,14 +206,15 @@ Use exactly these values:
 | **Owner** | `andrewleech` |
 | **Repository name** | `picolet` |
 | **Workflow filename** | `pypi-publish.yml` |
-| **Environment name** | _(leave blank)_ |
+| **Environment name** | `pypi` |
 
 A "pending" publisher is needed because the project doesn't exist on PyPI
 yet.  The first successful publish from the matching workflow creates the
 project and graduates the publisher to active.
 
-Tag push triggers publish automatically — no GitHub environment / manual
-approval gate.
+The `pypi` environment is a label-only scope — GitHub auto-creates it on
+first workflow run with no protection rules, so tag push publishes
+directly without any manual approval gate.
 
 ## Cutting a release
 
