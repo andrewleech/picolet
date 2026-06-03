@@ -46,7 +46,7 @@ _UI_SCHEMA: dict[str, type | tuple[type, ...]] = {
     # Registering it here prevents the _check_section "unknown key" warn.
     "frontend": dict,
 }
-_UI_RENDERER_VALUES: frozenset[str] = frozenset({"webview", "lvgl"})
+_UI_RENDERER_VALUES: frozenset[str] = frozenset({"webview", "lvgl", "tui"})
 
 # [ui.frontend] sub-table schema (FR-VUE-5).
 _UI_FRONTEND_SCHEMA: dict[str, type | tuple[type, ...]] = {

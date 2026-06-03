@@ -24,7 +24,7 @@ from picolet.cli.validator import validate_toml
 
 # Templates known to exist in this phase. `picolet init --template <name>` will
 # be rejected with a clear error for any name not in this set.
-_KNOWN_TEMPLATES: frozenset[str] = frozenset({"hello-cli", "hello-webview", "hello-lvgl", "hello-vue", "pydfu", "notes", "config-editor", "dashboard"})
+_KNOWN_TEMPLATES: frozenset[str] = frozenset({"hello-cli", "hello-webview", "hello-lvgl", "hello-tui", "hello-vue", "pydfu", "notes", "config-editor", "dashboard"})
 
 # Name validation: alphanumerics, hyphens, underscores; no leading digit.
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_-]*$")
@@ -37,6 +37,7 @@ Available templates:
   hello-cli        Minimal command-line app (no GUI)
   hello-webview    Webview window with a plain HTML/JS page
   hello-lvgl       LVGL display with a simple widget layout
+  hello-tui        Textual-inspired terminal UI (picolet-tui runtime)
   hello-vue        Webview window with a Vue 3 frontend (requires Node)
   pydfu            DFU firmware flashing tool (webview UI)
   notes            Persistent notes app (webview UI)
