@@ -235,8 +235,11 @@ def _resolve_reactive_class():
     try:
         # The canonical location.  If Phase 4b agent 1 picks a
         # different file name, the import here is the single point of
-        # change.
-        from . import _reactive as _reactive_mod
+        # change.  Agent 1 shipped the descriptor at `reactive.py`
+        # (no leading underscore); the original placeholder name
+        # `_reactive` is the historic value left in this comment for
+        # archaeological context.
+        from . import reactive as _reactive_mod
         _REACTIVE_CLS = _reactive_mod.Reactive
     except ImportError:
         # Phase 4b agent 1 not yet landed: fall back to a sentinel that
