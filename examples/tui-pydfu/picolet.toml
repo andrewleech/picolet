@@ -1,0 +1,40 @@
+# picolet.toml — tui-pydfu example.
+#
+# Mirrors examples/pydfu/picolet.toml byte-for-byte everywhere except the
+# [ui] section: this app pins renderer = "tui" so `picolet build` selects
+# the picolet-runtime-*-tui variant from packages/picolet-runtime/.  All
+# other knobs (entry, targets, romfs include of vendored libusb) carry
+# over verbatim because the USB code path is identical — only the front
+# end changes.
+#
+# [window] is parsed but unused on the tui renderer (the terminal owns
+# its own geometry).  Kept for cross-renderer template parity and so the
+# validator round-trips the file cleanly; see hello-tui template comment.
+
+[app]
+name = "tui-pydfu"
+version = "0.1.0"
+entry = "src/main.py"
+
+[build]
+targets = ["linux-x64", "windows-x64", "macos-x64", "macos-arm64"]
+
+[ui]
+# THE feature this example validates: a real picolet app driven through
+# the picolet-tui runtime, no HTML / Vue / IPC bridge anywhere in the
+# event flow.  Reactive properties on widgets are the only state
+# surface (FR-TUI-19..22, NFR-TUI-15).
+renderer = "tui"
+
+[window]
+title = "PyDFU TUI"
+# 80x30 is the conventional "small TUI" baseline; the runtime ignores
+# this on tui renderer (FR-TUI-9 sources the real size from SIGWINCH /
+# GetConsoleScreenBufferInfo).  Present for template consistency.
+size = [80, 30]
+
+[romfs]
+# Include the _usb package directory verbatim so the vendored libusb-1.0.dll
+# is bundled in the romfs alongside the _usb Python modules.  On Windows the
+# runtime loads the DLL from the same directory as core.py (via __file__).
+include = ["src/_usb"]

@@ -1,0 +1,462 @@
+# This file is part of the OpenMV project.
+# Copyright (c) 2013/2014 Ibrahim Abdelkader <i.abdalkader@gmail.com>
+# This work is licensed under the MIT license, see the file LICENSE for
+# details.
+#
+# Ported from pydfu-win/micropython/tools/pydfu_app/lib/pydfu.py.
+# Adaptation: removed CLI entry point and argparse; import _usb instead of usb.
+
+"""DFU protocol implementation for STM32 devices.
+
+See app note AN3156 for a description of the DFU protocol.
+See document UM0391 for a description of the DFuse file.
+"""
+
+import collections
+import re
+import struct
+import sys
+import _usb.core
+import _usb.util
+
+from _dfu_file import compute_crc, read_dfu_file  # noqa: F401 — re-exported
+
+# USB request timeout (ms)
+__TIMEOUT = 4000
+
+# DFU commands
+__DFU_DETACH = 0
+__DFU_DNLOAD = 1
+__DFU_UPLOAD = 2
+__DFU_GETSTATUS = 3
+__DFU_CLRSTATUS = 4
+__DFU_GETSTATE = 5
+__DFU_ABORT = 6
+
+# DFU status
+__DFU_STATE_APP_IDLE = 0x00
+__DFU_STATE_APP_DETACH = 0x01
+__DFU_STATE_DFU_IDLE = 0x02
+__DFU_STATE_DFU_DOWNLOAD_SYNC = 0x03
+__DFU_STATE_DFU_DOWNLOAD_BUSY = 0x04
+__DFU_STATE_DFU_DOWNLOAD_IDLE = 0x05
+__DFU_STATE_DFU_MANIFEST_SYNC = 0x06
+__DFU_STATE_DFU_MANIFEST = 0x07
+__DFU_STATE_DFU_MANIFEST_WAIT_RESET = 0x08
+__DFU_STATE_DFU_UPLOAD_IDLE = 0x09
+__DFU_STATE_DFU_ERROR = 0x0A
+
+_DFU_DESCRIPTOR_TYPE = 0x21
+
+__DFU_STATUS_STR = {
+    __DFU_STATE_APP_IDLE: "STATE_APP_IDLE",
+    __DFU_STATE_APP_DETACH: "STATE_APP_DETACH",
+    __DFU_STATE_DFU_IDLE: "STATE_DFU_IDLE",
+    __DFU_STATE_DFU_DOWNLOAD_SYNC: "STATE_DFU_DOWNLOAD_SYNC",
+    __DFU_STATE_DFU_DOWNLOAD_BUSY: "STATE_DFU_DOWNLOAD_BUSY",
+    __DFU_STATE_DFU_DOWNLOAD_IDLE: "STATE_DFU_DOWNLOAD_IDLE",
+    __DFU_STATE_DFU_MANIFEST_SYNC: "STATE_DFU_MANIFEST_SYNC",
+    __DFU_STATE_DFU_MANIFEST: "STATE_DFU_MANIFEST",
+    __DFU_STATE_DFU_MANIFEST_WAIT_RESET: "STATE_DFU_MANIFEST_WAIT_RESET",
+    __DFU_STATE_DFU_UPLOAD_IDLE: "STATE_DFU_UPLOAD_IDLE",
+    __DFU_STATE_DFU_ERROR: "STATE_DFU_ERROR",
+}
+
+# USB device handle
+__dev = None
+
+# Configuration descriptor of the device
+__cfg_descr = None
+
+__verbose = None
+
+# USB DFU interface
+__DFU_INTERFACE = 0
+
+
+def get_string(dev, index):
+    # MicroPython's usb.util.get_string doesn't have a length argument
+    return _usb.util.get_string(dev, index)
+
+
+def find_dfu_cfg_descr(descr):
+    if len(descr) == 9 and descr[0] == 9 and descr[1] == _DFU_DESCRIPTOR_TYPE:
+        nt = collections.namedtuple(
+            "CfgDescr",
+            [
+                "bLength",
+                "bDescriptorType",
+                "bmAttributes",
+                "wDetachTimeOut",
+                "wTransferSize",
+                "bcdDFUVersion",
+            ],
+        )
+        return nt(*struct.unpack("<BBBHHH", bytearray(descr)))
+    return None
+
+
+def init(**kwargs):
+    """Initializes the found DFU device so that we can program it."""
+    global __dev, __cfg_descr
+    devices = get_dfu_devices(**kwargs)
+    if not devices:
+        raise ValueError("No DFU device found")
+    if len(devices) > 1:
+        raise ValueError("Multiple DFU devices found")
+    __dev = devices[0]
+    __dev.set_configuration()
+
+    # Claim DFU interface
+    _usb.util.claim_interface(__dev, __DFU_INTERFACE)
+
+    # Find the DFU configuration descriptor, either in the device or interfaces
+    __cfg_descr = None
+    for cfg in __dev.configurations():
+        __cfg_descr = find_dfu_cfg_descr(cfg.extra_descriptors)
+        if __cfg_descr:
+            break
+        for itf in cfg.interfaces():
+            __cfg_descr = find_dfu_cfg_descr(itf.extra_descriptors)
+            if __cfg_descr:
+                break
+
+    # Get device into idle state
+    for attempt in range(4):
+        status = get_status()
+        if status == __DFU_STATE_DFU_IDLE:
+            break
+        elif status == __DFU_STATE_DFU_DOWNLOAD_IDLE or status == __DFU_STATE_DFU_UPLOAD_IDLE:
+            abort_request()
+        else:
+            clr_status()
+
+
+def init_device(device):
+    """Initialise DFU state machine for an already-found device object.
+
+    This variant accepts a Device object directly (used by pydfu_adapter
+    which enumerates devices separately).
+    """
+    global __dev, __cfg_descr
+    __dev = device
+    __dev.set_configuration()
+
+    _usb.util.claim_interface(__dev, __DFU_INTERFACE)
+
+    __cfg_descr = None
+    for cfg in __dev.configurations():
+        __cfg_descr = find_dfu_cfg_descr(cfg.extra_descriptors)
+        if __cfg_descr:
+            break
+        for itf in cfg.interfaces():
+            __cfg_descr = find_dfu_cfg_descr(itf.extra_descriptors)
+            if __cfg_descr:
+                break
+
+    for attempt in range(4):
+        status = get_status()
+        if status == __DFU_STATE_DFU_IDLE:
+            break
+        elif status == __DFU_STATE_DFU_DOWNLOAD_IDLE or status == __DFU_STATE_DFU_UPLOAD_IDLE:
+            abort_request()
+        else:
+            clr_status()
+
+
+def abort_request():
+    """Sends an abort request."""
+    __dev.ctrl_transfer(0x21, __DFU_ABORT, 0, __DFU_INTERFACE, None, __TIMEOUT)
+
+
+def clr_status():
+    """Clears any error status (perhaps left over from a previous session)."""
+    __dev.ctrl_transfer(0x21, __DFU_CLRSTATUS, 0, __DFU_INTERFACE, None, __TIMEOUT)
+
+
+def get_status():
+    """Get the status of the last operation."""
+    stat = __dev.ctrl_transfer(0xA1, __DFU_GETSTATUS, 0, __DFU_INTERFACE, 6, 20000)
+
+    # firmware can provide an optional string for any error
+    if stat[5]:
+        message = get_string(__dev, stat[5])
+        if message:
+            print(message)
+
+    return stat[4]
+
+
+def check_status(stage, expected):
+    status = get_status()
+    if status != expected:
+        state_str = __DFU_STATUS_STR.get(status, "0x{:02x}".format(status))
+        raise RuntimeError("DFU: {} failed (state={})".format(stage, state_str))
+
+
+def mass_erase():
+    """Performs a MASS erase (i.e. erases the entire device)."""
+    # Send DNLOAD with first byte=0x41
+    __dev.ctrl_transfer(0x21, __DFU_DNLOAD, 0, __DFU_INTERFACE, "\x41", __TIMEOUT)
+
+    # Execute last command
+    check_status("erase", __DFU_STATE_DFU_DOWNLOAD_BUSY)
+
+    # Check command state
+    check_status("erase", __DFU_STATE_DFU_DOWNLOAD_IDLE)
+
+
+def page_erase(addr):
+    """Erases a single page."""
+    if __verbose:
+        print("Erasing page: 0x%x..." % (addr))
+
+    # Send DNLOAD with first byte=0x41 and page address
+    buf = struct.pack("<BI", 0x41, addr)
+    __dev.ctrl_transfer(0x21, __DFU_DNLOAD, 0, __DFU_INTERFACE, buf, __TIMEOUT)
+
+    # Execute last command
+    check_status("erase", __DFU_STATE_DFU_DOWNLOAD_BUSY)
+
+    # Check command state
+    check_status("erase", __DFU_STATE_DFU_DOWNLOAD_IDLE)
+
+
+def set_address(addr):
+    """Sets the address for the next operation."""
+    # Send DNLOAD with first byte=0x21 and page address
+    buf = struct.pack("<BI", 0x21, addr)
+    __dev.ctrl_transfer(0x21, __DFU_DNLOAD, 0, __DFU_INTERFACE, buf, __TIMEOUT)
+
+    # Execute last command
+    check_status("set address", __DFU_STATE_DFU_DOWNLOAD_BUSY)
+
+    # Check command state
+    check_status("set address", __DFU_STATE_DFU_DOWNLOAD_IDLE)
+
+
+def write_memory(addr, buf, progress=None, progress_addr=0, progress_size=0):
+    """Writes a buffer into memory. This routine assumes that memory has
+    already been erased.
+    """
+
+    xfer_count = 0
+    xfer_bytes = 0
+    xfer_total = len(buf)
+    xfer_base = addr
+
+    while xfer_bytes < xfer_total:
+        if __verbose and xfer_count % 512 == 0:
+            print(
+                "Addr 0x%x %dKBs/%dKBs..."
+                % (xfer_base + xfer_bytes, xfer_bytes // 1024, xfer_total // 1024)
+            )
+        if progress and xfer_count % 2 == 0:
+            progress(progress_addr, xfer_base + xfer_bytes - progress_addr, progress_size)
+
+        # Set mem write address
+        set_address(xfer_base + xfer_bytes)
+
+        # Send DNLOAD with fw data
+        chunk = min(__cfg_descr.wTransferSize, xfer_total - xfer_bytes)
+        __dev.ctrl_transfer(
+            0x21, __DFU_DNLOAD, 2, __DFU_INTERFACE, buf[xfer_bytes : xfer_bytes + chunk], __TIMEOUT
+        )
+
+        # Execute last command
+        check_status("write memory", __DFU_STATE_DFU_DOWNLOAD_BUSY)
+
+        # Check command state
+        check_status("write memory", __DFU_STATE_DFU_DOWNLOAD_IDLE)
+
+        xfer_count += 1
+        xfer_bytes += chunk
+
+
+def write_page(buf, xfer_offset):
+    """Writes a single page. This routine assumes that memory has already
+    been erased.
+    """
+
+    xfer_base = 0x08000000
+
+    # Set mem write address
+    set_address(xfer_base + xfer_offset)
+
+    # Send DNLOAD with fw data
+    __dev.ctrl_transfer(0x21, __DFU_DNLOAD, 2, __DFU_INTERFACE, buf, __TIMEOUT)
+
+    # Execute last command
+    check_status("write memory", __DFU_STATE_DFU_DOWNLOAD_BUSY)
+
+    # Check command state
+    check_status("write memory", __DFU_STATE_DFU_DOWNLOAD_IDLE)
+
+    if __verbose:
+        print("Write: 0x%x " % (xfer_base + xfer_offset))
+
+
+def exit_dfu():
+    """Exit DFU mode, and start running the program."""
+    try:
+        # Set jump address
+        set_address(0x08000000)
+
+        # Send DNLOAD with 0 length to exit DFU
+        __dev.ctrl_transfer(0x21, __DFU_DNLOAD, 0, __DFU_INTERFACE, None, __TIMEOUT)
+
+        # Execute last command
+        if get_status() != __DFU_STATE_DFU_MANIFEST:
+            print("Failed to reset device")
+    except Exception:
+        pass
+    finally:
+        # Always release device, even if transfers above fail (e.g. mid-flash disconnect)
+        try:
+            _usb.util.dispose_resources(__dev)
+        except Exception:
+            pass
+
+
+def named(values, names):
+    """Creates a dict with `names` as fields, and `values` as values."""
+    return dict(zip(names.split(), values))
+
+
+
+
+class FilterDFU(object):
+    """Class for filtering USB devices to identify devices which are in DFU
+    mode.
+    """
+
+    def __call__(self, device):
+        for cfg in device:
+            for intf in cfg:
+                return intf.bInterfaceClass == 0xFE and intf.bInterfaceSubClass == 1
+
+
+def get_dfu_devices(*args, **kwargs):
+    """Returns a list of USB devices which are currently in DFU mode.
+    Additional filters (like idProduct and idVendor) can be passed in
+    to refine the search.
+    """
+
+    # Convert to list for compatibility with newer PyUSB
+    # Handle None return when no devices found
+    result = _usb.core.find(*args, find_all=True, custom_match=FilterDFU(), **kwargs)
+    return list(result) if result else []
+
+
+def get_memory_layout(device):
+    """Returns an array which identifies the memory layout. Each entry
+    of the array will contain a dictionary with the following keys:
+        addr        - Address of this memory segment.
+        last_addr   - Last address contained within the memory segment.
+        size        - Size of the segment, in bytes.
+        num_pages   - Number of pages in the segment.
+        page_size   - Size of each page, in bytes.
+    """
+
+    cfg = device[0]
+    intf = cfg[(0, 0)]
+    mem_layout_str = get_string(device, intf.iInterface)
+    mem_layout = mem_layout_str.split("/")
+    result = []
+    for mem_layout_index in range(1, len(mem_layout), 2):
+        addr = int(mem_layout[mem_layout_index], 0)
+        segments = mem_layout[mem_layout_index + 1].split(",")
+        seg_re = re.compile(r"(\d+)\*(\d+)(.)(.)")
+        for segment in segments:
+            seg_match = seg_re.match(segment)
+            num_pages = int(seg_match.group(1), 10)
+            page_size = int(seg_match.group(2), 10)
+            multiplier = seg_match.group(3)
+            if multiplier == "K":
+                page_size *= 1024
+            if multiplier == "M":
+                page_size *= 1024 * 1024
+            size = num_pages * page_size
+            last_addr = addr + size - 1
+            result.append(
+                named(
+                    (addr, last_addr, size, num_pages, page_size),
+                    "addr last_addr size num_pages page_size",
+                )
+            )
+            addr += size
+    return result
+
+
+def list_dfu_devices(*args, **kwargs):
+    """Prints a list of devices detected in DFU mode."""
+    devices = get_dfu_devices(*args, **kwargs)
+    if not devices:
+        raise RuntimeError("No DFU capable devices found")
+    for device in devices:
+        print(
+            "Bus {} Device {:03d}: ID {:04x}:{:04x}".format(
+                device.bus, device.address, device.idVendor, device.idProduct
+            )
+        )
+        layout = get_memory_layout(device)
+        print("Memory Layout")
+        for entry in layout:
+            print(
+                "    0x{:x} {:2d} pages of {:3d}K bytes".format(
+                    entry["addr"], entry["num_pages"], entry["page_size"] // 1024
+                )
+            )
+
+
+def write_elements(elements, mass_erase_used, progress=None):
+    """Writes the indicated elements into the target memory,
+    erasing as needed.
+    """
+
+    mem_layout = get_memory_layout(__dev)
+    for elem in elements:
+        addr = elem["addr"]
+        size = elem["size"]
+        data = elem["data"]
+        elem_size = size
+        elem_addr = addr
+        if progress and elem_size:
+            progress(elem_addr, 0, elem_size)
+        while size > 0:
+            write_size = size
+            if not mass_erase_used:
+                for segment in mem_layout:
+                    if addr >= segment["addr"] and addr <= segment["last_addr"]:
+                        # We found the page containing the address we want to
+                        # write, erase it
+                        page_size = segment["page_size"]
+                        page_addr = addr & ~(page_size - 1)
+                        if addr + write_size > page_addr + page_size:
+                            write_size = page_addr + page_size - addr
+                        page_erase(page_addr)
+                        break
+            write_memory(addr, data[:write_size], progress, elem_addr, elem_size)
+            data = data[write_size:]
+            addr += write_size
+            size -= write_size
+            if progress:
+                progress(elem_addr, addr - elem_addr, elem_size)
+
+
+def cli_progress(addr, offset, size):
+    """Prints a progress report suitable for use on the command line."""
+    width = 25
+    done = offset * width // size
+    print(
+        "\r0x{:08x} {:7d} [{}{}] {:3d}% ".format(
+            addr, size, "=" * done, " " * (width - done), offset * 100 // size
+        ),
+        end="",
+    )
+    try:
+        sys.stdout.flush()
+    except OSError:
+        pass  # Ignore Windows CLI "WinError 87" on Python 3.6
+    if offset == size:
+        print("")

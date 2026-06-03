@@ -38,19 +38,23 @@ SUPPORTED_TARGETS: frozenset[str] = frozenset({
 VARIANT_CLI = "cli"
 VARIANT_WEBVIEW = "webview"
 VARIANT_LVGL = "lvgl"
+VARIANT_TUI = "tui"
 SUPPORTED_VARIANTS: frozenset[str] = frozenset({
     VARIANT_CLI,
     VARIANT_WEBVIEW,
     VARIANT_LVGL,
+    VARIANT_TUI,
 })
 
 # Renderers permitted in picolet.toml [ui] renderer. The cli variant has
 # no [ui] section; non-cli variants map 1:1 to renderer names.
 RENDERER_WEBVIEW = VARIANT_WEBVIEW
 RENDERER_LVGL = VARIANT_LVGL
+RENDERER_TUI = VARIANT_TUI
 SUPPORTED_RENDERERS: frozenset[str] = frozenset({
     RENDERER_WEBVIEW,
     RENDERER_LVGL,
+    RENDERER_TUI,
 })
 
 
@@ -89,4 +93,6 @@ def variant_for_renderer(renderer: str | None) -> str:
         return VARIANT_WEBVIEW
     if renderer == RENDERER_LVGL:
         return VARIANT_LVGL
+    if renderer == RENDERER_TUI:
+        return VARIANT_TUI
     raise ValueError("unknown renderer: " + repr(renderer))

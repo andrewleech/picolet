@@ -1,0 +1,15 @@
+[app]
+name = "{{name}}"
+version = "0.1.0"
+entry = "src/main.py"
+
+[ui]
+renderer = "tui"
+
+# [window] is parsed but unused on the tui renderer in v0.1; the terminal
+# owns its own geometry and the title is purely declarative.  Kept so
+# `picolet init --template hello-tui` produces a config that round-trips
+# through the validator without warnings, and so cross-renderer templates
+# share the same shape.
+[window]
+title = "Hello TUI"

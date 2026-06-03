@@ -1,0 +1,339 @@
+# MicroPython USB host library, compatible with PyUSB.
+# MIT license; Copyright (c) 2021-2024 Damien P. George
+#
+# Ported from pydfu-win/micropython/tools/pydfu_app/lib/usb/core.py.
+# Supports Linux (system libusb-1.0.so.0), Windows (vendored
+# libusb-1.0.dll co-located with this module in the romfs), and macOS
+# (Homebrew libusb-1.0.dylib from /opt/homebrew/lib or /usr/local/lib).
+
+import os
+import sys
+import ffi
+import uctypes
+
+if sys.maxsize >> 32:
+    UINTPTR_SIZE = 8
+    UINTPTR = uctypes.UINT64
+else:
+    UINTPTR_SIZE = 4
+    UINTPTR = uctypes.UINT32
+
+
+def _align_word(x):
+    return (x + UINTPTR_SIZE - 1) & ~(UINTPTR_SIZE - 1)
+
+
+ptr_descriptor = (0 | uctypes.ARRAY, 1 | UINTPTR)
+
+libusb_device_descriptor = {
+    "bLength": 0 | uctypes.UINT8,
+    "bDescriptorType": 1 | uctypes.UINT8,
+    "bcdUSB": 2 | uctypes.UINT16,
+    "bDeviceClass": 4 | uctypes.UINT8,
+    "bDeviceSubClass": 5 | uctypes.UINT8,
+    "bDeviceProtocol": 6 | uctypes.UINT8,
+    "bMaxPacketSize0": 7 | uctypes.UINT8,
+    "idVendor": 8 | uctypes.UINT16,
+    "idProduct": 10 | uctypes.UINT16,
+    "bcdDevice": 12 | uctypes.UINT16,
+    "iManufacturer": 14 | uctypes.UINT8,
+    "iProduct": 15 | uctypes.UINT8,
+    "iSerialNumber": 16 | uctypes.UINT8,
+    "bNumConfigurations": 17 | uctypes.UINT8,
+}
+
+libusb_config_descriptor = {
+    "bLength": 0 | uctypes.UINT8,
+    "bDescriptorType": 1 | uctypes.UINT8,
+    "wTotalLength": 2 | uctypes.UINT16,
+    "bNumInterfaces": 4 | uctypes.UINT8,
+    "bConfigurationValue": 5 | uctypes.UINT8,
+    "iConfiguration": 6 | uctypes.UINT8,
+    "bmAttributes": 7 | uctypes.UINT8,
+    "MaxPower": 8 | uctypes.UINT8,
+    "interface": _align_word(9) | UINTPTR,  # array of libusb_interface
+    "extra": (_align_word(9) + UINTPTR_SIZE) | UINTPTR,
+    "extra_length": (_align_word(9) + 2 * UINTPTR_SIZE) | uctypes.INT,
+}
+
+libusb_interface = {
+    "altsetting": 0 | UINTPTR,  # array of libusb_interface_descriptor
+    "num_altsetting": UINTPTR_SIZE | uctypes.INT,
+}
+
+libusb_interface_descriptor = {
+    "bLength": 0 | uctypes.UINT8,
+    "bDescriptorType": 1 | uctypes.UINT8,
+    "bInterfaceNumber": 2 | uctypes.UINT8,
+    "bAlternateSetting": 3 | uctypes.UINT8,
+    "bNumEndpoints": 4 | uctypes.UINT8,
+    "bInterfaceClass": 5 | uctypes.UINT8,
+    "bInterfaceSubClass": 6 | uctypes.UINT8,
+    "bInterfaceProtocol": 7 | uctypes.UINT8,
+    "iInterface": 8 | uctypes.UINT8,
+    "endpoint": _align_word(9) | UINTPTR,
+    "extra": (_align_word(9) + UINTPTR_SIZE) | UINTPTR,
+    "extra_length": (_align_word(9) + 2 * UINTPTR_SIZE) | uctypes.INT,
+}
+
+# Platform-aware library loading.
+# Linux:  system libusb-1.0.so.0.
+# Windows: extracted DLL from romfs (set by main.py before this import),
+#          falling back to system PATH if not extracted.
+# macOS:  Homebrew libusb; tries /opt/homebrew/lib (arm64 Homebrew),
+#         then /usr/local/lib (x64 Homebrew), then bare name (DYLD_LIBRARY_PATH).
+# The extraction is performed by picolet.romfs_extract.extract_dir() in
+# main.py, which copies the DLL to %TEMP%\picolet_pydfu\ and sets
+# _usb._native_lib_dir before any module that transitively imports this
+# one is loaded.
+if sys.platform == "win32":
+    # Prefer the path set by the host app's romfs extraction step (via
+    # picolet.romfs_extract — see main.py).
+    import _usb as _usb_pkg
+    _extracted_dir = getattr(_usb_pkg, "_native_lib_dir", None)
+    if _extracted_dir:
+        _dll_path = _extracted_dir + "\\libusb-1.0.dll"
+    else:
+        _dll_path = "libusb-1.0.dll"  # rely on system PATH
+    libusb = ffi.open(_dll_path)
+elif sys.platform == "darwin":
+    # Try both Homebrew prefixes in order; fall back to bare name so that
+    # DYLD_LIBRARY_PATH / DYLD_FALLBACK_LIBRARY_PATH can resolve it.
+    # subprocess is not available in MicroPython, so brew --prefix is not
+    # called at runtime; the two paths cover all standard Homebrew installs.
+    libusb = None
+    for _dylib_path in [
+        "/opt/homebrew/lib/libusb-1.0.dylib",   # arm64 Homebrew (Apple Silicon)
+        "/usr/local/lib/libusb-1.0.dylib",        # x64 Homebrew (Intel)
+        "libusb-1.0.dylib",                        # DYLD_LIBRARY_PATH fallback
+    ]:
+        try:
+            libusb = ffi.open(_dylib_path)
+            break
+        except OSError:
+            pass
+    if libusb is None:
+        raise OSError(
+            "libusb-1.0 not found on macOS; install it with: brew install libusb"
+        )
+else:
+    libusb = ffi.open("libusb-1.0.so.0")
+
+libusb_init = libusb.func("i", "libusb_init", "p")
+libusb_exit = libusb.func("v", "libusb_exit", "p")
+libusb_get_device_list = libusb.func("i", "libusb_get_device_list", "pp")  # return is ssize_t
+libusb_free_device_list = libusb.func("v", "libusb_free_device_list", "pi")
+libusb_get_device_descriptor = libusb.func("i", "libusb_get_device_descriptor", "pp")
+libusb_get_config_descriptor = libusb.func("i", "libusb_get_config_descriptor", "pBp")
+libusb_free_config_descriptor = libusb.func("v", "libusb_free_config_descriptor", "p")
+libusb_open = libusb.func("i", "libusb_open", "pp")
+libusb_set_configuration = libusb.func("i", "libusb_set_configuration", "pi")
+libusb_claim_interface = libusb.func("i", "libusb_claim_interface", "pi")
+libusb_release_interface = libusb.func("i", "libusb_release_interface", "pi")
+libusb_close = libusb.func("v", "libusb_close", "p")
+libusb_get_bus_number = libusb.func("B", "libusb_get_bus_number", "p")
+libusb_get_device_address = libusb.func("B", "libusb_get_device_address", "p")
+libusb_ref_device = libusb.func("p", "libusb_ref_device", "p")
+libusb_unref_device = libusb.func("v", "libusb_unref_device", "p")
+libusb_control_transfer = libusb.func("i", "libusb_control_transfer", "pBBHHpHI")
+
+# ---------------------------------------------------------------------------
+# Module-level libusb context — initialise once, exit at process shutdown.
+# Matches the upstream pyusb pattern (one context per process lifetime).
+# MicroPython may not have atexit; guard the import.
+# ---------------------------------------------------------------------------
+
+if libusb_init(0) < 0:
+    raise OSError("libusb_init failed")
+
+try:
+    import atexit as _atexit
+    _atexit.register(libusb_exit, 0)
+except ImportError:
+    pass  # MicroPython without atexit; libusb_exit runs at VM teardown
+
+
+def _new(sdesc):
+    buf = bytearray(uctypes.sizeof(sdesc))
+    s = uctypes.struct(uctypes.addressof(buf), sdesc)
+    return s
+
+
+class Interface:
+    def __init__(self, descr):
+        # Public attributes.
+        self.bInterfaceNumber = descr.bInterfaceNumber
+        self.bAlternateSetting = descr.bAlternateSetting
+        self.bInterfaceClass = descr.bInterfaceClass
+        self.bInterfaceSubClass = descr.bInterfaceSubClass
+        self.bInterfaceProtocol = descr.bInterfaceProtocol
+        self.iInterface = descr.iInterface
+        self.extra_descriptors = uctypes.bytes_at(descr.extra, descr.extra_length)
+
+
+class Configuration:
+    def __init__(self, dev, cfg_idx):
+        cfgs = _new(ptr_descriptor)
+        if libusb_get_config_descriptor(dev._dev, cfg_idx, cfgs) != 0:
+            raise Exception
+        descr = uctypes.struct(cfgs[0], libusb_config_descriptor)
+
+        # Extract all needed info because descr is going to be free'd at the end.
+        self._itfs = []
+        itf_array = uctypes.struct(
+            descr.interface, (0 | uctypes.ARRAY, descr.bNumInterfaces, libusb_interface)
+        )
+        for i in range(descr.bNumInterfaces):
+            itf = itf_array[i]
+            alt_array = uctypes.struct(
+                itf.altsetting,
+                (0 | uctypes.ARRAY, itf.num_altsetting, libusb_interface_descriptor),
+            )
+            for j in range(itf.num_altsetting):
+                alt = alt_array[j]
+                self._itfs.append(Interface(alt))
+
+        # Public attributes.
+        self.bNumInterfaces = descr.bNumInterfaces
+        self.bConfigurationValue = descr.bConfigurationValue
+        self.bmAttributes = descr.bmAttributes
+        self.bMaxPower = descr.MaxPower
+        self.extra_descriptors = uctypes.bytes_at(descr.extra, descr.extra_length)
+
+        # Free descr memory in the driver.
+        libusb_free_config_descriptor(cfgs[0])
+
+    def __iter__(self):
+        return iter(self._itfs)
+
+    def __getitem__(self, key):
+        """Get interface by index or (interface_number, alt_setting) tuple."""
+        if isinstance(key, tuple):
+            intf_num, alt_setting = key
+            for itf in self._itfs:
+                if itf.bInterfaceNumber == intf_num and itf.bAlternateSetting == alt_setting:
+                    return itf
+            raise KeyError(key)
+        return self._itfs[key]
+
+    def interfaces(self):
+        """Return an iterator over all interfaces in this configuration."""
+        return iter(self._itfs)
+
+
+class Device:
+    _TIMEOUT_DEFAULT = 1000
+
+    def __init__(self, dev, descr):
+        self._dev = dev
+        self._num_cfg = descr.bNumConfigurations
+        self._handle = None
+        self._claim_itf = set()
+
+        # Public attributes.
+        self.idVendor = descr.idVendor
+        self.idProduct = descr.idProduct
+        self.bus = libusb_get_bus_number(dev)
+        self.address = libusb_get_device_address(dev)
+
+    def __iter__(self):
+        for i in range(self._num_cfg):
+            yield Configuration(self, i)
+
+    def __getitem__(self, i):
+        return Configuration(self, i)
+
+    def configurations(self):
+        """Return an iterator over all device configurations."""
+        return iter(self)
+
+    def _open(self):
+        if self._handle is None:
+            # Open the USB device.
+            handle = _new(ptr_descriptor)
+            if libusb_open(self._dev, handle) != 0:
+                raise Exception
+            self._handle = handle[0]
+
+    def _claim_interface(self, i):
+        if libusb_claim_interface(self._handle, i) != 0:
+            raise Exception
+
+    def set_configuration(self):
+        # Select default configuration.
+        self._open()
+        cfg = Configuration(self, 0).bConfigurationValue
+        ret = libusb_set_configuration(self._handle, cfg)
+        if ret != 0:
+            raise Exception
+
+    def ctrl_transfer(
+        self, bmRequestType, bRequest, wValue=0, wIndex=0, data_or_wLength=None, timeout=None
+    ):
+        if data_or_wLength is None:
+            l = 0
+            data = bytes()
+        elif isinstance(data_or_wLength, int):
+            l = data_or_wLength
+            data = bytearray(l)
+        else:
+            l = len(data_or_wLength)
+            data = data_or_wLength
+        self._open()
+        if wIndex & 0xFF not in self._claim_itf:
+            self._claim_interface(wIndex & 0xFF)
+            self._claim_itf.add(wIndex & 0xFF)
+        if timeout is None:
+            timeout = self._TIMEOUT_DEFAULT
+        ret = libusb_control_transfer(
+            self._handle, bmRequestType, bRequest, wValue, wIndex, data, l, timeout * 1000
+        )
+        if ret < 0:
+            raise Exception
+        if isinstance(data_or_wLength, int):
+            return data
+        else:
+            return ret
+
+    def _dispose(self):
+        """Release all resources associated with this device."""
+        if self._handle is not None:
+            for itf in self._claim_itf:
+                libusb_release_interface(self._handle, itf)
+            self._claim_itf.clear()
+            libusb_close(self._handle)
+            self._handle = None
+
+
+def find(*, find_all=False, custom_match=None, idVendor=None, idProduct=None):
+    devs = _new(ptr_descriptor)
+    count = libusb_get_device_list(0, devs)
+    if count < 0:
+        raise Exception
+
+    dev_array = uctypes.struct(devs[0], (0 | uctypes.ARRAY, count | UINTPTR))
+    descr = _new(libusb_device_descriptor)
+    devices = None
+    for i in range(count):
+        libusb_get_device_descriptor(dev_array[i], descr)
+        if idVendor and descr.idVendor != idVendor:
+            continue
+        if idProduct and descr.idProduct != idProduct:
+            continue
+        # Ref device before creating Device object (Device stores the pointer)
+        libusb_ref_device(dev_array[i])
+        device = Device(dev_array[i], descr)
+        if custom_match and not custom_match(device):
+            # custom_match rejected this device; drop the extra ref we just added.
+            libusb_unref_device(dev_array[i])
+            continue
+        if not find_all:
+            # Free the device list (unref all devices; our device is safe because we ref'd it)
+            libusb_free_device_list(devs[0], 1)
+            return device
+        if not devices:
+            devices = []
+        devices.append(device)
+    # Free the device list (unref all devices; kept devices are safe because we ref'd them)
+    libusb_free_device_list(devs[0], 1)
+    return devices
