@@ -26,6 +26,7 @@ require("os-path")
 require("pathlib")
 require("__future__")
 require("functools")
+require("itertools")
 
 freeze("../python", "picolet")
 freeze("../python", "picolet_tui")
