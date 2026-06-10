@@ -102,6 +102,8 @@ Spec coverage
   accepted for source-compat but never branches on the value.
 """
 
+from collections import namedtuple
+
 from picolet_tui._shims.functools import lru_cache
 from picolet_tui._shims.typing import Callable, Sequence, Tuple
 
@@ -158,34 +160,15 @@ _SINGLE_CELLS = frozenset(
 _is_single_cell_widths = _SINGLE_CELLS.issuperset  # type: Callable
 
 
-class CellTable(tuple):
-    """NamedTuple-shaped container for the Unicode width data.
-
-    Matches upstream Rich's ``CellTable`` field-by-field
-    (``unicode_version``, ``widths``, ``narrow_to_wide``) so callers
-    that destructure or attribute-access the table work unchanged.
-    Implemented as a tuple subclass rather than via the typing-shim
-    NamedTuple (which the shim deliberately omits to stay inside the
-    NFR-TUI-19 frozen-bytes budget); same workaround as
-    ``color_triplet.ColorTriplet``.
-    """
-
-    __slots__ = ()
-
-    def __new__(cls, unicode_version, widths, narrow_to_wide):
-        return tuple.__new__(cls, (unicode_version, widths, narrow_to_wide))
-
-    @property
-    def unicode_version(self):
-        return self[0]
-
-    @property
-    def widths(self):
-        return self[1]
-
-    @property
-    def narrow_to_wide(self):
-        return self[2]
+# NamedTuple-shaped container for the Unicode width data.  Matches
+# upstream Rich's ``CellTable`` field-by-field (``unicode_version``,
+# ``widths``, ``narrow_to_wide``) so callers that destructure or
+# attribute-access the table work unchanged.  collections.namedtuple
+# rather than a hand-rolled tuple subclass: ``tuple.__new__(cls, ...)``
+# raises AttributeError on MicroPython, and namedtuple is a C builtin
+# there (no frozen-bytes cost).  Same change as
+# ``color_triplet.ColorTriplet``.
+CellTable = namedtuple("CellTable", ("unicode_version", "widths", "narrow_to_wide"))
 
 
 # Singleton table built from the bundled 15.1.0 data.  Exposed as

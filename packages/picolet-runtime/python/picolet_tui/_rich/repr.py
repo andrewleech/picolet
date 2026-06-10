@@ -52,9 +52,13 @@ def auto(cls=None, *, angular=None):
         def auto_repr(self):
             repr_str = []
             append = repr_str.append
-            # Read angular from the bound method's attribute, mirroring
-            # upstream so callers can flip ``Cls.__rich_repr__.angular``.
-            is_angular = getattr(self.__rich_repr__, "angular", False)
+            # Upstream stores the flag on the ``__rich_repr__`` method
+            # object (``cls.__rich_repr__.angular``), but MicroPython
+            # functions reject attribute assignment, so we keep it as a
+            # class attribute instead.  Same default (False) and the
+            # class-level lookup means subclasses inherit it, matching
+            # upstream's method-attribute inheritance behaviour.
+            is_angular = getattr(self, "__rich_repr_angular__", False)
             for arg in self.__rich_repr__():
                 if isinstance(arg, tuple):
                     if len(arg) == 1:
@@ -91,7 +95,11 @@ def auto(cls=None, *, angular=None):
 
         cls.__repr__ = auto_repr
         if angular is not None:
-            cls.__rich_repr__.angular = angular
+            # Class attribute, not ``cls.__rich_repr__.angular``: function
+            # objects on MicroPython raise AttributeError on attribute
+            # assignment, which would crash every ``@auto(angular=...)``
+            # decoration at import time.
+            cls.__rich_repr_angular__ = angular
         return cls
 
     if cls is None:

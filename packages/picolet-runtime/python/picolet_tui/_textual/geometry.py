@@ -18,24 +18,24 @@ What changed vs upstream
 * ``typing`` imports route through ``picolet_tui._shims.typing``.  The
   shim does not expose ``NamedTuple`` (see the deliberate omission in
   ``_shims/typing.py``), so the four value classes — ``Offset``, ``Size``,
-  ``Region``, ``Spacing`` — are reimplemented as ``tuple`` subclasses
-  with ``__new__`` plus property accessors.  This mirrors the pattern
-  ``_rich.color_triplet.ColorTriplet`` and ``_rich.measure.Measurement``
-  already use, and for the same reason: pulling in the
-  ``collections.namedtuple`` metaclass machinery for one consumer would
-  cost both NFR-TUI-19 frozen-bytes budget and the metaclass code path
-  that synthesis D1 / 01-textual-deps.md "CPython-only constructs"
-  forbids.  The visible NamedTuple contract is preserved:
+  ``Region``, ``Spacing`` — subclass ``collections.namedtuple`` instead.
+  This mirrors ``_rich.color_triplet.ColorTriplet`` and
+  ``_rich.measure.Measurement``: MicroPython's ``namedtuple`` is a C
+  builtin (no frozen-bytes cost), and a hand-rolled ``tuple`` subclass
+  cannot work there at all — ``tuple.__new__(cls, ...)`` raises
+  ``AttributeError`` on MicroPython.  The visible NamedTuple contract
+  is preserved with one exception:
     * positional construction: ``Region(x, y, width, height)``
-    * keyword construction: ``Region(x=0, y=0, width=10, height=5)`` —
-      enabled by ``__new__`` accepting keyword args
-    * default values: every component defaults to 0
+    * keyword construction: ``Region(x=0, y=0, width=10, height=5)``
+    * NO default values — MicroPython's namedtuple cannot carry
+      constructor defaults, so every component must be passed
+      explicitly at every call site (upstream defaults all to 0)
     * indexed access: ``r[0] == r.x``
     * tuple iteration / unpacking: ``x, y, w, h = region``
     * ``isinstance(r, tuple)`` is True
-  What is NOT mirrored — and what no Textual caller uses against the
-  geometry types — is ``_replace()``, ``_asdict()``, ``_fields``, and
-  the NamedTuple-specific repr (we ship explicit ``__repr__`` instead).
+  ``_replace()`` / ``_asdict()`` / ``_fields`` may be missing from
+  MicroPython's namedtuple — no Textual caller uses them against the
+  geometry types.  Explicit ``__repr__`` implementations are kept.
 
 * All ``@lru_cache(maxsize=1024)`` and ``@lru_cache(maxsize=4096)``
   decorators are rewritten to ``@lru_cache(maxsize=128)`` per synthesis
@@ -107,9 +107,9 @@ Supports:
   NFR-TUI-6 (lru_cache caps): every cached method on ``Region`` declares
     ``maxsize=128`` explicitly so the import-time audit walking
     ``cache_info().maxsize`` does not have to chase upstream defaults.
-  NFR-TUI-19 (frozen-bytes budget): tuple-subclass implementation
-    avoids the ``collections.namedtuple`` machinery; the four NULL
-    constants are interned once at module load.
+  NFR-TUI-19 (frozen-bytes budget): ``collections.namedtuple`` is a C
+    builtin on MicroPython so the base classes cost nothing; the four
+    NULL constants are interned once at module load.
 
 Performance note
 ----------------
@@ -122,7 +122,7 @@ API (R4 mitigation b) will expose cache size as user-tunable; until then
 128 is the floor.
 """
 
-from operator import attrgetter, itemgetter
+from collections import namedtuple
 
 from picolet_tui._shims.functools import lru_cache
 from picolet_tui._shims.typing import (
@@ -192,7 +192,8 @@ def clamp(value, minimum, maximum):
         return value
 
 
-class Offset(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Offset(namedtuple("Offset", ("x", "y"))):
     """A cell offset defined by x and y coordinates.
 
     Offsets are typically relative to the top left of the terminal or
@@ -215,22 +216,6 @@ class Offset(tuple):
     """
 
     __slots__ = ()
-
-    # Defaults of 0 mirror upstream's NamedTuple defaults.  Keyword
-    # construction (``Offset(x=3, y=2)``) keeps working because the
-    # parameter names match the upstream field names exactly.
-    def __new__(cls, x=0, y=0):
-        return tuple.__new__(cls, (x, y))
-
-    @property
-    def x(self):
-        """Offset in the x-axis (horizontal)."""
-        return self[0]
-
-    @property
-    def y(self):
-        """Offset in the y-axis (vertical)."""
-        return self[1]
 
     def __repr__(self):
         return "Offset(x={}, y={})".format(self[0], self[1])
@@ -345,7 +330,8 @@ class Offset(tuple):
         return Offset(clamp(x, 0, width - 1), clamp(y, 0, height - 1))
 
 
-class Size(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Size(namedtuple("Size", ("width", "height"))):
     """The dimensions (width and height) of a rectangular region.
 
     Example:
@@ -359,19 +345,6 @@ class Size(tuple):
     """
 
     __slots__ = ()
-
-    def __new__(cls, width=0, height=0):
-        return tuple.__new__(cls, (width, height))
-
-    @property
-    def width(self):
-        """The width in cells."""
-        return self[0]
-
-    @property
-    def height(self):
-        """The height in cells."""
-        return self[1]
 
     def __repr__(self):
         return "Size(width={}, height={})".format(self[0], self[1])
@@ -490,7 +463,8 @@ class Size(tuple):
         return offset.clamp(self.width, self.height)
 
 
-class Region(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Region(namedtuple("Region", ("x", "y", "width", "height"))):
     """Defines a rectangular region.
 
     A Region consists of a coordinate (x and y) and dimensions (width
@@ -514,29 +488,6 @@ class Region(tuple):
 
     __slots__ = ()
 
-    def __new__(cls, x=0, y=0, width=0, height=0):
-        return tuple.__new__(cls, (x, y, width, height))
-
-    @property
-    def x(self):
-        """Offset in the x-axis (horizontal)."""
-        return self[0]
-
-    @property
-    def y(self):
-        """Offset in the y-axis (vertical)."""
-        return self[1]
-
-    @property
-    def width(self):
-        """The width of the region."""
-        return self[2]
-
-    @property
-    def height(self):
-        """The height of the region."""
-        return self[3]
-
     def __repr__(self):
         return "Region(x={}, y={}, width={}, height={})".format(
             self[0], self[1], self[2], self[3]
@@ -559,10 +510,12 @@ class Region(tuple):
         # property descriptors.  Mixing the two matches upstream
         # exactly; ``right`` and ``bottom`` are properties (computed
         # from x+width / y+height) so itemgetter would not see them.
-        min_x = min(regions, key=itemgetter(0)).x
-        max_x = max(regions, key=attrgetter("right")).right
-        min_y = min(regions, key=itemgetter(1)).y
-        max_y = max(regions, key=attrgetter("bottom")).bottom
+        # lambdas, not operator.itemgetter/attrgetter: micropython-lib's
+        # operator module lacks itemgetter and its attrgetter is partial.
+        min_x = min(regions, key=lambda r: r[0]).x
+        max_x = max(regions, key=lambda r: r.right).right
+        min_y = min(regions, key=lambda r: r[1]).y
+        max_y = max(regions, key=lambda r: r.bottom).bottom
         return cls(min_x, min_y, max_x - min_x, max_y - min_y)
 
     @classmethod
@@ -1292,7 +1245,8 @@ class Region(tuple):
         return region
 
 
-class Spacing(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Spacing(namedtuple("Spacing", ("top", "right", "bottom", "left"))):
     """Stores spacing around a widget, such as padding and border.
 
     Spacing is defined by four integers for the space at the top, right,
@@ -1310,29 +1264,6 @@ class Spacing(tuple):
     """
 
     __slots__ = ()
-
-    def __new__(cls, top=0, right=0, bottom=0, left=0):
-        return tuple.__new__(cls, (top, right, bottom, left))
-
-    @property
-    def top(self):
-        """Space from the top of a region."""
-        return self[0]
-
-    @property
-    def right(self):
-        """Space from the right of a region."""
-        return self[1]
-
-    @property
-    def bottom(self):
-        """Space from the bottom of a region."""
-        return self[2]
-
-    @property
-    def left(self):
-        """Space from the left of a region."""
-        return self[3]
 
     def __repr__(self):
         return "Spacing(top={}, right={}, bottom={}, left={})".format(

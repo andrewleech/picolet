@@ -83,6 +83,7 @@ Spec coverage
 """
 
 import re
+from collections import namedtuple
 
 from picolet_tui._shims.enum import Enum, enum_class
 from picolet_tui._shims.functools import lru_cache
@@ -369,41 +370,22 @@ def get_symbols(units):
 
 
 # ---------------------------------------------------------------------------
-# Scalar.  Subclassing ``tuple`` rather than ``NamedTuple`` because the
-# typing-shim's ``NamedTuple`` is a ``_Placeholder`` and cannot back a
-# user class (the convention mirrors ``_rich/color_triplet.py``).
+# Scalar.  Subclassing ``collections.namedtuple`` rather than
+# ``typing.NamedTuple`` because the typing-shim's ``NamedTuple`` is a
+# ``_Placeholder`` and cannot back a user class.  MicroPython's
+# ``namedtuple`` is a C builtin; a hand-rolled ``tuple`` subclass cannot
+# work there because ``tuple.__new__`` raises AttributeError.
 # Positional construction matches upstream's NamedTuple signature so
 # ``Scalar(1.0, Unit.CELLS, Unit.WIDTH)`` and destructuring
 # ``value, unit, percent_unit = scalar`` both continue to work.
 # ---------------------------------------------------------------------------
 
 
-class Scalar(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Scalar(namedtuple("Scalar", ("value", "unit", "percent_unit"))):
     """A numeric value paired with a unit and a percent-unit hint."""
 
     __slots__ = ()
-
-    def __new__(cls, value, unit, percent_unit):
-        # Materialise as a 3-tuple so destructuring + index access stay
-        # cheap.  ``unit`` and ``percent_unit`` are Unit members; ``value``
-        # is float (or int that float() will coerce cleanly).
-        return tuple.__new__(cls, (value, unit, percent_unit))
-
-    # Named accessors — equivalent to NamedTuple's auto-generated
-    # field properties.  Keep names + docstrings aligned with upstream
-    # for tooling and ``help(Scalar)`` ergonomics.
-
-    @property
-    def value(self):
-        return self[0]
-
-    @property
-    def unit(self):
-        return self[1]
-
-    @property
-    def percent_unit(self):
-        return self[2]
 
     def __str__(self):
         value, unit, _ = self
@@ -545,7 +527,7 @@ class Scalar(tuple):
 
 
 # ---------------------------------------------------------------------------
-# ScalarOffset.  Same NamedTuple-replacement pattern.  Decorated with
+# ScalarOffset.  Same namedtuple-subclass pattern.  Decorated with
 # ``_rich_repr.auto(angular=True)`` so it pretty-prints as
 # ``<ScalarOffset 10 5>`` rather than the tuple default.  The Rich
 # subset's ``auto`` requires an explicit ``__rich_repr__``, which the
@@ -553,8 +535,9 @@ class Scalar(tuple):
 # ---------------------------------------------------------------------------
 
 
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
 @_rich_repr.auto(angular=True)
-class ScalarOffset(tuple):
+class ScalarOffset(namedtuple("ScalarOffset", ("x", "y"))):
     """An Offset built from two ``Scalar`` values.
 
     Used to animate between two scalar positions in upstream Textual;
@@ -563,17 +546,6 @@ class ScalarOffset(tuple):
     """
 
     __slots__ = ()
-
-    def __new__(cls, x, y):
-        return tuple.__new__(cls, (x, y))
-
-    @property
-    def x(self):
-        return self[0]
-
-    @property
-    def y(self):
-        return self[1]
 
     @classmethod
     def null(cls):

@@ -153,6 +153,7 @@ Supports synthesis D5 (color system selection): ``color_system`` is
 an explicit __init__ argument the App pins once; no autodetect.
 """
 
+from collections import namedtuple
 from itertools import islice
 
 from picolet_tui._shims.typing import (
@@ -184,26 +185,15 @@ RenderResult = Iterable  # Iterable[Union[RenderableType, Segment]]
 
 
 # --- ConsoleDimensions --------------------------------------------------------
-# Hand-rolled tuple subclass — see measure.Measurement docstring for why
-# we don't pull collections.namedtuple in. Tuple iteration / unpacking /
-# indexed access all come from tuple; the named attributes are added on
-# top.
+# namedtuple subclass — MicroPython cannot call tuple.__new__ in a
+# subclass, and its namedtuple is a C builtin (zero frozen-bytes cost).
+# Tuple iteration / unpacking / indexed access all come from tuple; the
+# named attributes come from namedtuple.
 
-class ConsoleDimensions(tuple):
+class ConsoleDimensions(namedtuple("ConsoleDimensions", ("width", "height"))):
     """Size of the terminal: ``ConsoleDimensions(width, height)``."""
 
     __slots__ = ()
-
-    def __new__(cls, width, height):
-        return tuple.__new__(cls, (width, height))
-
-    @property
-    def width(self):
-        return self[0]
-
-    @property
-    def height(self):
-        return self[1]
 
 
 # --- ConsoleOptions -----------------------------------------------------------

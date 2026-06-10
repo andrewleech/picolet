@@ -26,39 +26,24 @@ Spec mapping:
 """
 
 import select
+from collections import namedtuple
 
 
 EVENT_READ = 1
 EVENT_WRITE = 2
 
 
-class SelectorKey(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class SelectorKey(namedtuple("SelectorKey", ("fileobj", "fd", "events", "data"))):
     """``(fileobj, fd, events, data)`` quadruple with named attribute access.
 
-    Subclassing ``tuple`` rather than using ``collections.namedtuple`` keeps
-    the shim free of one more micropython-lib dependency at import time.
+    ``collections.namedtuple`` is a C builtin on MicroPython (not a
+    micropython-lib dependency), so subclassing it costs nothing at
+    import time — and a hand-rolled ``tuple`` subclass cannot work
+    there because ``tuple.__new__`` raises AttributeError.
     """
 
     __slots__ = ()
-
-    def __new__(cls, fileobj, fd, events, data):
-        return tuple.__new__(cls, (fileobj, fd, events, data))
-
-    @property
-    def fileobj(self):
-        return self[0]
-
-    @property
-    def fd(self):
-        return self[1]
-
-    @property
-    def events(self):
-        return self[2]
-
-    @property
-    def data(self):
-        return self[3]
 
 
 def _fileobj_to_fd(fileobj):

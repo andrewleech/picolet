@@ -28,8 +28,12 @@ Removed vs upstream
 * ``@rich.repr.auto`` and ``__rich_repr__`` — debug ergonomics, not on
   the compositor path; same precedent as the trimmed ``_rich.color``.
 * ``Color(NamedTuple)`` base — the typing shim deliberately omits
-  ``NamedTuple``.  Hand-rolled ``tuple`` subclass instead, mirroring the
+  ``NamedTuple``.  ``collections.namedtuple`` subclass instead (a C
+  builtin on MicroPython, where a hand-rolled ``tuple`` subclass cannot
+  work because ``tuple.__new__`` raises AttributeError), mirroring the
   ``_rich/color_triplet.py`` and ``_rich/color.py`` precedent.
+  MicroPython's namedtuple has no constructor defaults, so all six
+  fields are passed explicitly at every call site.
 * ``typing_extensions.Final`` — superseded by the typing shim placeholder.
 * ``from textual.suggestions import get_suggestion`` — optional
   spellcheck for unknown colour names; pulled a Levenshtein
@@ -70,6 +74,7 @@ Spec coverage
 """
 
 import re
+from collections import namedtuple
 
 from picolet_tui._shims.functools import lru_cache
 from picolet_tui._shims.typing import Final, Optional, Tuple  # noqa: F401 — annotations only
@@ -294,13 +299,16 @@ COLOR_NAME_TO_RGB = {
 
 
 # ---------------------------------------------------------------------------
-# HSL / HSV.  Hand-rolled tuple subclasses (NamedTuple is absent from the
-# typing shim).  Three positional components, indexed access, named
-# attribute access, hashable for lru_cache keying.
+# HSL / HSV.  ``collections.namedtuple`` subclasses (NamedTuple is absent
+# from the typing shim; MicroPython cannot call tuple.__new__ in a
+# subclass, and its namedtuple is a C builtin).  Three positional
+# components, indexed access, named attribute access, hashable for
+# lru_cache keying.
 # ---------------------------------------------------------------------------
 
 
-class HSL(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class HSL(namedtuple("HSL", ("h", "s", "l"))):
     """A color in HSL (Hue, Saturation, Lightness) format.
 
     Values are floats in 0..1; ``css`` renders the canonical
@@ -308,21 +316,6 @@ class HSL(tuple):
     """
 
     __slots__ = ()
-
-    def __new__(cls, h, s, l):
-        return tuple.__new__(cls, (h, s, l))
-
-    @property
-    def h(self):
-        return self[0]
-
-    @property
-    def s(self):
-        return self[1]
-
-    @property
-    def l(self):
-        return self[2]
 
     @property
     def css(self):
@@ -337,25 +330,11 @@ class HSL(tuple):
         )
 
 
-class HSV(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class HSV(namedtuple("HSV", ("h", "s", "v"))):
     """A color in HSV (Hue, Saturation, Value) format.  Floats 0..1."""
 
     __slots__ = ()
-
-    def __new__(cls, h, s, v):
-        return tuple.__new__(cls, (h, s, v))
-
-    @property
-    def h(self):
-        return self[0]
-
-    @property
-    def s(self):
-        return self[1]
-
-    @property
-    def v(self):
-        return self[2]
 
 
 # ---------------------------------------------------------------------------
@@ -378,52 +357,28 @@ class ColorParseError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Color.  Six-component tuple: r, g, b, a, ansi, auto.  Construction
-# accepts the same positional + keyword form as upstream's NamedTuple.
+# Color.  Six-component tuple: r, g, b, a, ansi, auto.  Unlike the
+# upstream NamedTuple there are no constructor defaults — MicroPython's
+# namedtuple cannot carry them — so every call site passes all six
+# fields explicitly.
 # ---------------------------------------------------------------------------
 
 
-class Color(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Color(namedtuple("Color", ("r", "g", "b", "a", "ansi", "auto"))):
     """A color with red/green/blue/alpha components, plus optional ANSI
     index and auto-contrast flag.
 
-    Mirrors the upstream NamedTuple shape:
-      Color(r, g, b)            — opaque RGB
-      Color(r, g, b, a)         — RGBA
-      Color(r, g, b, a, ansi)   — ANSI-indexed (r/g/b are the resolved
-                                  triplet kept for theme rendering)
-      Color(r, g, b, a, ansi, auto)
+    Field layout matches the upstream NamedTuple, but construction
+    requires all six fields (MicroPython's namedtuple has no defaults)::
+
+        Color(r, g, b, a, ansi, auto)
+
+    ``ansi`` carries the ANSI index when set (r/g/b are the resolved
+    triplet kept for theme rendering); ``auto`` flags auto-contrast.
     """
 
     __slots__ = ()
-
-    def __new__(cls, r, g, b, a=1.0, ansi=None, auto=False):
-        return tuple.__new__(cls, (r, g, b, a, ansi, auto))
-
-    # Named-attribute access mirrors the NamedTuple field set.
-    @property
-    def r(self):
-        return self[0]
-
-    @property
-    def g(self):
-        return self[1]
-
-    @property
-    def b(self):
-        return self[2]
-
-    @property
-    def a(self):
-        return self[3]
-
-    @property
-    def ansi(self):
-        return self[4]
-
-    @property
-    def auto(self):
-        return self[5]
 
     def __repr__(self):
         r, g, b, a, ansi, auto = self
@@ -443,7 +398,7 @@ class Color(tuple):
     @classmethod
     def automatic(cls, alpha_percentage=100.0):
         """Create an automatic color (resolves to white/black at render time)."""
-        return cls(0, 0, 0, alpha_percentage / 100.0, auto=True)
+        return cls(0, 0, 0, alpha_percentage / 100.0, None, True)
 
     @classmethod
     @lru_cache(maxsize=128)
@@ -461,25 +416,34 @@ class Color(tuple):
             else:
                 r, g, b = 0, 0, 0
             if rich_color.type == ColorType.DEFAULT:
-                return Color(r, g, b, ansi=-1)
+                return Color(r, g, b, 1.0, -1, False)
             if rich_color.type == ColorType.STANDARD:
-                return Color(r, g, b, ansi=rich_color.number)
+                return Color(r, g, b, 1.0, rich_color.number, False)
         r, g, b = rich_color.get_truecolor(theme, foreground=foreground)
         return cls(
-            r, g, b, ansi=rich_color.number if rich_color.is_system_defined else None
+            r,
+            g,
+            b,
+            1.0,
+            rich_color.number if rich_color.is_system_defined else None,
+            False,
         )
 
     @classmethod
     def from_hsl(cls, h, s, l):
         """Construct a Color from HSL components (all in 0..1)."""
         r, g, b = _hls_to_rgb(h, l, s)
-        return cls(int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5))
+        return cls(
+            int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5), 1.0, None, False
+        )
 
     @classmethod
     def from_hsv(cls, h, s, v):
         """Construct a Color from HSV components (all in 0..1)."""
         r, g, b = _hsv_to_rgb(h, s, v)
-        return cls(int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5))
+        return cls(
+            int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5), 1.0, None, False
+        )
 
     # ------------------------------------------------------------------
     # Read-only views.  Each returns a fresh value; widgets cache locally
@@ -489,7 +453,7 @@ class Color(tuple):
     @property
     def inverse(self):
         r, g, b, a, _, _ = self
-        return Color(255 - r, 255 - g, 255 - b, a)
+        return Color(255 - r, 255 - g, 255 - b, a, None, False)
 
     @property
     def is_transparent(self):
@@ -589,7 +553,7 @@ class Color(tuple):
         """Luma-weighted grayscale (Rec. 709 coefficients)."""
         r, g, b, a, _, _ = self
         gray = round(r * 0.2126 + g * 0.7152 + b * 0.0722)
-        return Color(gray, gray, gray, a)
+        return Color(gray, gray, gray, a, None, False)
 
     # ------------------------------------------------------------------
     # Mutators (each returns a new Color — the type is immutable).
@@ -597,13 +561,13 @@ class Color(tuple):
 
     def with_alpha(self, alpha):
         r, g, b, _, _, _ = self
-        return Color(r, g, b, alpha)
+        return Color(r, g, b, alpha, None, False)
 
     def multiply_alpha(self, alpha):
         if self.ansi is not None:
             return self
         r, g, b, a, _ansi, auto = self
-        return Color(r, g, b, a * alpha, auto=auto)
+        return Color(r, g, b, a * alpha, None, auto)
 
     @lru_cache(maxsize=128)
     def blend(self, destination, factor, alpha=None):
@@ -633,6 +597,8 @@ class Color(tuple):
             int(g1 + (g2 - g1) * factor),
             int(b1 + (b2 - b1) * factor),
             new_alpha,
+            None,
+            False,
         )
 
     @lru_cache(maxsize=128)
@@ -654,6 +620,8 @@ class Color(tuple):
             int(g1 + (g2 - g1) * a2),
             int(b1 + (b2 - b1) * a2),
             a1,
+            None,
+            False,
         )
 
     def __add__(self, other):
@@ -693,7 +661,7 @@ class Color(tuple):
         if isinstance(color_text, Color):
             return color_text
         if color_text == "ansi_default":
-            return cls(0, 0, 0, ansi=-1)
+            return cls(0, 0, 0, 1.0, -1, False)
         if color_text.startswith("ansi_"):
             name = color_text[5:]
             try:
@@ -703,10 +671,17 @@ class Color(tuple):
             else:
                 triplet = COLOR_NAME_TO_RGB.get(color_text)
                 if triplet is not None:
-                    return cls(triplet[0], triplet[1], triplet[2], ansi=ansi)
+                    return cls(triplet[0], triplet[1], triplet[2], 1.0, ansi, False)
         color_from_name = COLOR_NAME_TO_RGB.get(color_text)
         if color_from_name is not None:
-            return cls(*color_from_name)
+            # Entries are (r, g, b) except "transparent", which carries
+            # an explicit alpha as a 4-tuple.
+            if len(color_from_name) == 4:
+                r, g, b, a = color_from_name
+            else:
+                r, g, b = color_from_name
+                a = 1.0
+            return cls(r, g, b, a, None, False)
         color_match = RE_COLOR.match(color_text)
         if color_match is None:
             raise ColorParseError(
@@ -726,7 +701,7 @@ class Color(tuple):
         if rgb_hex_triple is not None:
             r, g, b = rgb_hex_triple
             return cls(
-                int(r + r, 16), int(g + g, 16), int(b + b, 16)
+                int(r + r, 16), int(g + g, 16), int(b + b, 16), 1.0, None, False
             )
         if rgb_hex_quad is not None:
             r, g, b, a = rgb_hex_quad
@@ -735,6 +710,8 @@ class Color(tuple):
                 int(g + g, 16),
                 int(b + b, 16),
                 int(a + a, 16) / 255.0,
+                None,
+                False,
             )
         if rgb_hex is not None:
             # Explicit slicing replaces operator.itemgetter (one less
@@ -742,16 +719,16 @@ class Color(tuple):
             r = int(rgb_hex[0:2], 16)
             g = int(rgb_hex[2:4], 16)
             b = int(rgb_hex[4:6], 16)
-            return cls(r, g, b, 1.0)
+            return cls(r, g, b, 1.0, None, False)
         if rgba_hex is not None:
             r = int(rgba_hex[0:2], 16)
             g = int(rgba_hex[2:4], 16)
             b = int(rgba_hex[4:6], 16)
             a = int(rgba_hex[6:8], 16)
-            return cls(r, g, b, a / 255.0)
+            return cls(r, g, b, a / 255.0, None, False)
         if rgb is not None:
             r, g, b = [_clamp(int(float(value)), 0, 255) for value in rgb.split(",")]
-            return cls(r, g, b, 1.0)
+            return cls(r, g, b, 1.0, None, False)
         if rgba is not None:
             float_r, float_g, float_b, float_a = [
                 float(value) for value in rgba.split(",")
@@ -761,6 +738,8 @@ class Color(tuple):
                 _clamp(int(float_g), 0, 255),
                 _clamp(int(float_b), 0, 255),
                 _clamp(float_a, 0.0, 1.0),
+                None,
+                False,
             )
         if hsl is not None:
             h_s, s_s, l_s = hsl.split(",")
@@ -801,6 +780,8 @@ class Color(tuple):
             int(ng * 255 + 0.5),
             int(nb * 255 + 0.5),
             self.a if alpha is None else alpha,
+            None,
+            False,
         ).clamped
 
     def lighten(self, amount, alpha=None):
@@ -900,6 +881,6 @@ class Gradient:
 # parser; TRANSPARENT specifically requires the named-colour table.
 # ---------------------------------------------------------------------------
 
-WHITE = Color(255, 255, 255)
-BLACK = Color(0, 0, 0)
+WHITE = Color(255, 255, 255, 1.0, None, False)
+BLACK = Color(0, 0, 0, 1.0, None, False)
 TRANSPARENT = Color.parse("transparent")

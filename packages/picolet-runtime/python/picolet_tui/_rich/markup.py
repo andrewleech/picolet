@@ -81,6 +81,7 @@ machinery consults when a mouse event lands on a styled span).
 """
 
 import re
+from collections import namedtuple
 
 # Tier 1 dep -- the only exception this module raises.
 from .errors import MarkupError
@@ -123,13 +124,15 @@ RE_TAGS = re.compile(r"((\\*)\[([a-z#/@][^[]*?)])")
 RE_HANDLER = re.compile(r"^([\w.]*?)(\(.*?\))?$")
 
 
-class Tag(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Tag(namedtuple("Tag", ("name", "parameters"))):
     """A tag in console markup.  ``(name, parameters)`` tuple.
 
-    Implemented as a ``tuple`` subclass for the same reason
-    ``Measurement`` is: the typing shim does not provide ``NamedTuple``
-    and we don't want to pull ``collections.namedtuple`` in just for
-    one consumer.  Mirrors the visible Rich contract:
+    Subclasses ``collections.namedtuple`` for the same reason
+    ``Measurement`` does: the typing shim does not provide ``NamedTuple``,
+    and MicroPython's ``namedtuple`` is a C builtin (a hand-rolled
+    ``tuple`` subclass cannot work there — ``tuple.__new__`` raises
+    ``AttributeError``).  Mirrors the visible Rich contract:
       * positional construction ``Tag(name, parameters)``
       * named attribute access ``tag.name`` / ``tag.parameters``
       * indexed access ``tag[0]`` / ``tag[1]``
@@ -138,17 +141,6 @@ class Tag(tuple):
     """
 
     __slots__ = ()
-
-    def __new__(cls, name, parameters):
-        return tuple.__new__(cls, (name, parameters))
-
-    @property
-    def name(self):
-        return self[0]
-
-    @property
-    def parameters(self):
-        return self[1]
 
     def __str__(self):
         return (

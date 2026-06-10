@@ -324,13 +324,29 @@ class Control:
 
 
 def strip_control_codes(text, _translate_table=_CONTROL_STRIP_TRANSLATE):
-    """Remove control codes from text."""
-    return text.translate(_translate_table)
+    """Remove control codes from text.
+
+    Implemented with a scan + join rather than ``str.translate`` —
+    MicroPython does not implement str.translate.  The keyword-arg
+    table is kept for upstream signature compatibility.
+    """
+    if not any(chr(cp) in text for cp in _translate_table):
+        return text
+    drop = {chr(cp) for cp in _translate_table}
+    return "".join(c for c in text if c not in drop)
 
 
 def escape_control_codes(text, _translate_table=CONTROL_ESCAPE):
-    """Replace control codes with their backslash-escaped form."""
-    return text.translate(_translate_table)
+    """Replace control codes with their backslash-escaped form.
+
+    Per-entry ``str.replace`` rather than ``str.translate`` — see
+    strip_control_codes.
+    """
+    for cp, esc in _translate_table.items():
+        ch = chr(cp)
+        if ch in text:
+            text = text.replace(ch, esc)
+    return text
 
 
 # Public re-exports.  ``ControlType`` and ``ControlCode`` live in

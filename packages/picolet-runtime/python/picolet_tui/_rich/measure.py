@@ -12,23 +12,16 @@ REMOVED vs upstream
 * ``from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Sequence``
   routed through ``picolet_tui._shims.typing``.  ``NamedTuple`` is NOT
   exported by that shim (see the comment block in ``_shims/typing.py``),
-  so ``Measurement`` is implemented as a ``tuple`` subclass — the same
-  pattern ``_rich.color_triplet.ColorTriplet`` uses, and for the same
-  reason: pulling ``collections.namedtuple`` in for one consumer would
-  bloat NFR-TUI-19's 60 KiB ``_rich/`` sub-budget.
+  so ``Measurement`` subclasses ``collections.namedtuple`` instead.
+  MicroPython's ``namedtuple`` is a C builtin (zero frozen-bytes cost)
+  and a hand-rolled ``tuple`` subclass cannot work there at all:
+  ``tuple.__new__(cls, ...)`` raises ``AttributeError`` on MicroPython,
+  so namedtuple is the only viable base.
 
-  The subclass mirrors the visible NamedTuple contract Rich callers
-  depend on:
-    * positional construction: ``Measurement(minimum, maximum)``
-    * indexed access: ``m[0] == m.minimum``
-    * named attribute access: ``m.minimum`` / ``m.maximum``
-    * tuple iteration / unpacking: ``minimum, maximum = m``
-    * ``isinstance(m, tuple)`` is True
-
-  What it does NOT mirror — and what callers in this Rich subset never
-  use — is ``_replace()``, ``_asdict()``, ``_fields``, and the
-  NamedTuple-specific repr.  ``operator.itemgetter`` in
-  ``measure_renderables`` works fine against a plain tuple subclass.
+  Note that MicroPython's namedtuple may not provide ``_replace()``,
+  ``_asdict()``, or ``_fields`` — callers in this Rich subset never
+  use them.  ``operator.itemgetter`` in ``measure_renderables`` works
+  fine against any tuple subclass.
 
 * The ``TYPE_CHECKING`` block that imports ``console.Console``,
   ``ConsoleOptions``, ``RenderableType`` is kept but the symbol
@@ -65,12 +58,12 @@ Supports:
   FR-TUI-13 / FR-TUI-14 (renderable dispatch): delegates to
     ``protocol.is_renderable`` and ``protocol.rich_cast`` from Tier 1,
     so the renderable detection path is shared with the rest of Rich.
-  NFR-TUI-19 (frozen-bytes budget): hand-rolled tuple subclass avoids
-    pulling ``collections.namedtuple``; the module clocks in at ~70
-    SLoC (excluding this docstring).
+  NFR-TUI-19 (frozen-bytes budget): ``collections.namedtuple`` is a C
+    builtin on MicroPython, so the base class costs nothing; the module
+    clocks in at ~70 SLoC (excluding this docstring).
 """
 
-from operator import itemgetter
+from collections import namedtuple
 
 from picolet_tui._shims.typing import (
     TYPE_CHECKING,
@@ -89,7 +82,8 @@ if TYPE_CHECKING:
     from .console import Console, ConsoleOptions, RenderableType
 
 
-class Measurement(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Measurement(namedtuple("Measurement", ("minimum", "maximum"))):
     """Stores the minimum and maximum widths (in characters) required to render an object.
 
     Construction is positional, matching Rich's NamedTuple signature::
@@ -102,23 +96,6 @@ class Measurement(tuple):
     """
 
     __slots__ = ()
-
-    # tuple is immutable, so construction happens in __new__ — same
-    # mechanic CPython generates under the hood for a NamedTuple.
-    # Keyword construction (``Measurement(minimum=0, maximum=10)``) keeps
-    # working because the parameter names mirror upstream.
-    def __new__(cls, minimum, maximum):
-        return tuple.__new__(cls, (minimum, maximum))
-
-    @property
-    def minimum(self):
-        """Minimum number of cells required to render."""
-        return self[0]
-
-    @property
-    def maximum(self):
-        """Maximum number of cells required to render."""
-        return self[1]
 
     @property
     def span(self) -> int:
@@ -258,7 +235,10 @@ def measure_renderables(console, options, renderables) -> "Measurement":
     # separately matches upstream's intent: the bounding measurement is
     # not necessarily contributed by a single renderable.
     measured_width = Measurement(
-        max(measurements, key=itemgetter(0)).minimum,
-        max(measurements, key=itemgetter(1)).maximum,
+        # lambdas, not operator.itemgetter: micropython-lib's operator
+        # module has no itemgetter, and freezing it for two sort keys is
+        # not worth the dependency.
+        max(measurements, key=lambda m: m[0]).minimum,
+        max(measurements, key=lambda m: m[1]).maximum,
     )
     return measured_width

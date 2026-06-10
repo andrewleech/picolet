@@ -144,7 +144,7 @@ Supports:
 """
 
 import re
-from operator import itemgetter
+from collections import namedtuple
 
 from picolet_tui._shims.functools import partial
 from picolet_tui._shims.typing import (
@@ -183,17 +183,12 @@ TextType = Union[str, "Text"]
 
 GetStyleCallable = Callable
 
-# Five control codepoints upstream Rich strips on every Text construction.
-# Inlined from ``rich.control.STRIP_CONTROL_CODES`` so we don't pull the
-# whole ``control`` module in just for one ``str.translate`` table.
-# MicroPython's ``str.translate`` accepts a {int: None} dict directly.
-_CONTROL_STRIP_TRANSLATE = {
-    7: None,   # BEL
-    8: None,   # BS
-    11: None,  # VT
-    12: None,  # FF
-    13: None,  # CR
-}
+# Five control characters upstream Rich strips on every Text
+# construction.  Inlined from ``rich.control.STRIP_CONTROL_CODES`` so we
+# don't pull the whole ``control`` module in for one helper.  A char
+# string scanned with ``in`` rather than a ``str.translate`` table:
+# MicroPython does not implement str.translate.
+_CONTROL_STRIP_CHARS = "\x07\x08\x0b\x0c\x0d"  # BEL BS VT FF CR
 
 
 def _strip_control_codes(text):
@@ -203,8 +198,15 @@ def _strip_control_codes(text):
     a private helper so this module has no dep on ``control.py`` (which
     is itself not yet ported -- the rest of its surface is ANSI escape
     construction, which Textual handles via tuiterm in picolet).
+
+    Presence-check fast path: this runs on every Text construction and
+    control characters are almost never present, so five C-level ``in``
+    scans beat building a new string unconditionally.
     """
-    return text.translate(_CONTROL_STRIP_TRANSLATE)
+    for ch in _CONTROL_STRIP_CHARS:
+        if ch in text:
+            return "".join(c for c in text if c not in _CONTROL_STRIP_CHARS)
+    return text
 
 
 def _loop_last(values):
@@ -255,35 +257,23 @@ def _zip_longest(a, b):
 
 
 # ---------------------------------------------------------------------------
-# Span -- a (start, end, style) tuple subclass.
+# Span -- a (start, end, style) namedtuple subclass.
 #
 # Upstream uses ``typing.NamedTuple``.  The picolet typing shim does not
 # export NamedTuple (see _shims/typing.py rationale), so we follow the
-# same tuple-subclass pattern Tag / Measurement use.  Visible surface
-# matches the NamedTuple contract: positional construction, indexed
-# access, named-attribute access, tuple iteration, ``isinstance(s,
-# tuple)`` -> True.  ``_replace`` / ``_asdict`` are unused by any
-# caller and omitted.
+# same namedtuple-subclass pattern Tag / Measurement use — MicroPython's
+# ``collections.namedtuple`` is a C builtin and a hand-rolled ``tuple``
+# subclass cannot work there (``tuple.__new__`` raises AttributeError).
+# Visible surface matches the NamedTuple contract: positional
+# construction, indexed access, named-attribute access, tuple iteration,
+# ``isinstance(s, tuple)`` -> True.  ``_replace`` / ``_asdict`` are
+# unused by any caller.
 # ---------------------------------------------------------------------------
 
 
-class Span(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Span(namedtuple("Span", ("start", "end", "style"))):
     """A marked-up region in some text: ``(start, end, style)``."""
-
-    def __new__(cls, start, end, style):
-        return tuple.__new__(cls, (start, end, style))
-
-    @property
-    def start(self):
-        return self[0]
-
-    @property
-    def end(self):
-        return self[1]
-
-    @property
-    def style(self):
-        return self[2]
 
     def __repr__(self):
         return "Span(" + str(self[0]) + ", " + str(self[1]) + ", " + repr(self[2]) + ")"
@@ -553,7 +543,8 @@ class Text:
         for span in self._spans:
             markup_spans.append((span.end, True, span.style))
         markup_spans.append((len(plain), True, self.style))
-        markup_spans.sort(key=itemgetter(0, 1))
+        # lambda, not operator.itemgetter (absent from micropython-lib).
+        markup_spans.sort(key=lambda span: (span[0], span[1]))
 
         position = 0
         append = output.append
@@ -1307,7 +1298,8 @@ class Text:
         for index, span in enumerated_spans:
             spans.append((span.end, True, index))
         spans.append((len(text), True, 0))
-        spans.sort(key=itemgetter(0, 1))
+        # lambda, not operator.itemgetter (absent from micropython-lib).
+        spans.sort(key=lambda span: (span[0], span[1]))
 
         stack = []
         style_cache = {}

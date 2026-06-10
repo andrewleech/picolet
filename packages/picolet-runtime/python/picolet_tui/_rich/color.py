@@ -32,11 +32,15 @@ Removed vs upstream
   rather than guarded.
 * ``Color(NamedTuple)`` base.  The ``typing`` shim deliberately omits
   ``NamedTuple`` (see ``picolet_tui/_shims/typing.py`` "Deliberately
-  NOT implemented" block; same precedent as ``color_triplet`` which
-  hand-rolls a ``tuple`` subclass).  We mirror the NamedTuple contract
-  manually: positional + keyword construction, indexed access,
-  ``self.name`` / ``.type`` / ``.number`` / ``.triplet`` attribute
-  access, hashability for ``@lru_cache`` keying.
+  NOT implemented" block), so ``Color`` subclasses
+  ``collections.namedtuple`` — a C builtin on MicroPython, where a
+  hand-rolled ``tuple`` subclass cannot work (``tuple.__new__`` raises
+  AttributeError).  The NamedTuple contract is preserved: positional +
+  keyword construction, indexed access, ``self.name`` / ``.type`` /
+  ``.number`` / ``.triplet`` attribute access, hashability for
+  ``@lru_cache`` keying.  Constructor defaults for ``number`` /
+  ``triplet`` are gone (MicroPython namedtuple has no defaults); every
+  call site passes all four fields.
 * ``sys.platform == "win32"`` detection and the unused ``WINDOWS``
   module constant.  v0.1 binary targets are Linux + Windows VT
   (FR-TUI-7); the runtime never inspects this constant — the
@@ -95,6 +99,7 @@ from picolet_tui._shims.functools import lru_cache
 from picolet_tui._shims.typing import Optional, Tuple  # noqa: F401 — annotations only
 
 import re
+from collections import namedtuple
 
 from ._palettes import EIGHT_BIT_PALETTE, STANDARD_PALETTE, WINDOWS_PALETTE
 from .color_triplet import ColorTriplet
@@ -432,20 +437,27 @@ def _rgb_to_hls(r, g, b):
 
 
 # ---------------------------------------------------------------------------
-# Color — upstream NamedTuple, ported as a hand-rolled ``tuple`` subclass.
-# The contract (positional / keyword construction, indexed and attribute
-# access, hashability for ``@lru_cache``) is preserved; ``_replace`` /
-# ``_asdict`` / ``_fields`` are NOT — Rich's call sites in the trimmed
-# subset never use them.  Same precedent as ``color_triplet.ColorTriplet``.
+# Color — upstream NamedTuple, ported as a ``collections.namedtuple``
+# subclass (MicroPython cannot call tuple.__new__ in a subclass, and its
+# namedtuple is a C builtin).  The contract (positional / keyword
+# construction, indexed and attribute access, hashability for
+# ``@lru_cache``) is preserved.  MicroPython's namedtuple does not
+# support constructor defaults, so all four fields must be passed
+# explicitly at every call site; ``_replace`` / ``_asdict`` / ``_fields``
+# may be missing there too — Rich's call sites in the trimmed subset
+# never use them.  Same precedent as ``color_triplet.ColorTriplet``.
 # ---------------------------------------------------------------------------
 
 
-class Color(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class Color(namedtuple("Color", ("name", "type", "number", "triplet"))):
     """Terminal color definition.
 
-    Construction mirrors the upstream NamedTuple::
+    Construction mirrors the upstream NamedTuple, except that the
+    ``number`` and ``triplet`` defaults are gone (MicroPython's
+    namedtuple cannot carry defaults)::
 
-        Color(name, type, number=None, triplet=None)
+        Color(name, type, number, triplet)
 
     Positional and keyword forms both work; the tuple layout is
     ``(name, type, number, triplet)`` so unpacking and indexed access
@@ -453,32 +465,6 @@ class Color(tuple):
     """
 
     __slots__ = ()
-
-    def __new__(cls, name, type, number=None, triplet=None):
-        # ``type`` shadows the builtin deliberately to match upstream's
-        # field name; the local lookup hides the builtin only inside
-        # __new__ which never needs it.
-        return tuple.__new__(cls, (name, type, number, triplet))
-
-    @property
-    def name(self):
-        """The name of the color (typically the input to Color.parse)."""
-        return self[0]
-
-    @property
-    def type(self):
-        """The type of the color."""
-        return self[1]
-
-    @property
-    def number(self):
-        """The color number, if a standard color, or None."""
-        return self[2]
-
-    @property
-    def triplet(self):
-        """A triplet of color components, if an RGB color."""
-        return self[3]
 
     def __repr__(self):
         return "Color({!r}, {!r}, number={!r}, triplet={!r})".format(
@@ -545,6 +531,7 @@ class Color(tuple):
             name="color({})".format(number),
             type=(ColorType.STANDARD if number < 16 else ColorType.EIGHT_BIT),
             number=number,
+            triplet=None,
         )
 
     @classmethod
@@ -558,7 +545,7 @@ class Color(tuple):
         Returns:
             Color: A new color object.
         """
-        return cls(name=triplet.hex, type=ColorType.TRUECOLOR, triplet=triplet)
+        return cls(name=triplet.hex, type=ColorType.TRUECOLOR, number=None, triplet=triplet)
 
     @classmethod
     def from_rgb(cls, red, green, blue):
@@ -581,7 +568,7 @@ class Color(tuple):
         Returns:
             Color: Default color.
         """
-        return cls(name="default", type=ColorType.DEFAULT)
+        return cls(name="default", type=ColorType.DEFAULT, number=None, triplet=None)
 
     # Upstream caches 1024 entries; 128 is the NFR-TUI-6 / synthesis R4 cap.
     @classmethod
@@ -592,7 +579,7 @@ class Color(tuple):
         color = color.lower().strip()
 
         if color == "default":
-            return cls(color, type=ColorType.DEFAULT)
+            return cls(color, type=ColorType.DEFAULT, number=None, triplet=None)
 
         color_number = ANSI_COLOR_NAMES.get(color)
         if color_number is not None:
@@ -600,6 +587,7 @@ class Color(tuple):
                 color,
                 type=(ColorType.STANDARD if color_number < 16 else ColorType.EIGHT_BIT),
                 number=color_number,
+                triplet=None,
             )
 
         color_match = RE_COLOR.match(color)
@@ -615,7 +603,7 @@ class Color(tuple):
                 int(color_24[2:4], 16),
                 int(color_24[4:6], 16),
             )
-            return cls(color, ColorType.TRUECOLOR, triplet=triplet)
+            return cls(color, ColorType.TRUECOLOR, number=None, triplet=triplet)
 
         elif color_8:
             number = int(color_8)
@@ -627,6 +615,7 @@ class Color(tuple):
                 color,
                 type=(ColorType.STANDARD if number < 16 else ColorType.EIGHT_BIT),
                 number=number,
+                triplet=None,
             )
 
         else:  # color_rgb
@@ -641,7 +630,7 @@ class Color(tuple):
                 raise ColorParseError(
                     "color components must be <= 255 in {!r}".format(original_color)
                 )
-            return cls(color, ColorType.TRUECOLOR, triplet=triplet)
+            return cls(color, ColorType.TRUECOLOR, number=None, triplet=triplet)
 
     # Upstream caches 1024 entries; 128 is the NFR-TUI-6 / synthesis R4 cap.
     @lru_cache(maxsize=128)
@@ -694,7 +683,7 @@ class Color(tuple):
                     color_number = 231
                 else:
                     color_number = 231 + gray
-                return Color(self.name, ColorType.EIGHT_BIT, number=color_number)
+                return Color(self.name, ColorType.EIGHT_BIT, number=color_number, triplet=None)
 
             red, green, blue = self.triplet
             # 6x6x6 RGB cube: ANSI 256 places the colour cube at indices
@@ -710,7 +699,7 @@ class Color(tuple):
             color_number = (
                 16 + 36 * round(six_red) + 6 * round(six_green) + round(six_blue)
             )
-            return Color(self.name, ColorType.EIGHT_BIT, number=color_number)
+            return Color(self.name, ColorType.EIGHT_BIT, number=color_number, triplet=None)
 
         # Convert to standard from truecolor or 8-bit
         elif system == ColorSystem.STANDARD:
@@ -720,18 +709,18 @@ class Color(tuple):
                 triplet = ColorTriplet(*EIGHT_BIT_PALETTE[self.number])
 
             color_number = STANDARD_PALETTE.match(triplet)
-            return Color(self.name, ColorType.STANDARD, number=color_number)
+            return Color(self.name, ColorType.STANDARD, number=color_number, triplet=None)
 
         elif system == ColorSystem.WINDOWS:
             if self.system == ColorSystem.TRUECOLOR:
                 triplet = self.triplet
             else:  # self.system == ColorSystem.EIGHT_BIT
                 if self.number < 16:
-                    return Color(self.name, ColorType.WINDOWS, number=self.number)
+                    return Color(self.name, ColorType.WINDOWS, number=self.number, triplet=None)
                 triplet = ColorTriplet(*EIGHT_BIT_PALETTE[self.number])
 
             color_number = WINDOWS_PALETTE.match(triplet)
-            return Color(self.name, ColorType.WINDOWS, number=color_number)
+            return Color(self.name, ColorType.WINDOWS, number=color_number, triplet=None)
 
         return self
 

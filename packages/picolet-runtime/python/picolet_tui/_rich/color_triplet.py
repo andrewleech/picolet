@@ -10,25 +10,18 @@ What changed vs upstream
 ------------------------
 * The upstream module declares ``class ColorTriplet(NamedTuple)``.  The
   picolet-tui ``typing`` shim does not implement ``NamedTuple`` — see the
-  "Deliberately NOT implemented" block in
-  ``picolet_tui/_shims/typing.py`` — because nothing else in the Rich
-  subset listed in ``docs/tui/research/02-rich-subset.md`` needs it.
-  Pulling the full ``collections.namedtuple`` / metaclass machinery in
-  for one consumer would cost both frozen bytes (NFR-TUI-19) and import
-  time, so we hand-roll a tuple subclass instead.
+  "Deliberately NOT implemented" block in ``picolet_tui/_shims/typing.py``.
+  This port subclasses ``collections.namedtuple`` instead, which on
+  MicroPython is a C builtin (zero frozen-bytes cost) and on CPython is
+  the same machinery NamedTuple compiles down to.
 
-  The subclass mirrors the visible NamedTuple contract:
-    * positional construction: ``ColorTriplet(r, g, b)``
-    * indexed access: ``triplet[0] == triplet.red``
-    * named attribute access: ``triplet.red`` / ``.green`` / ``.blue``
-    * tuple iteration / unpacking: ``r, g, b = triplet``
-    * ``isinstance(triplet, tuple)`` is True (same as NamedTuple)
-
-  What it does NOT mirror — and what callers in this Rich subset never
-  use — is ``_replace()``, ``_asdict()``, ``_fields``, and the
-  NamedTuple-specific repr.  If a later port needs those, file back to
-  the Phase 2 shim pack and add a ``NamedTuple`` shim there rather than
-  pasting the machinery here.
+  An earlier revision hand-rolled a ``tuple`` subclass with a custom
+  ``__new__`` to dodge namedtuple — but ``tuple.__new__(cls, ...)``
+  raises ``AttributeError`` on MicroPython (static ``__new__`` lookup on
+  builtin types is unsupported), so the hand-rolled shape cannot
+  instantiate at all there.  namedtuple subclassing works on both
+  interpreters and is *cheaper* on MicroPython, not dearer; the old
+  frozen-bytes rationale had it backwards.
 
 * Type imports route through the local typing shim so that
   ``Tuple[float, float, float]`` is a no-op at import time.
@@ -42,14 +35,15 @@ Supports FR-TUI-33 (color value validation accepts ``rgb(r, g, b)`` and
 ``#rrggbb``), FR-TUI-40 (color downgrade — the downgrade math in
 ``_rich.color`` operates on ``ColorTriplet`` instances), and indirectly
 FR-TUI-38 (color-system detection feeds downgraded triplets to the
-compositor).  The frozen-bytes budget (NFR-TUI-19) is the reason this
-file does not pull in ``collections.namedtuple``.
+compositor).
 """
+
+from collections import namedtuple
 
 from picolet_tui._shims.typing import Tuple
 
 
-class ColorTriplet(tuple):
+class ColorTriplet(namedtuple("ColorTriplet", ("red", "green", "blue"))):
     """The red, green, and blue components of a color.
 
     Construction is positional, matching Rich's NamedTuple signature::
@@ -62,29 +56,6 @@ class ColorTriplet(tuple):
     """
 
     __slots__ = ()
-
-    # tuple is immutable, so the constructor lives in __new__ rather than
-    # __init__ — same shape CPython generates for a NamedTuple under the
-    # hood.  Keeping the parameter names ``red`` / ``green`` / ``blue``
-    # matches upstream so keyword construction (``ColorTriplet(red=1,
-    # green=2, blue=3)``) keeps working for any caller that uses it.
-    def __new__(cls, red, green, blue):
-        return tuple.__new__(cls, (red, green, blue))
-
-    @property
-    def red(self):
-        """Red component in 0 to 255 range."""
-        return self[0]
-
-    @property
-    def green(self):
-        """Green component in 0 to 255 range."""
-        return self[1]
-
-    @property
-    def blue(self):
-        """Blue component in 0 to 255 range."""
-        return self[2]
 
     @property
     def hex(self) -> str:
