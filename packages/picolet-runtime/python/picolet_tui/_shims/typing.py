@@ -172,5 +172,7 @@ Mapping = _PLACEHOLDER
 MutableMapping = _PLACEHOLDER
 AsyncIterator = _PLACEHOLDER
 Any = _PLACEHOLDER
+Match = _PLACEHOLDER
+Pattern = _PLACEHOLDER
 
 TYPE_CHECKING = False

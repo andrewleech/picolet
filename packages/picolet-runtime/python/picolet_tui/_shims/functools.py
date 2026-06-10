@@ -38,7 +38,7 @@ Spec coverage:
 """
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 
 # Re-export from the core micropython-lib functools.  Importing the
 # *package* would re-enter this shim (sys.modules['functools'] points
@@ -85,6 +85,72 @@ def wraps(wrapped):
 _MISS = object()
 
 
+class _LruCacheWrapper:
+    """Callable wrapper returned by :func:`lru_cache`.
+
+    A class instance instead of a closure-with-attributes because
+    MicroPython functions reject attribute assignment (``f.cache_info =
+    ...`` raises AttributeError).  Instances of plain classes accept
+    attribute writes, so ``update_wrapper`` metadata copying still works.
+    Deliberately no ``__slots__`` — slotted classes reject the
+    ``__name__``/``__doc__`` writes update_wrapper performs.
+    """
+
+    def __init__(self, fn, maxsize, typed):
+        self._fn = fn
+        self._maxsize = maxsize
+        self._typed = typed
+        self._cache = OrderedDict()
+        self._hits = 0
+        self._misses = 0
+        update_wrapper(self, fn)
+
+    def _make_key(self, args, kwargs):
+        if kwargs:
+            key = args + (_MISS,) + tuple(sorted(kwargs.items()))
+        else:
+            key = args
+        if self._typed:
+            key = key + tuple(type(a) for a in args)
+            if kwargs:
+                key = key + tuple(type(v) for v in kwargs.values())
+        return key
+
+    def __call__(self, *args, **kwargs):
+        cache = self._cache
+        key = self._make_key(args, kwargs)
+        value = cache.get(key, _MISS)
+        if value is not _MISS:
+            # Manual move-to-end: OrderedDict.move_to_end exists on
+            # MicroPython's collections.OrderedDict, but using
+            # pop+reinsert keeps us portable to any dict-like with
+            # insertion-order iteration.
+            del cache[key]
+            cache[key] = value
+            self._hits += 1
+            return value
+        value = self._fn(*args, **kwargs)
+        cache[key] = value
+        self._misses += 1
+        if self._maxsize is not None and len(cache) > self._maxsize:
+            # popitem(last=False) → evict the LRU entry.  Falls back
+            # to a manual iter-and-pop on dicts lacking the kwarg.
+            try:
+                cache.popitem(last=False)
+            except TypeError:
+                oldest = next(iter(cache))
+                del cache[oldest]
+        return value
+
+    def cache_info(self):
+        return _CacheInfo(self._hits, self._misses, self._maxsize, len(self._cache))
+
+    def cache_clear(self):
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
+
+
 def lru_cache(maxsize=128, typed=False):
     """Bounded LRU cache decorator.
 
@@ -93,91 +159,20 @@ def lru_cache(maxsize=128, typed=False):
     into the key, matching CPython.
     """
     def _decorator(fn):
-        cache = OrderedDict()
-        hits = 0
-        misses = 0
-
-        def _make_key(args, kwargs):
-            if kwargs:
-                key = args + (_MISS,) + tuple(sorted(kwargs.items()))
-            else:
-                key = args
-            if typed:
-                key = key + tuple(type(a) for a in args)
-                if kwargs:
-                    key = key + tuple(type(v) for v in kwargs.values())
-            return key
-
-        def _wrapper(*args, **kwargs):
-            nonlocal hits, misses
-            key = _make_key(args, kwargs)
-            value = cache.get(key, _MISS)
-            if value is not _MISS:
-                # Manual move-to-end: OrderedDict.move_to_end exists on
-                # MicroPython's collections.OrderedDict, but using
-                # pop+reinsert keeps us portable to any dict-like with
-                # insertion-order iteration.
-                del cache[key]
-                cache[key] = value
-                hits += 1
-                return value
-            value = fn(*args, **kwargs)
-            cache[key] = value
-            misses += 1
-            if maxsize is not None and len(cache) > maxsize:
-                # popitem(last=False) → evict the LRU entry.  Falls back
-                # to a manual iter-and-pop on dicts lacking the kwarg.
-                try:
-                    cache.popitem(last=False)
-                except TypeError:
-                    oldest = next(iter(cache))
-                    del cache[oldest]
-            return value
-
-        def cache_info():
-            return _CacheInfo(hits, misses, maxsize, len(cache))
-
-        def cache_clear():
-            nonlocal hits, misses
-            cache.clear()
-            hits = 0
-            misses = 0
-
-        _wrapper.cache_info = cache_info
-        _wrapper.cache_clear = cache_clear
-        update_wrapper(_wrapper, fn)
-        return _wrapper
+        return _LruCacheWrapper(fn, maxsize, typed)
 
     return _decorator
 
 
-class _CacheInfo(tuple):
+# namedtuple base because MicroPython cannot call tuple.__new__ in a subclass.
+class _CacheInfo(namedtuple("_CacheInfo", ("hits", "misses", "maxsize", "currsize"))):
     """Drop-in for CPython's ``functools._CacheInfo`` named tuple.
 
     The NFR-TUI-6 import-time test reads ``.maxsize``; Rich's own
-    diagnostics read ``.hits``/``.misses``.  Subclassing tuple keeps
-    pickling/repr cheap without depending on collections.namedtuple.
+    diagnostics read ``.hits``/``.misses``.  ``collections.namedtuple``
+    is a C builtin on MicroPython, so the base costs nothing.
     """
     __slots__ = ()
-
-    def __new__(cls, hits, misses, maxsize, currsize):
-        return tuple.__new__(cls, (hits, misses, maxsize, currsize))
-
-    @property
-    def hits(self):
-        return self[0]
-
-    @property
-    def misses(self):
-        return self[1]
-
-    @property
-    def maxsize(self):
-        return self[2]
-
-    @property
-    def currsize(self):
-        return self[3]
 
 
 def cache(fn):
@@ -242,5 +237,7 @@ class cached_property:
             return self
         name = self.attrname or self.func.__name__
         value = self.func(instance)
-        instance.__dict__[name] = value
+        # setattr, not instance.__dict__[...]: MicroPython instance
+        # __dict__ is not writable.
+        setattr(instance, name, value)
         return value
