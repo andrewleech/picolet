@@ -40,3 +40,11 @@
 
 #undef MICROPY_PY_RE_MATCH_GROUPS
 #define MICROPY_PY_RE_MATCH_GROUPS          (1)
+
+// fn.__code__ with co_argcount / co_kwonlyargcount / co_flags /
+// co_varnames (argument names from the bytecode prelude).  The
+// @widget decorator and Reactive watcher dispatch read positional
+// arity at class-decoration time (FR-TUI-14, FR-TUI-20) through the
+// picolet_tui._shims.callback oracle, which needs these attributes.
+#undef MICROPY_PY_FUNCTION_ATTRS_CODE
+#define MICROPY_PY_FUNCTION_ATTRS_CODE      (1)
