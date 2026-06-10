@@ -25,6 +25,7 @@ include("$(MPY_DIR)/extmod/asyncio")
 require("os-path")
 require("pathlib")
 require("__future__")
+require("functools")
 
 freeze("../python", "picolet")
 freeze("../python", "picolet_tui")
