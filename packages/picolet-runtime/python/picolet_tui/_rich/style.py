@@ -66,6 +66,12 @@ Adjustments for MicroPython
   the upstream callers (``Style.normalize``) ignore the chain anyway.
 * ``Style.STYLE_ATTRIBUTES`` class attribute kept as a plain dict --
   no enum, no frozenset.
+* ``cls.__new__(Style)`` / ``self.__new__(Style)`` raw construction
+  replaced with ``Style()`` -- MicroPython exposes no ``__new__`` on
+  classes (AttributeError).  The default ``__init__`` is cheap (the
+  attribute sums and link-id generator short-circuit when everything
+  is None) and every call site overwrites all eleven slots afterwards,
+  so semantics are unchanged.
 
 Spec coverage
 -------------
@@ -318,7 +324,7 @@ class Style:
             color: A (foreground) ``Color`` or ``None``.
             bgcolor: A (background) ``Color`` or ``None``.
         """
-        style = cls.__new__(Style)
+        style = Style()
         style._ansi = None
         style._style_definition = None
         style._color = color
@@ -335,7 +341,7 @@ class Style:
     @classmethod
     def from_meta(cls, meta):
         """Create a new style carrying only meta data."""
-        style = cls.__new__(Style)
+        style = Style()
         style._ansi = None
         style._style_definition = None
         style._color = None
@@ -597,7 +603,7 @@ class Style:
         """Get a copy of the style with color removed."""
         if self._null:
             return NULL_STYLE
-        style = self.__new__(Style)
+        style = Style()
         style._ansi = None
         style._style_definition = None
         style._color = None
@@ -707,7 +713,7 @@ class Style:
         """Get a fresh ``Style`` carrying the same fields."""
         if self._null:
             return NULL_STYLE
-        style = self.__new__(Style)
+        style = Style()
         style._ansi = self._ansi
         style._style_definition = self._style_definition
         style._color = self._color
@@ -729,7 +735,7 @@ class Style:
         """Return a copy with link and meta data stripped."""
         if self._null:
             return NULL_STYLE
-        style = self.__new__(Style)
+        style = Style()
         style._ansi = self._ansi
         style._style_definition = self._style_definition
         style._color = self._color
@@ -745,7 +751,7 @@ class Style:
 
     def update_link(self, link=None):
         """Return a copy with a different link URL."""
-        style = self.__new__(Style)
+        style = Style()
         style._ansi = self._ansi
         style._style_definition = self._style_definition
         style._color = self._color
@@ -793,7 +799,7 @@ class Style:
             return self
         if self._null:
             return style
-        new_style = self.__new__(Style)
+        new_style = Style()
         new_style._ansi = None
         new_style._style_definition = None
         new_style._color = style._color or self._color

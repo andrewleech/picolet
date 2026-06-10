@@ -696,11 +696,11 @@ class App(MessagePump):
                         hasattr(result, "__await__") or hasattr(result, "send")
                     ):
                         await result
-            except Exception:
+            except Exception as exc:
                 # on_unmount must not block tear-down; log and
                 # continue.  The traceback goes to stderr through
                 # the standard diagnostic channel.
-                self._log_exception("on_unmount")
+                self._log_exception("on_unmount", exc)
 
             # Driver disable - exactly once per FR-TUI-7.  The
             # tuiterm.disable C entry is itself idempotent, but we
@@ -798,12 +798,12 @@ class App(MessagePump):
             return
         try:
             self._driver.disable()
-        except Exception:
+        except Exception as exc:
             # Disable should never fail under normal conditions,
             # but if termios state has been clobbered out from
             # under us we still want the App to return cleanly.
             # Log and continue.
-            self._log_exception("tuiterm.disable")
+            self._log_exception("tuiterm.disable", exc)
         finally:
             self._driver = None
             self._compositor = None
@@ -1011,17 +1011,17 @@ class App(MessagePump):
         while not self._exit_requested.is_set():
             try:
                 data = self._driver.read_input(20) if self._driver else b""
-            except OSError:
+            except OSError as exc:
                 # read_input raises on closed stdin; treat as exit.
-                self._log_exception("tuiterm.read_input")
+                self._log_exception("tuiterm.read_input", exc)
                 self.exit(None)
                 break
             if data:
                 if parser_hook is not None:
                     try:
                         events = parser_hook(data)
-                    except Exception:
-                        self._log_exception("input parser")
+                    except Exception as exc:
+                        self._log_exception("input parser", exc)
                         events = ()
                     # Dispatch each event to the focused widget if
                     # there is one; fall back to the active screen
@@ -1063,19 +1063,19 @@ class App(MessagePump):
                 continue
             try:
                 pending = self._driver.resize_pending()
-            except Exception:
-                self._log_exception("tuiterm.resize_pending")
+            except Exception as exc:
+                self._log_exception("tuiterm.resize_pending", exc)
                 pending = False
             if not pending and self._viewport.width != 0:
                 # No change and not the first tick; skip.
                 continue
             try:
                 cols, rows = self._driver.size()
-            except OSError:
+            except OSError as exc:
                 # Size query failed - log and carry on with the
                 # last-known viewport.  A subsequent successful
                 # poll will catch up.
-                self._log_exception("tuiterm.size")
+                self._log_exception("tuiterm.size", exc)
                 continue
             new_viewport = Size(cols, rows)
             if new_viewport == self._viewport:
@@ -1139,11 +1139,11 @@ class App(MessagePump):
                 # tuples; we hand them to the emit helper.
                 tuples = self._compositor.full_redraw()
                 self._emit_frame(tuples)
-            except Exception:
+            except Exception as exc:
                 # FR-TUI-77 / NFR-TUI-29: render exceptions must
                 # not kill the App.  Log and continue; the next
                 # dirty wake will retry.
-                self._log_exception("_render")
+                self._log_exception("_render", exc)
             # Clear the layout-changed flag - the compositor's
             # next update_dom call will see a clean slate.
             self._needs_layout = False
@@ -1221,11 +1221,11 @@ class App(MessagePump):
                     out.extend(text.encode("utf-8"))
         try:
             self._driver.write(out)
-        except OSError:
+        except OSError as exc:
             # The terminal went away - log and request exit.  This
             # is the FR-TUI-7 "any path out" branch: a broken
             # write should not leave the process in raw mode.
-            self._log_exception("tuiterm.write")
+            self._log_exception("tuiterm.write", exc)
             self.exit(None)
 
     # ------------------------------------------------------------------
@@ -1255,19 +1255,29 @@ class App(MessagePump):
             # Log emission must never break a handler.  Swallow.
             pass
 
-    def _log_exception(self, context):
+    def _log_exception(self, context, exc=None):
         """Internal: log a Python exception with a context tag.
 
         Format mirrors message_pump._log_handler_exception so the
         framework's diagnostic stream is consistent across both
         sources.  ``context`` is a short string like ``"_render"``
-        identifying which subsystem caught the exception.
+        identifying which subsystem caught the exception.  ``exc`` is
+        the caught exception object — required for a traceback on
+        MicroPython, which has sys.print_exception but neither the
+        traceback module nor sys.exc_info.
         """
+        tb = "(no traceback available)"
         try:
-            import traceback
-            tb = traceback.format_exc()
+            if exc is not None and hasattr(sys, "print_exception"):
+                import io
+                buf = io.StringIO()
+                sys.print_exception(exc, buf)
+                tb = buf.getvalue()
+            else:
+                import traceback
+                tb = traceback.format_exc()
         except Exception:
-            tb = "(no traceback available)"
+            pass
         try:
             sys.stderr.write(
                 "App.%s exception:\n%s\n" % (context, tb)

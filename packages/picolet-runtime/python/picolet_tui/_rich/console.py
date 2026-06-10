@@ -154,8 +154,6 @@ an explicit __init__ argument the App pins once; no autodetect.
 """
 
 from collections import namedtuple
-from itertools import islice
-
 from picolet_tui._shims.typing import (
     Callable,
     Iterable,
@@ -287,13 +285,25 @@ class ConsoleOptions:
         return not self.encoding.startswith("utf")
 
     def copy(self):
-        # __dict__ does not exist on __slots__ classes, so copy via the
-        # slot list directly. Faster than constructing through __init__
-        # and matches upstream's "shallow copy of attribute storage".
-        new = ConsoleOptions.__new__(ConsoleOptions)
-        for slot in ConsoleOptions.__slots__:
-            setattr(new, slot, getattr(self, slot))
-        return new
+        # Keyword construction through __init__ rather than the CPython
+        # `cls.__new__(cls)` + slot-walk trick: MicroPython cannot call
+        # __new__ on a user class.  __init__ assigns exactly the slot
+        # list, so this is the same shallow copy.
+        return ConsoleOptions(
+            size=self.size,
+            legacy_windows=self.legacy_windows,
+            min_width=self.min_width,
+            max_width=self.max_width,
+            is_terminal=self.is_terminal,
+            encoding=self.encoding,
+            max_height=self.max_height,
+            justify=self.justify,
+            overflow=self.overflow,
+            no_wrap=self.no_wrap,
+            highlight=self.highlight,
+            markup=self.markup,
+            height=self.height,
+        )
 
     def update(
         self,
@@ -824,19 +834,24 @@ class Console:
         if render_height is not None:
             render_height = max(0, render_height)
 
-        lines = list(
-            islice(
-                Segment.split_and_crop_lines(
-                    _rendered,
-                    render_options.max_width,
-                    include_new_lines=new_lines,
-                    pad=pad,
-                    style=style,
-                ),
-                None,
-                render_height,
-            )
+        cropped = Segment.split_and_crop_lines(
+            _rendered,
+            render_options.max_width,
+            include_new_lines=new_lines,
+            pad=pad,
+            style=style,
         )
+        # Plain bounded loop, not itertools.islice: micropython-lib's
+        # islice rejects None bounds and raises RuntimeError (PEP 479)
+        # when the source is shorter than the bound.
+        if render_height is None:
+            lines = list(cropped)
+        else:
+            lines = []
+            for line in cropped:
+                lines.append(line)
+                if len(lines) >= render_height:
+                    break
         if render_options.height is not None:
             extra_lines = render_options.height - len(lines)
             if extra_lines > 0:

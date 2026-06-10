@@ -96,6 +96,19 @@ class _LruCacheWrapper:
     ``__name__``/``__doc__`` writes update_wrapper performs.
     """
 
+    def __get__(self, obj, objtype=None):
+        # Descriptor binding: a plain function in a class body binds
+        # ``self`` automatically; this wrapper class must do it by
+        # hand or every @lru_cache-decorated *method* (Style._add,
+        # Color.downgrade, ...) is called unbound and loses ``self``.
+        # Identical breakage on CPython and MicroPython; found by the
+        # binary smoke gate.
+        if obj is None:
+            return self
+        def _bound(*args, **kwargs):
+            return self(obj, *args, **kwargs)
+        return _bound
+
     def __init__(self, fn, maxsize, typed):
         self._fn = fn
         self._maxsize = maxsize

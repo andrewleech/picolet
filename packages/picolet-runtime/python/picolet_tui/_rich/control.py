@@ -295,10 +295,13 @@ class Control:
         """
         # Build the Control directly: no entry in CONTROL_CODES_FORMAT,
         # so we can't go through ``__init__`` with a typed tuple.
+        # ``cls()`` with zero codes is the portable raw-construction
+        # path (MicroPython has no ``cls.__new__``); it allocates an
+        # empty Segment which is immediately replaced below.
         # Allocating the Segment here keeps the ``segment.text`` field
         # populated for the byte-stream path while leaving
         # ``segment.control`` None so typed inspectors see "raw ANSI".
-        instance = cls.__new__(cls)
+        instance = cls()
         instance.segment = Segment(
             "\x1b[{};{}r".format(top + 1, bottom + 1), None, None
         )

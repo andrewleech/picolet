@@ -149,6 +149,15 @@ class DOMNode(MessagePump):
         """
         return self._region
 
+    @region.setter
+    def region(self, value):
+        # The compositor's layout pass writes regions through the
+        # public name (update_dom and _layout_default).  Without this
+        # setter every assignment raised AttributeError — never seen
+        # before the binary smoke gate because no test had ever driven
+        # a full render pass on either interpreter.
+        self._region = value
+
     # ------------------------------------------------------------------
     # Mount / unmount - sync skeleton.
     # ------------------------------------------------------------------

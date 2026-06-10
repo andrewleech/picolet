@@ -674,12 +674,24 @@ class Compositor:
                 lines = self._console.render_lines(
                     renderable, options, pad=True, new_lines=False,
                 )
-            except Exception:
+            except Exception as exc:
                 # FR-TUI-77: a render exception must not kill the
-                # frame.  Substitute a single error placeholder line
-                # and let the diff re-render on the next frame; the
-                # App's log will see the exception via the calling
-                # layer (the compositor itself does not log).
+                # frame.  Substitute an error placeholder block and
+                # log the traceback to stderr — without this the
+                # failure is a silent wall of '!' glyphs with no
+                # diagnostic anywhere (the original comment claimed
+                # the calling layer logs it; nothing did).
+                try:
+                    import sys
+                    if hasattr(sys, "print_exception"):
+                        sys.stderr.write("compositor render_lines failed (%r):\n" % (node,))
+                        sys.print_exception(exc, sys.stderr)
+                    else:
+                        import traceback
+                        sys.stderr.write("compositor render_lines failed (%r):\n%s\n"
+                                         % (node, traceback.format_exc()))
+                except Exception:
+                    pass
                 lines = [[Segment("!" * width)] for _ in range(height)]
 
             _splat_lines(
