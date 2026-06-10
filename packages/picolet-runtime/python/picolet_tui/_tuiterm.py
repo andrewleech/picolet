@@ -76,11 +76,11 @@ _enable          = _bind(_self, "picolet_tuiterm_enable",          "i", "")
 _disable         = _bind(_self, "picolet_tuiterm_disable",         "v", "")
 _size            = _bind(_self, "picolet_tuiterm_size",            "i", "pp")
 _is_tty          = _bind(_self, "picolet_tuiterm_is_tty",          "i", "i")
-_read_input      = _bind(_self, "picolet_tuiterm_read_input",      "i", "ipi")
+_read_input      = _bind(_self, "picolet_tuiterm_read_input",      "i", "pii")
 _write           = _bind(_self, "picolet_tuiterm_write",           "i", "pi")
-_capabilities    = _bind(_self, "picolet_tuiterm_capabilities",    "I", "")
+_capabilities    = _bind(_self, "picolet_tuiterm_capabilities",    "i", "p")
 _resize_pending  = _bind(_self, "picolet_tuiterm_resize_pending",  "i", "")
-_last_errno      = _bind(_self, "picolet_tuiterm_last_errno",      "i", "")
+_last_errno      = _bind(_self, "picolet_tuiterm_last_error",      "i", "")
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +100,12 @@ _size_rows_view = uctypes.struct(_size_addr + 4, {"v": uctypes.INT32}, uctypes.L
 _READ_CAP = 64
 _read_buf = bytearray(_READ_CAP)
 _read_addr = uctypes.addressof(_read_buf)
+
+# capabilities() out-param scratch — the C signature is
+# int32_t picolet_tuiterm_capabilities(uint32_t *flags).
+_caps_buf = bytearray(4)
+_caps_addr = uctypes.addressof(_caps_buf)
+_caps_view = uctypes.struct(_caps_addr, {"v": uctypes.UINT32}, uctypes.LITTLE_ENDIAN)
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +146,8 @@ def read_input(timeout_ms):
     """Non-blocking read.  Returns immediately with b'' if no bytes are
     pending and `timeout_ms == 0`; otherwise waits up to `timeout_ms`
     ms for at least one byte.  Raises OSError on closed stdin."""
-    n = _read_input(int(timeout_ms), _read_addr, _READ_CAP)
+    # Argument order matches the C signature: (buf, cap, timeout_ms).
+    n = _read_input(_read_addr, _READ_CAP, int(timeout_ms))
     if n < 0:
         raise OSError(_last_errno(), "tuiterm.read_input failed")
     if n == 0:
@@ -176,7 +183,10 @@ def capabilities():
     HAS_TRUECOLOR | HAS_256COLOR | NO_COLOR | HAS_MOUSE_SGR |
     HAS_BRAC_PASTE | HAS_VT_INPUT.  Stable for the life of the
     process once enable() has succeeded; callers should not re-cache."""
-    return _capabilities()
+    rc = _capabilities(_caps_addr)
+    if rc != 0:
+        raise OSError(_last_errno(), "tuiterm.capabilities failed")
+    return _caps_view.v
 
 
 def resize_pending():
