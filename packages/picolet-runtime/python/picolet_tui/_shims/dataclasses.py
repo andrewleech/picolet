@@ -90,11 +90,15 @@ class FrozenInstanceError(AttributeError):
 
 class Field:
     # Mirrors CPython's `dataclasses.Field` for the attributes the shim
-    # exposes through `fields()`. Anything not on this list is unsupported.
+    # exposes through `fields()`. The ``_order`` slot is shim-specific:
+    # MicroPython's class ``__dict__`` iteration is not insertion-ordered,
+    # so the decorator recovers declaration order by sorting on the
+    # creation counter stamped here by ``field()``.
     __slots__ = ("name", "type", "default", "default_factory",
-                 "init", "repr", "compare")
+                 "init", "repr", "compare", "_order")
 
-    def __init__(self, default, default_factory, init, repr, compare):
+    def __init__(self, default, default_factory, init, repr, compare,
+                 order):
         self.name = None
         self.type = None
         self.default = default
@@ -102,9 +106,17 @@ class Field:
         self.init = init
         self.repr = repr
         self.compare = compare
+        self._order = order
 
     def __repr__(self):
         return "Field(name=%r, default=%r)" % (self.name, self.default)
+
+
+# Module-level counter incremented on every ``field()`` call. The
+# decorator orders fields by this value to recover declaration order
+# without relying on class ``__dict__`` iteration order, which is not
+# insertion-ordered on MicroPython.
+_field_counter = [0]
 
 
 def field(*, default=MISSING, default_factory=MISSING,
@@ -116,7 +128,9 @@ def field(*, default=MISSING, default_factory=MISSING,
     """
     if default is not MISSING and default_factory is not MISSING:
         raise ValueError("cannot specify both default and default_factory")
-    return Field(default, default_factory, init, repr, compare)
+    _field_counter[0] += 1
+    return Field(default, default_factory, init, repr, compare,
+                 _field_counter[0])
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +192,14 @@ def _field_names_for(cls):
     ann = getattr(cls, "__annotations__", None)
     if ann:
         return list(ann.keys())
-    return [name for name, value in cls.__dict__.items()
-            if isinstance(value, Field)]
+    # MicroPython's class ``__dict__.items()`` is NOT insertion-ordered,
+    # so we must sort by the per-call counter stamped onto each Field
+    # by ``field()``.  See Field._order.
+    fields = [(value._order, name)
+              for name, value in cls.__dict__.items()
+              if isinstance(value, Field)]
+    fields.sort()
+    return [name for _order, name in fields]
 
 
 def _collect_fields(cls):
