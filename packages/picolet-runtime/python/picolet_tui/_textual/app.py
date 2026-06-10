@@ -442,7 +442,7 @@ class App(MessagePump):
         # does - so the check falls back to "decorated or not" via
         # vars().
         cls = type(self)
-        cls_own = vars(cls).get("_tui_widget_registered", None)
+        cls_own = cls.__dict__.get("_tui_widget_registered", None)
         if cls is App:
             # App itself was decorated below; its vars() has the
             # flag.  Pass.

@@ -180,9 +180,11 @@ def on(message_type, selector=None):
 
     Equivalent to upstream Textual's `textual.on`.  The picolet
     implementation does no class-time registration here — that is the
-    @widget decorator's job (FR-TUI-13).  This decorator only attaches
-    a `_tui_on` list to the function so @widget can find it during
-    its `vars(cls)` walk.
+    @widget decorator's job (FR-TUI-13).  This decorator only records
+    (fn, selector) in a module-level pending registry that @widget
+    consumes during its class-dict walk.  A registry rather than a
+    `fn._tui_on` attribute because MicroPython rejects attribute
+    assignment on function objects.
 
     Args:
         message_type: a `Message` subclass.  Identity-compared at
@@ -194,24 +196,41 @@ def on(message_type, selector=None):
 
     Returns:
         A decorator that returns the wrapped function unchanged after
-        appending one `_OnSelector` to its `_tui_on` list.
+        recording one `_OnSelector` against it in the pending registry.
     """
 
     sel_record = _OnSelector(message_type, selector)
 
     def _decorator(fn):
-        # Stacking @on decorators appends to the existing list rather
-        # than overwriting.  This matches upstream Textual semantics
-        # and is the only way to register a single method against
-        # multiple message types or selectors.
-        existing = getattr(fn, "_tui_on", None)
-        if existing is None:
-            fn._tui_on = [sel_record]
-        else:
-            existing.append(sel_record)
+        # Stacking @on decorators appends additional records for the
+        # same function object.  This matches upstream Textual
+        # semantics and is the only way to register a single method
+        # against multiple message types or selectors.
+        _PENDING_ON.append((fn, sel_record))
         return fn
 
     return _decorator
+
+
+# (fn, _OnSelector) records appended by @on and consumed (by function
+# identity) by @widget's class walk.  Entries left behind belong to
+# @on-decorated methods on classes never passed through @widget — the
+# FR-TUI-28 / R3 authoring error, caught by the runtime guard.
+_PENDING_ON = []
+
+
+def _take_pending_on(fn):
+    """Pop and return every pending _OnSelector recorded for ``fn``."""
+    taken = []
+    kept = []
+    for record in _PENDING_ON:
+        if record[0] is fn:
+            taken.append(record[1])
+        else:
+            kept.append(record)
+    if taken:
+        _PENDING_ON[:] = kept
+    return taken
 
 
 # ---------------------------------------------------------------------
@@ -309,10 +328,12 @@ def widget(cls):
         "bindings": [],
     }
 
-    # Single pass over vars(cls).  No dir(), no MRO walk here — that
-    # is _merge_parent_meta's job.  No descriptor wakes, no
-    # getattr-on-class.
-    for name, value in vars(cls).items():
+    # Single pass over cls.__dict__ (vars() does not exist on
+    # MicroPython).  No dir(), no MRO walk here — that is
+    # _merge_parent_meta's job.  No descriptor wakes, no
+    # getattr-on-class.  NB: iteration order is arbitrary on
+    # MicroPython; nothing below may depend on declaration order.
+    for name, value in cls.__dict__.items():
         # bucket 1: Reactive descriptors.
         if isinstance(value, Reactive):
             meta["reactives"][name] = value
@@ -338,7 +359,7 @@ def widget(cls):
         # @on decorator above.  A method may carry multiple selectors;
         # each fans out into its own entry in meta["handlers"].
         if callable(value):
-            tui_on = getattr(value, "_tui_on", None)
+            tui_on = _take_pending_on(value)
             if tui_on:
                 for sel in tui_on:
                     bucket = meta["handlers"].setdefault(
@@ -488,7 +509,7 @@ def _has_capturable_artifacts(base):
     """
     # Lazy resolve Reactive — see widget() above.
     Reactive = _resolve_reactive_class()
-    for name, value in vars(base).items():
+    for name, value in base.__dict__.items():
         if isinstance(value, Reactive):
             return True
         if (
@@ -564,9 +585,18 @@ def _merge_parent_meta(meta, cls):
     #     override on collision, and the child's own entries win
     #     overall.
     #
-    # `__mro__[0]` is `cls` itself; `__mro__[-1]` is `object`.
-    mro = list(cls.__mro__)
-    parents_for_check = mro[1:]
+    # MicroPython exposes `__bases__` but not `__mro__`; the breadth-
+    # first walk below visits every ancestor, which is all Pass A
+    # needs (it is an existence check, not an ordering-sensitive
+    # merge — Pass B orders by `__bases__` directly).
+    parents_for_check = []
+    _stack = list(cls.__bases__)
+    while _stack:
+        _b = _stack.pop(0)
+        if _b in parents_for_check:
+            continue
+        parents_for_check.append(_b)
+        _stack.extend(getattr(_b, "__bases__", ()))
     for base in parents_for_check:
         if base is object:
             continue

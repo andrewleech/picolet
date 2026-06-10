@@ -165,7 +165,12 @@ class MessagePump:
     def __init__(self, parent=None):
         # Deque + cap is the pre-0.50 Textual pattern (D6 baseline).
         # See module docstring re: NFR-TUI-9.
-        self._queue = deque()
+        # Two-argument construction: MicroPython's deque requires
+        # (iterable, maxlen) and CPython accepts the same form.  The
+        # cap is enforced manually in post_message (candidate-based
+        # coalescing before drop-oldest), so the native maxlen is just
+        # a backstop that the manual path keeps from ever triggering.
+        self._queue = deque((), _DEFAULT_QUEUE_CAP)
         self._queue_cap = _DEFAULT_QUEUE_CAP
 
         # Explicit strong ref to parent - design §3.2.  See class
@@ -236,15 +241,14 @@ class MessagePump:
                 for i in range(len(self._queue)):
                     candidate = self._queue[i]
                     if message.can_replace(candidate):
-                        # deque does not support __setitem__/__delitem__
-                        # in MicroPython's micropython-lib copy on all
-                        # builds; rotate to the position, popleft,
-                        # rotate back.  This is O(n) but rare (only at
-                        # cap) and the inner cost is C-level deque
-                        # rotation.
-                        self._queue.rotate(-i)
-                        self._queue.popleft()
-                        self._queue.rotate(i)
+                        # MicroPython's deque supports neither
+                        # __delitem__ nor rotate; cycle the queue
+                        # through itself once, skipping the doomed
+                        # element.  O(n) but rare (only at cap).
+                        for j in range(len(self._queue)):
+                            item = self._queue.popleft()
+                            if j != i:
+                                self._queue.append(item)
                         replaced = True
                         break
             if not replaced:
@@ -480,7 +484,7 @@ class MessagePump:
         # methods - the @widget MRO merge handled inheritance at
         # decoration time, and dispatch sees the per-class meta.
         name = "on_" + camel_to_snake(message_type.__name__)
-        name_handler = vars(type(node)).get(name)
+        name_handler = type(node).__dict__.get(name)
         if name_handler is not None and callable(name_handler):
             # Arity hint, recorded at decoration time by @widget
             # bucket-4 (§1.1).  ``name_handlers_by_name`` maps the

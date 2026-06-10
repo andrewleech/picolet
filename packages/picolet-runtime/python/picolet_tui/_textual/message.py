@@ -149,102 +149,17 @@ class Message:
 
 
 # -----------------------------------------------------------------------
-# @on decorator.
+# @on decorator — re-exported from _widget_decorator.
 # -----------------------------------------------------------------------
 #
-# Lives in this module because:
-#   * It marks methods with ``_tui_on``, which the @widget bucket-3 walk
-#     reads (§1.1).  Putting it in MessagePump would force a circular
-#     import (MessagePump -> Message -> on -> Widget at decoration time).
-#   * The decorator is a pure marker - no behavioural code runs at
-#     handler-call time from this module; dispatch lives entirely in
-#     message_pump._dispatch.
-#
-# Selector handling: v0.1 ships a minimal selector value type
-# (``_Selector``) used as a placeholder until Phase 4b agent 5 lands
-# the parser.  The default selector matches every node of the
-# corresponding Message type ("no filter").
+# This module previously carried its own ``on`` implementation (and a
+# placeholder ``_Selector`` whose ``matches()`` always returned True).
+# That duplicated _widget_decorator's complete implementation — a
+# Phase 4b parallel-agent artifact — and meant handlers registered
+# through the package facade silently skipped ``#id`` selector
+# filtering.  One implementation now lives in _widget_decorator (which
+# imports nothing from this module, so there is no cycle); this
+# re-export keeps ``from picolet_tui._textual.message import on``
+# working.
 
-
-class _Selector:
-    """Match predicate for ``@on(MessageType, selector=...)``.
-
-    The spec (§3.6) restricts selectors to ``#id`` and ``.class``
-    string forms in v0.1.  This class is a value type only - parsing
-    is owned by the agent that lands ``picolet_tui._textual.selectors``.
-
-    A None ``query`` means "match every node" - the default for
-    ``@on(MessageType)`` with no selector argument.  This is the only
-    selector behaviour Phase 4b agents 3 and 4 need; the richer
-    matching API arrives with the selector parser.
-    """
-
-    def __init__(self, message_type, query=None):
-        self.message_type = message_type
-        # ``query`` is the raw selector string (e.g. ``"#submit"``).
-        # Parsing it into a node-matching predicate is the parser
-        # agent's job; we just hold the string and return ``True``
-        # from ``matches`` until the parser lands.
-        self.query = query
-
-    def matches(self, node, message):
-        """Return True if the selector matches ``node`` for ``message``.
-
-        v0.1 placeholder: when ``query`` is None, match unconditionally.
-        Otherwise, defer to a parser hook if one is registered on this
-        module, else fall back to unconditional match so handlers do not
-        silently drop messages before the parser is wired.
-        """
-        if self.query is None:
-            return True
-        parse_hook = globals().get("_selector_parse_hook")
-        if parse_hook is None:
-            # Conservative default - no parser yet, treat as no-filter.
-            # Phase 4b agent 5 will install ``_selector_parse_hook`` and
-            # this branch will fold away.
-            return True
-        return parse_hook(self.query, node, message)
-
-
-def on(message_type, selector=None):
-    """Decorator: mark a method as an ``@on(MessageType)`` handler.
-
-    Used like::
-
-        class MyScreen(Screen):
-            @on(Button.Pressed)
-            def handle_click(self, event):
-                ...
-
-    The decorator does not wrap the function - the method object is
-    returned unchanged with a single attribute set.  The @widget
-    decorator's bucket-3 scan reads ``fn._tui_on`` and routes the
-    method into ``meta["handlers"][MessageType]``.  Multiple ``@on``
-    decorators stack: each call appends to ``fn._tui_on`` so a method
-    may handle multiple message types or multiple selectors of one
-    type.  This is the same shape upstream Textual exposes, matching
-    the migration row ``@on(Button.Pressed)`` -> ``same import path,
-    same decorator``.
-
-    FR-TUI-13: "the class-time ``@widget`` decorator collects all
-    ``@on``-decorated methods into ``cls._tui_widget_meta['handlers']``
-    exactly once at class-decoration time, with no reliance on
-    ``__init_subclass__`` or metaclasses".  The collection happens in
-    the @widget agent (Phase 4b agent 2); this module only marks.
-    """
-
-    sel = _Selector(message_type, query=selector)
-
-    def _decorator(fn):
-        # Append to the marker list - stacking @on decorators is a
-        # valid pattern (one method handling several message types).
-        existing = getattr(fn, "_tui_on", None)
-        if existing is None:
-            fn._tui_on = (sel,)
-        else:
-            # Tuple-rebind keeps fn._tui_on immutable from outside; the
-            # @widget bucket walk iterates it once and does not mutate.
-            fn._tui_on = existing + (sel,)
-        return fn
-
-    return _decorator
+from ._widget_decorator import on  # noqa: F401  - canonical implementation

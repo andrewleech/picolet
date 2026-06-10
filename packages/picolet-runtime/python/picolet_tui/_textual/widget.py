@@ -215,7 +215,7 @@ class Widget(DOMNode):
         # §1.3: false-negative possible if user copies the True
         # attribute manually; design rules that out.
         cls = type(self)
-        cls_own = vars(cls).get("_tui_widget_registered", None)
+        cls_own = cls.__dict__.get("_tui_widget_registered", None)
         if cls is Widget:
             # Widget itself was decorated above; its vars() has the
             # flag.  The check is a no-op on the base.

@@ -17,7 +17,9 @@ def camel_to_snake(
     def repl(match: Match[str]) -> str:
         lower: str
         upper: str
-        lower, upper = match.group()  # type: ignore
+        # group(0), not group(): MicroPython's re requires the
+        # explicit group index.
+        lower, upper = match.group(0)  # type: ignore
         return f"{lower}_{upper.lower()}"
 
     return _re_snake.sub(repl, name).lower()

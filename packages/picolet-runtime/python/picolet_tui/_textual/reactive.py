@@ -169,7 +169,7 @@ class Reactive:
         # weakref-of-instance."
         self._private_name = "_reactive_" + name
         self._owner = owner
-        watch = vars(owner).get("watch_" + name)
+        watch = owner.__dict__.get("watch_" + name)
         if watch is not None:
             self._watch_name = "watch_" + name
             # __code__.co_argcount includes ``self``; arity 2 means
@@ -177,7 +177,7 @@ class Reactive:
             # FR-TUI-20.  No support for *args / **kwargs watchers in
             # v0.1 - the spec table fixes the two shapes.
             self._watch_arity = watch.__code__.co_argcount
-        validate = vars(owner).get("validate_" + name)
+        validate = owner.__dict__.get("validate_" + name)
         if validate is not None:
             self._validate_name = "validate_" + name
 
@@ -207,10 +207,7 @@ class Reactive:
             compute = meta["computes"].get(self._attr_name)
             if compute is not None:
                 return compute(instance)
-        try:
-            return instance.__dict__[self._private_name]
-        except KeyError:
-            return self._default
+        return getattr(instance, self._private_name, self._default)
 
     def __set__(self, instance, new):
         """Assign a new value.
@@ -254,7 +251,7 @@ class Reactive:
                 "Cannot assign to computed reactive %r on %s"
                 % (self._attr_name, type(instance).__name__)
             )
-        old = instance.__dict__.get(self._private_name, self._default)
+        old = getattr(instance, self._private_name, self._default)
         if self._validate_name is not None:
             new = getattr(instance, self._validate_name)(new)
         if (not self._always_update) and old == new:
@@ -262,7 +259,10 @@ class Reactive:
             # when unchanged.  The early-out elides both watcher and
             # refresh - matches upstream Textual.
             return
-        instance.__dict__[self._private_name] = new
+        # setattr, not instance.__dict__[...]: MicroPython instance
+        # __dict__ is not writable.  The private name has no class
+        # descriptor, so setattr cannot recurse into __set__.
+        setattr(instance, self._private_name, new)
         # Primary watcher (declared on the class as ``watch_<name>``).
         if self._watch_name is not None:
             watch = getattr(instance, self._watch_name)
@@ -273,7 +273,7 @@ class Reactive:
         # Extra per-instance watchers registered via ``Reactive.watch``.
         # Stored on the instance dict so they live and die with the
         # instance - matches the "no weakref-of-instance" rule in §2.
-        extra = instance.__dict__.get(self._private_name + "_extra_watchers")
+        extra = getattr(instance, self._private_name + "_extra_watchers", None)
         if extra:
             for cb in extra:
                 # Extra watchers follow the same arity convention as the
@@ -306,7 +306,11 @@ class Reactive:
         ``cb(old, new)`` shapes are accepted.
         """
         key = self._private_name + "_extra_watchers"
-        instance.__dict__.setdefault(key, []).append(callback)
+        watchers = getattr(instance, key, None)
+        if watchers is None:
+            watchers = []
+            setattr(instance, key, watchers)
+        watchers.append(callback)
 
     def compute(self, instance):
         """Force a recompute for this descriptor on ``instance``.
@@ -324,7 +328,7 @@ class Reactive:
         if compute is None:
             return self.__get__(instance, type(instance))
         value = compute(instance)
-        instance.__dict__[self._private_name] = value
+        setattr(instance, self._private_name, value)
         return value
 
 
