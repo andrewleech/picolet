@@ -42,6 +42,11 @@
 #undef MICROPY_PY_RE_MATCH_GROUPS
 #define MICROPY_PY_RE_MATCH_GROUPS          (1)
 
+// match.span()/start()/end() — used by the Rich subset's wrap and
+// markup scanners (_wrap.py words(), markup.py, text.py highlight).
+#undef MICROPY_PY_RE_MATCH_SPAN_START_END
+#define MICROPY_PY_RE_MATCH_SPAN_START_END  (1)
+
 // fn.__code__ with co_argcount / co_kwonlyargcount / co_flags /
 // co_varnames (argument names from the bytecode prelude).  The
 // @widget decorator and Reactive watcher dispatch read positional

@@ -109,6 +109,12 @@
 
 // Keep json, re, heapq, random ON (asyncio and stdlib patterns depend on them).
 
+// Two-argument next(iterator, default): a BASIC_FEATURES builtin the
+// CORE_FEATURES baseline omits.  The picolet_tui Rich subset uses it
+// (style.py parse, segment.py divide); plain Python code reasonably
+// expects it everywhere.
+#define MICROPY_PY_BUILTINS_NEXT2           (1)
+
 // select module: required by asyncio/core.py ("import select").
 // The Windows port defaults to MICROPY_CONFIG_ROM_LEVEL_CORE_FEATURES which
 // does not include select (it needs AT_LEAST_EXTRA_FEATURES).  Enable explicitly.
