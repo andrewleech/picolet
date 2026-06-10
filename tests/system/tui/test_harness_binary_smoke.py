@@ -12,6 +12,11 @@ Run ``picolet build --target linux-x64`` in examples/tui-pydfu to
 produce the binary; the test skips (loudly, with the path it wanted)
 when the artifact is absent so unit-only CI laps stay green.
 
+The ``test_harness_`` filename prefix matters: tests/mp/run.sh
+excludes that prefix from the MicroPython gate — this file drives the
+built binary from the outside via a CPython PTY and must not be
+imported under MicroPython.
+
 Windows note: the windows-x64 exe cannot be frame-verified from WSL —
 interop hands it pipe stdio, never a Windows console, so the driver
 correctly refuses with E_HANDLE.  ConPTY harness support is v0.2
