@@ -164,6 +164,27 @@ def _strip_unprintable(text):
 # ---------------------------------------------------------------------
 
 
+# MicroPython doesn't expose nested classes via ``Outer.Inner`` attribute
+# access.  Define the message types at module scope and alias them onto
+# Input below — same fix pattern as Button._ButtonPressed.
+class _InputSubmitted(Message):
+    """Posted when the user presses ``enter`` (FR-TUI-47).  Aliased onto
+    Input as Input.Submitted after class body lands."""
+
+    def __init__(self, value):
+        Message.__init__(self)
+        self.value = value
+
+
+class _InputChanged(Message):
+    """Posted on every edit (FR-TUI-47).  Aliased onto Input as
+    Input.Changed after class body lands."""
+
+    def __init__(self, value):
+        Message.__init__(self)
+        self.value = value
+
+
 @widget
 class Input(Widget):
     """Single-line text entry with a movable caret.
@@ -209,34 +230,12 @@ class Input(Widget):
     # The single ``value`` attribute is what the FR-TUI-47 spec table
     # asserts against in tests/widgets/test_input.py.
 
-    class Submitted(Message):
-        """Posted when the user presses ``enter`` (FR-TUI-47).
-
-        The ``value`` attribute is the Input's value at the moment
-        enter was pressed - a snapshot, not a live reference.  Callers
-        that listen via ``on_input_submitted`` see the value the user
-        actually confirmed even if subsequent keystrokes mutate the
-        widget before the handler runs.
-        """
-
-        def __init__(self, value):
-            # Message.__init__ populates _stop_bubble / _sender; skipping
-            # it would AttributeError on the first dispatch walk.
-            Message.__init__(self)
-            self.value = value
-
-    class Changed(Message):
-        """Posted on every edit (FR-TUI-47).
-
-        Fires from the ``watch_value`` handler so every mutation path
-        (printable keys, backspace, delete, paste, ctrl+u, direct
-        ``input.value = ...`` assignment) converges on one emit site.
-        The ``value`` attribute is the post-edit value.
-        """
-
-        def __init__(self, value):
-            Message.__init__(self)
-            self.value = value
+    # Submitted / Changed message types are module-level (see above) and
+    # aliased here so the upstream ``Input.Submitted`` / ``Input.Changed``
+    # access shape keeps working.  MicroPython doesn't promote nested
+    # classes to outer-class attributes the way CPython does.
+    Submitted = _InputSubmitted
+    Changed = _InputChanged
 
     # ------------------------------------------------------------------
     # Class attributes.

@@ -150,6 +150,24 @@ _VARIANT_STYLES = {
 # -----------------------------------------------------------------------
 
 
+# MicroPython doesn't expose nested classes as ``Outer.Inner`` attributes
+# the way CPython does — a ``class Inner:`` inside another class body
+# becomes a local but isn't bound onto the outer class.  Declare Pressed
+# at module scope, then alias as Button.Pressed after the class lands so
+# the upstream-Textual idiom ``@on(Button.Pressed)`` keeps working.
+class _ButtonPressed(Message):
+    """Posted by Button on activation.
+
+    Carries a reference to the button that fired it so handlers
+    attached to a parent can distinguish which button posted the event.
+    Aliased onto Button as Button.Pressed below.
+    """
+
+    def __init__(self, button):
+        Message.__init__(self)
+        self.button = button
+
+
 @widget
 class Button(Static):
     """A clickable button.
@@ -170,34 +188,9 @@ class Button(Static):
             self.log("button pressed:", event.button.label)
     """
 
-    # ------------------------------------------------------------------
-    # Nested Pressed message (design §3.1, FR-TUI-46).
-    # ------------------------------------------------------------------
-
-    class Pressed(Message):
-        """Posted by Button on activation.
-
-        Carries a reference to the button that fired it so handlers
-        attached to a parent (e.g. Screen-level ``@on(Button.Pressed)``)
-        can distinguish which button posted the event without relying
-        on the selector form (which v0.1 supports but the @on parser
-        treats as no-filter pending the selector agent).
-
-        Not decorated with @widget: Pressed has no reactives, no
-        handlers, no bindings - the design §3 carve-out applies.
-        """
-
-        def __init__(self, button):
-            # Message.__init__ sets up _stop_bubble / _sender / the
-            # _handler_args reservation; calling it is the one
-            # framework contract every Message subclass owes.
-            Message.__init__(self)
-            # The originating Button.  Read by parent handlers via
-            # ``event.button``; this mirrors upstream Textual's
-            # ``Button.Pressed.button`` attribute name verbatim, so
-            # @on(Button.Pressed) handlers ported from upstream code
-            # do not need to rename the field.
-            self.button = button
+    # Pressed aliased onto the class after the class body lands — see
+    # the _ButtonPressed module-level definition above for why.
+    Pressed = _ButtonPressed
 
     # ------------------------------------------------------------------
     # Class attributes.
