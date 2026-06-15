@@ -43,8 +43,14 @@ LDFLAGS += -Wl,--export-all-symbols
 # comctl32 (SetWindowSubclass), wtsapi32 (WTSRegisterSessionNotification) and
 # powrprof (RegisterPowerSettingNotification).  shell32 is already listed for
 # the loader.
-LIB += -lole32 -loleaut32 -luser32 -lshell32 -lshlwapi -lws2_32
-LIB += -lcomctl32 -lwtsapi32 -lpowrprof
+# LIBS (not LIB): the windows port link rule is
+#   $(CC) -o $@ $^ $(LIBS) $(LDFLAGS)   [py/mkrules.mk]
+# and the port seeds it with `LIBS += -lws2_32`.  An earlier `LIB +=`
+# here went into a variable nothing references, so ole32/comctl32/
+# wtsapi32 never reached the linker and the COM + window-subclass +
+# session-notification symbols failed to resolve.
+LIBS += -lole32 -loleaut32 -luser32 -lshell32 -lshlwapi -lws2_32
+LIBS += -lcomctl32 -lwtsapi32 -lpowrprof
 
 # picolet_winevents: generic Win32 event hook (WM_DEVICECHANGE, WM_CLOSE,
 # WM_POWERBROADCAST, …).  Statically linked into the .exe; reached from
