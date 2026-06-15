@@ -27,14 +27,13 @@ MICROPY_SSL_AXTLS = 0
 # _loop with _lvgl_pump).
 FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_lvgl.py
 
-# USER_C_MODULES points at the parent directory of lv_binding_micropython.
-# MicroPython's py.mk walks subdirectories looking for
-# $(USER_C_MODULES)/*/micropython.mk; the binding's micropython.mk lives at
-# lv_binding_micropython/micropython.mk under that root.  The binding
-# consumes USERMOD_DIR (set to its own directory by py.mk's foreach), finds
-# the lvgl submodule under $(USERMOD_DIR)/lvgl, runs gen_mpy.py at make-time
-# to produce lv_mpy.c, and links the result into the runtime binary.
-USER_C_MODULES = $(PICOLET_RUNTIME_ROOT)/lib
+# The LVGL binding is registered as a C module via c_module() in
+# manifest_lvgl.py, NOT the legacy USER_C_MODULES make-arg.  py/manifest.mk
+# extracts manifest c_module() entries (--list-c-modules) and merges them
+# into USER_C_MODULES itself.  Routing it through the manifest keeps one
+# source of truth for what the variant pulls in (frozen Python + C modules)
+# and avoids the make-phase $(BUILD) mismatch the make-arg form hit
+# (see investigation log).
 
 # Override lv_binding_micropython's default lv_conf.h with our hand-tuned
 # copy.  micropython.mk reads $(LV_CONF_PATH) and emits -DLV_CONF_PATH="<file>"

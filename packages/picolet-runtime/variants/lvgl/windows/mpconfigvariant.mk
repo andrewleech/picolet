@@ -22,11 +22,11 @@ MICROPY_SSL_AXTLS = 0
 # picolet_ui (the same Python surface as the Linux lvgl variant).
 FROZEN_MANIFEST ?= $(PICOLET_RUNTIME_ROOT)/manifests/manifest_lvgl_windows.py
 
-# USER_C_MODULES points at the parent directory of lv_binding_micropython.
-# MicroPython's py.mk walks subdirectories looking for
-# $(USER_C_MODULES)/*/micropython.mk; the binding's micropython.mk lives
-# at lv_binding_micropython/micropython.mk under that root.
-USER_C_MODULES = $(PICOLET_RUNTIME_ROOT)/lib
+# The LVGL binding is registered as a C module via c_module() in
+# manifest_lvgl_windows.py, not the legacy USER_C_MODULES make-arg.
+# py/manifest.mk extracts manifest c_module() entries and merges them into
+# USER_C_MODULES.  See variants/lvgl/unix/mpconfigvariant.mk and the
+# investigation log.
 
 # Override lv_binding_micropython's default lv_conf.h with the picolet
 # hand-tuned copy (content is platform-agnostic pure C preprocessor directives).
@@ -72,10 +72,10 @@ CFLAGS_EXTRA += -I$(SDL2_INCLUDE_DIR)
 #   - version                    VerQueryValueW
 #   - setupapi                   HID device enumeration
 #   - shell32                    shell APIs
-LIB += $(SDL2_LIB_DIR)/libSDL2.a
-LIB += -ldinput8 -ldxguid -ldxerr8
-LIB += -luser32 -lwinmm -lgdi32 -lole32 -loleaut32 -limm32 -lversion
-LIB += -lsetupapi -luuid -lshell32
+LIBS += $(SDL2_LIB_DIR)/libSDL2.a
+LIBS += -ldinput8 -ldxguid -ldxerr8
+LIBS += -luser32 -lwinmm -lgdi32 -lole32 -loleaut32 -limm32 -lversion
+LIBS += -lsetupapi -luuid -lshell32
 
 # LV_CFLAGS: force the binding's CPP preprocessing step to include
 # lv_drivers.h so SDL window/input functions appear in the generated
@@ -141,5 +141,5 @@ EXTRA_SRC_C += $(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_winevents/picolet_
 INC         += -I$(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_winevents
 
 # Win32 libs that picolet_winevents.c needs in addition to what SDL2/lvgl pull in.
-# user32, ole32, shell32, oleaut32, advapi32 are already in LIB above (SDL2).
-LIB += -lcomctl32 -lwtsapi32 -lpowrprof
+# user32, ole32, shell32, oleaut32, advapi32 are already in LIBS above (SDL2).
+LIBS += -lcomctl32 -lwtsapi32 -lpowrprof

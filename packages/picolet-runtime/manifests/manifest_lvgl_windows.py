@@ -1,9 +1,8 @@
 # Frozen-manifest baseline for the picolet `lvgl` variant (windows-x64, PH12).
 #
-# Identical content to manifest_lvgl.py — the same Python surface (asyncio,
-# os-path, picolet, picolet_ui) is frozen regardless of platform.  The `lv` C
-# module enters the runtime via USER_C_MODULES (set in mpconfigvariant.mk),
-# not via this manifest.
+# Same Python surface as manifest_lvgl.py (asyncio, os-path, picolet,
+# picolet_ui) plus the LVGL C module, registered via c_module() rather than
+# the legacy USER_C_MODULES make-arg.
 #
 # picolet_ui (not picolet_ui_win) is frozen here: _lvgl.py is platform-agnostic
 # and calls only lv.init(), lv.sdl_window_create(), and asyncio primitives
@@ -20,3 +19,7 @@ require("__future__")
 
 freeze("../python", "picolet")
 freeze("../python", "picolet_ui")
+
+# Register the LVGL binding as a C module through the manifest (relative to
+# manifests/, like the freeze() calls).  See manifest_lvgl.py.
+c_module("../lib/lv_binding_micropython")
