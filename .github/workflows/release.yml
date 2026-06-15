@@ -115,6 +115,21 @@ jobs:
           pip install --quiet mpremote
           python3 -m mpremote --help > /dev/null   # smoke-test
 
+      # 3b. libffi bootstrap toolchain (linux-x64 only).
+      #     build-runtime.sh compiles libffi from the bundled submodule for
+      #     the ffi-enabled variants.  A fresh checkout has no generated
+      #     ./configure, so it must be produced by libffi's autogen.sh,
+      #     which requires libtool >= 2.4.7 (the LT_SYS_SYMBOL_USCORE macro).
+      #     The ubuntu:22.04 build *container* ships 2.4.6, so the script
+      #     runs autogen on the host instead — which needs the host to have
+      #     a new-enough libtool.  ubuntu-latest apt provides 2.4.7+.
+      #     The macOS job already does the equivalent `brew install libtool`.
+      - name: Install libffi bootstrap toolchain (linux-x64 only)
+        if: matrix.target == 'linux-x64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libtool automake autoconf
+
       # 4a. Install a buildx driver that supports --cache-to=type=local.
       #     GitHub's default docker driver only supports the inline cache
       #     backend; --cache-to=type=local needs the docker-container driver
