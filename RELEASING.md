@@ -108,6 +108,10 @@ tag = "runtime-v0.1.0"
 
 ## Build matrix details
 
+Host build prerequisites (docker, python3+mpremote, and a libtool 2.4.7+
+toolchain for the libffi bootstrap) are documented in
+[`packages/picolet-runtime/README.md`](packages/picolet-runtime/README.md#build-prerequisites).
+
 **Linux x64**: compiled inside `picolet-linux-x64-build:22.04` (Ubuntu 22.04 +
 build-essential + libwebkit2gtk-4.1 + libsdl2-dev) to pin the minimum glibc
 to 2.35 (NFR-8).

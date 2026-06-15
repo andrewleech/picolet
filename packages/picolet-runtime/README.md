@@ -52,6 +52,39 @@ The seven feature PRs that feed pydfu-win are the starting set:
 Renderer-specific PRs (LVGL bindings, webview bridge plumbing) get added
 to `mbm.toml` as they're written.
 
+## Build prerequisites
+
+`build-runtime.sh` compiles inside a container (ubuntu:22.04 for
+linux-x64, `dockcross/windows-static-x64-posix` for windows-x64), so
+the host toolchain stays small. The container already carries the
+compiler, SDL2, and WebKitGTK; the host only needs:
+
+| Host dependency | Why |
+|---|---|
+| `docker` | All compilation runs in a container. |
+| `python3` + `mpremote` (`pip install mpremote`) | Host-side romfs image assembly. |
+| `git` | Submodule + integration-branch checkout. |
+| `libtool` **>= 2.4.7**, `automake`, `autoconf` | The ffi-enabled variants (cli, tui, webview, lvgl) build libffi from the bundled submodule. A fresh checkout has no generated `./configure`, so it is produced by libffi's `autogen.sh`. The ubuntu:22.04 build container ships libtool 2.4.6, which lacks the `LT_SYS_SYMBOL_USCORE` macro libffi needs, so `build-runtime.sh` runs `autogen.sh` on the **host** instead — which is why the host libtool must be 2.4.7+. |
+
+Install the libffi bootstrap toolchain:
+
+```sh
+# Debian / Ubuntu 24.04+ (ships libtool 2.4.7)
+sudo apt install libtool automake autoconf
+
+# macOS (Homebrew)
+brew install libtool automake autoconf
+```
+
+Ubuntu 22.04 hosts ship libtool 2.4.6 and cannot bootstrap libffi for a
+cold build; use a 24.04+ host (or any host with libtool 2.4.7+) for the
+first build of each variant. Once libffi is built its artifacts are
+cached, so subsequent builds skip `autogen.sh` entirely.
+
+CI installs the same toolchain — see `.github/workflows/release.yml`
+(`Install libffi bootstrap toolchain` on the linux job, `brew install
+libtool` on the macOS job).
+
 ## Webview variant (linux-x64, PH07)
 
 The `picolet-runtime-linux-x64-webview` variant adds a WebKitGTK 4.1
