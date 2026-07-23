@@ -27,7 +27,7 @@
 #   dynamic         loaded at runtime; binary carries no copy
 #   build-time-only used only during the build; absent from the shipped artifact
 #
-# Supported variants:  cli | webview | lvgl
+# Supported variants:  cli | mcp | webview | lvgl
 # Supported targets:   linux-x64 | windows-x64 | macos-x64 | macos-arm64
 
 # ---------------------------------------------------------------------------
@@ -51,6 +51,20 @@ source_url  = "https://github.com/libffi/libffi"
 link_type   = "static"
 purl        = "pkg:github/libffi/libffi@3.4.6"
 notes       = "Statically linked into all runtime variants to support ctypes / ffi module."
+
+# ---------------------------------------------------------------------------
+# mcp-specific components (variants = ["mcp"])
+# ---------------------------------------------------------------------------
+
+[[component]]
+name        = "Mbed TLS"
+version     = "3.6.6"
+licence     = "Apache-2.0"
+source_url  = "https://github.com/Mbed-TLS/mbedtls"
+link_type   = "static"
+variants    = ["mcp"]
+purl        = "pkg:github/Mbed-TLS/mbedtls@v3.6.6"
+notes       = "Dual-licensed Apache-2.0 OR GPL-2.0-or-later upstream; Picolet takes the Apache-2.0 option to satisfy NFR-5 (no static linking of GPL/AGPL components). Statically linked into the mcp variant to provide the tls module (MICROPY_PY_SSL=1, MICROPY_SSL_MBEDTLS=1); git SHA/tag pinned via the micropython submodule's nested lib/mbedtls submodule."
 
 # ---------------------------------------------------------------------------
 # LVGL-specific components (variants = ["lvgl"])

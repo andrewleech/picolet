@@ -14,6 +14,7 @@
 #
 # PH07/PH11 added --variant webview and --variant lvgl.
 # picolet-tui Phase 2a adds --variant tui (linux-x64 + windows-x64).
+# claude-net-mpy P2 adds --variant mcp (linux-x64 only; cli baseline + TLS).
 #
 # Outputs:
 #   packages/picolet-runtime/build/picolet-runtime-{target}-{variant}[.exe]
@@ -95,6 +96,13 @@ case "${TARGET}/${VARIANT}" in
     linux-x64/cli)
         ;;
     windows-x64/cli)
+        ;;
+    linux-x64/mcp)
+        # P2 (claude-net-mpy plugin): cli baseline plus TLS.  Built as
+        # linux-x64/cli plus MICROPY_PY_SSL=1/MICROPY_SSL_MBEDTLS=1 (set
+        # in the variant's own mpconfigvariant.mk, not passed here) and
+        # hashlib.sha1 for Sec-WebSocket-Accept verification.  NFR-MCP-1
+        # ceiling is 1 MiB, same as cli.  Windows is out of scope until P9.
         ;;
     linux-x64/webview)
         # PH07: WebKitGTK 4.1 webview variant.  Built as linux-x64/cli
@@ -313,6 +321,9 @@ finish_artifact() {
 
     # Step [8/8] — size gate.  Variant-specific NFR ceiling.
     #   cli                → NFR-1, 1 MiB.
+    #   mcp                → NFR-MCP-1, 1 MiB (cli baseline + TLS; SSL/mbedtls
+    #     and hashlib.sha1 fit within the same ceiling as cli, per the P2
+    #     mcp-variant ticket's measured headroom).
     #   webview            → NFR-2, 2 MiB.
     #   lvgl (linux-x64)   → NFR-3, 2 MiB.
     #   lvgl (windows-x64) → NFR-3, 3 MiB.
@@ -329,6 +340,7 @@ finish_artifact() {
     #   macos-{x64,arm64}  → NFR-MAC-1/2/3 (same ceilings as Linux/Windows).
     case "${TARGET:-linux-x64}/${VARIANT}" in
         linux-x64/cli)       CEILING=1048576;  NFR_ID="NFR-1" ;;
+        linux-x64/mcp)       CEILING=1048576;  NFR_ID="NFR-MCP-1" ;;
         linux-x64/webview)   CEILING=2097152;  NFR_ID="NFR-2" ;;
         linux-x64/lvgl)      CEILING=2097152;  NFR_ID="NFR-3" ;;
         linux-x64/tui)       CEILING=2097152;  NFR_ID="NFR-TUI-1" ;;
@@ -486,6 +498,32 @@ build_linux_x64() {
     cp "$built_binary" "$artifact"
     strip --strip-unneeded "$artifact"
     echo "  artifact: $artifact"
+
+    # [7c] Assert the mcp-linux binary has NO dynamic mbedtls/libffi dependency
+    # beyond the ubiquitous system libraries every Linux install ships.
+    # mbedtls ships both a static archive and a shared library form; if the
+    # link step ever silently prefers the shared form, the single-binary
+    # guarantee breaks while still passing the NFR-MCP-1 size gate (a dynamic
+    # mbedtls would even shrink the artifact) — so this must be an explicit
+    # check, not an inference from binary size.
+    if [[ "$VARIANT" == "mcp" ]]; then
+        local ALLOWED_NEEDED='^(libc\.so\.6|libm\.so\.6|libpthread\.so\.0|libdl\.so\.2|librt\.so\.1|ld-linux-x86-64\.so\.2|linux-vdso\.so\.1)$'
+        local NEEDED
+        NEEDED="$(objdump -p "$artifact" | awk '/NEEDED/ {print $2}')"
+        if [[ -z "$NEEDED" ]]; then
+            echo "error: [7c] objdump produced no NEEDED entries for $artifact_name (unexpected)" >&2
+            exit 1
+        fi
+        local BAD
+        BAD="$(echo "$NEEDED" | grep -vE "$ALLOWED_NEEDED" || true)"
+        if [[ -n "$BAD" ]]; then
+            echo "error: [7c] $artifact_name links non-system shared libraries:" >&2
+            echo "$BAD" >&2
+            echo "       mbedtls/libffi must link statically (single-binary rule)." >&2
+            exit 1
+        fi
+        echo "  [7c] single-binary check OK: only system libs in NEEDED ($(echo "$NEEDED" | tr '\n' ' '))"
+    fi
 
     finish_artifact "$artifact"
 
