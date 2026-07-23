@@ -63,6 +63,12 @@ pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
 pr_number = 0
 title = "ports/windows: Add EXTRA_SRC_C hook for variant-supplied source files."
 
+[[submodules.branches]]
+name = "pr/unix-asyncio-stdin-poll-fix"
+pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
+pr_number = 0
+title = "extmod/vfs_posix_file: read()/readinto() do a single syscall."
+
 # --- Renderer-specific PRs added here as they're written ---
 # - picolet webview bridge bootstrap
 # - LVGL binding integration
