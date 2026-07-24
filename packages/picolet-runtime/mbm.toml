@@ -69,6 +69,12 @@ pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
 pr_number = 0
 title = "extmod/vfs_posix_file: read()/readinto() do a single syscall."
 
+[[submodules.branches]]
+name = "pr/unix-select-ioctl-period-configurable"
+pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
+pr_number = 0
+title = "extmod/modselect: make IOCTL_CALL_PERIOD_MS overridable."
+
 # --- Renderer-specific PRs added here as they're written ---
 # - picolet webview bridge bootstrap
 # - LVGL binding integration

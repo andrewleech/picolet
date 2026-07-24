@@ -44,3 +44,15 @@
 #define MICROPY_PY_HASHLIB_SHA1             (1)
 #define MICROPY_PY_HASHLIB_MD5              (0)
 #define MICROPY_PY_HASHLIB_SHA256           (0)
+
+// Idle-CPU fix for the asyncio-over-TLS workload. The hub connection is a
+// wss:// (SSL) socket; SSLSocket does not answer MP_STREAM_GET_FILENO, so
+// select/poll treats it as a non-fd object and, with POSIX_OPTIMISATIONS on,
+// drops the whole poll set to the periodic ioctl(MP_STREAM_POLL) path. At the
+// upstream 1ms default the idle event loop wakes ~1000x/s (~2.4% of a core,
+// measured on linux-x64). 50ms cuts that ~25x (to ~0.1%) while keeping inbound
+// hub-message/keepalive latency well under the 5s ping and 31s watchdog
+// budgets. The periodic path still runs the SSL poll ioctl each period, so
+// mbedtls buffered-data (check_pending) detection is unchanged. Requires the
+// integration-branch #ifndef guard on this macro (extmod/modselect.c).
+#define MICROPY_PY_SELECT_IOCTL_CALL_PERIOD_MS (50)
