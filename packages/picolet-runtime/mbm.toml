@@ -75,6 +75,26 @@ pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
 pr_number = 0
 title = "extmod/modselect: make IOCTL_CALL_PERIOD_MS overridable."
 
+# event-notify's composed deadline-sleep stack, rebased onto this fork's base.
+# Bundles the unix-sleep Phase 1 wake-event foundation (mp_hal_wake_event_fd /
+# _drain, time.sleep waiting on the wake event) and event-notify's composed
+# event-source work (MP_STREAM_SET_EVENT_SOURCE ioctl, readiness resolution,
+# the deadline-sleep gate relaxation + pollfds wiring + pre-block resolve, and
+# modtls readiness reporting).  This is what lets an idle asyncio+TLS socket
+# deadline-sleep to ~0% idle CPU instead of period-capping; it supersedes the
+# pr/unix-select-ioctl-period-configurable band-aid above (kept as a harmless
+# fallback for genuinely non-fd pollables).  Upstream this is two separate PRs
+# (unix-sleep wake event, then the notify/event-source work); it is carried as
+# one local backport branch here pending their upstream finalisation, at which
+# point this entry splits to reference the pushed PR branches.  Merged last so
+# the ports/unix/main.c conflict against the base matches the seeded rerere
+# resolution (rerere/fbe548e8f69a21296b4451cec02c8a10a55840f7).
+[[submodules.branches]]
+name = "pr/unix-select-event-source"
+pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
+pr_number = 0
+title = "extmod/modselect,modtls,unix: composed event-source deadline-sleep for asyncio+TLS."
+
 # --- Renderer-specific PRs added here as they're written ---
 # - picolet webview bridge bootstrap
 # - LVGL binding integration

@@ -45,14 +45,23 @@
 #define MICROPY_PY_HASHLIB_MD5              (0)
 #define MICROPY_PY_HASHLIB_SHA256           (0)
 
-// Idle-CPU fix for the asyncio-over-TLS workload. The hub connection is a
-// wss:// (SSL) socket; SSLSocket does not answer MP_STREAM_GET_FILENO, so
-// select/poll treats it as a non-fd object and, with POSIX_OPTIMISATIONS on,
-// drops the whole poll set to the periodic ioctl(MP_STREAM_POLL) path. At the
-// upstream 1ms default the idle event loop wakes ~1000x/s (~2.4% of a core,
-// measured on linux-x64). 50ms cuts that ~25x (to ~0.1%) while keeping inbound
-// hub-message/keepalive latency well under the 5s ping and 31s watchdog
-// budgets. The periodic path still runs the SSL poll ioctl each period, so
-// mbedtls buffered-data (check_pending) detection is unchanged. Requires the
-// integration-branch #ifndef guard on this macro (extmod/modselect.c).
+// Idle-CPU behaviour for the asyncio-over-TLS workload. The hub connection is a
+// wss:// (SSL) socket whose readiness is derived (decrypted application bytes
+// available / a buffered TLS record), not a plain kernel fd edge.
+//
+// MICROPY_PY_SELECT_EVENT_SOURCE registers the TLS socket as a composed poll
+// entry: fd-backed (its underlying socket fd is in the kernel pollfd set, so new
+// data wakes poll() directly) AND ioctl-consulted (readiness comes from
+// MP_STREAM_POLL / mbedtls check_pending, resolved before the loop blocks so a
+// decrypted-but-unread record is not stranded behind the sleep). The event loop
+// then sleeps to the asyncio deadline rather than periodic probing, so an idle
+// TLS connection costs ~0% of a core (measured 0.000% steady state, ~57 poll/30s
+// deadline-sleep, linux-x64) while inbound hub data still wakes it immediately.
+//
+// IOCTL_CALL_PERIOD_MS is the fallback cap for a pollable that is genuinely
+// non-fd (no fd to wake on); with the event-source mechanism the SSL entry no
+// longer reaches it. Kept at 50ms as a bounded floor for any such entry.
+// Requires the integration-branch #ifndef guard on this macro
+// (extmod/modselect.c).
 #define MICROPY_PY_SELECT_IOCTL_CALL_PERIOD_MS (50)
+#define MICROPY_PY_SELECT_EVENT_SOURCE (1)
