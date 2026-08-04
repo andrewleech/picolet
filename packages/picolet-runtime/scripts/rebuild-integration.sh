@@ -95,9 +95,13 @@ fi
 # Reset to upstream/master before the submodule walk.
 git -C "$SUBMODULE" checkout upstream/master --quiet
 
-# Refresh transitive submodules.
+# Refresh transitive submodules to the pointers recorded by upstream/master.
+# Do NOT `submodule deinit` first: that removes each submodule's working tree
+# wholesale, including generated-but-untracked files (notably libffi's autogen'd
+# `configure`), which forces a cold re-bootstrap needing host autotools on every
+# rebuild.  `submodule update` alone moves each submodule to its recorded SHA and
+# leaves those warm artifacts in place.
 echo "[0/2] Updating transitive submodules"
-git -C "$SUBMODULE" submodule deinit -f .
 git -C "$SUBMODULE" submodule update --init --recursive
 
 if ! git -C "$SUBMODULE" diff-index --quiet HEAD --; then
