@@ -74,15 +74,18 @@ if ! git -C "$SUBMODULE" config --get remote.origin.fetch | grep -q 'pull.*head'
     git -C "$SUBMODULE" fetch origin
 fi
 
-# Pre-create local branches for every branch listed in mbm.toml.
-# Previously hard-coded — kept drifting out of sync when new branches
-# were added (e.g. pr/windows-extra-src-c, manifest_c_module).  Now
-# discovered from the same source-of-truth the merge loop reads below.
-echo "[0/2] Creating local branches for the branches listed in mbm.toml"
+# Sync local branches to origin's current tip for every branch listed in
+# mbm.toml. Force-updated every run, not created-if-missing: mbm.toml's own
+# branches are meant to always track whatever origin currently has (PR
+# authors rebase/force-push while a PR is open), so a stale local branch
+# left over from an earlier run or an unrelated local checkout must never be
+# allowed to silently shadow origin's current content.
+echo "[0/2] Syncing local branches to origin for the branches listed in mbm.toml"
 mapfile -t ALL_BRANCHES < <(grep -E '^name = "' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
 for pr_branch in "${ALL_BRANCHES[@]}"; do
-    if ! git -C "$SUBMODULE" show-ref --quiet "refs/heads/$pr_branch"; then
-        git -C "$SUBMODULE" branch "$pr_branch" "origin/$pr_branch" 2>/dev/null || true
+    git -C "$SUBMODULE" fetch origin --quiet "$pr_branch" 2>/dev/null || true
+    if git -C "$SUBMODULE" show-ref --quiet "refs/remotes/origin/$pr_branch"; then
+        git -C "$SUBMODULE" branch -f "$pr_branch" "origin/$pr_branch" 2>/dev/null || true
     fi
 done
 
