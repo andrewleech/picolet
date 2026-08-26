@@ -75,25 +75,39 @@ pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
 pr_number = 0
 title = "extmod/modselect: make IOCTL_CALL_PERIOD_MS overridable."
 
-# event-notify's composed deadline-sleep stack, rebased onto this fork's base.
-# Bundles the unix-sleep Phase 1 wake-event foundation (mp_hal_wake_event_fd /
-# _drain, time.sleep waiting on the wake event) and event-notify's composed
-# event-source work (MP_STREAM_SET_EVENT_SOURCE ioctl, readiness resolution,
-# the deadline-sleep gate relaxation + pollfds wiring + pre-block resolve, and
-# modtls readiness reporting).  This is what lets an idle asyncio+TLS socket
-# deadline-sleep to ~0% idle CPU instead of period-capping; it supersedes the
-# pr/unix-select-ioctl-period-configurable band-aid above (kept as a harmless
-# fallback for genuinely non-fd pollables).  Upstream this is two separate PRs
-# (unix-sleep wake event, then the notify/event-source work); it is carried as
-# one local backport branch here pending their upstream finalisation, at which
-# point this entry splits to reference the pushed PR branches.  Merged last so
-# the ports/unix/main.c conflict against the base matches the seeded rerere
-# resolution (rerere/fbe548e8f69a21296b4451cec02c8a10a55840f7).
+# unix-sleep-process-pending's wake-event foundation (mp_hal_wake_event_fd /
+# _drain / _signal_event, time.sleep() and the scheduler waiting on the wake
+# event).  select-event-source (below) is branched from this and needs it.
+# Real open upstream PR, tracked by branch name only: SHAs inside it have
+# already moved once as of this entry (rebase churn on their side), never pin
+# a SHA here.
 [[submodules.branches]]
-name = "pr/unix-select-event-source"
-pr_url = "https://github.com/andrewleech/micropython/pull/PLACEHOLDER"
-pr_number = 0
-title = "extmod/modselect,modtls,unix: composed event-source deadline-sleep for asyncio+TLS."
+name = "unix-sleep-process-pending"
+pr_url = "https://github.com/micropython/micropython/pull/18810"
+pr_number = 18810
+title = "ports/unix: Process pending callbacks during time.sleep()."
+
+# event-notify's composed deadline-sleep stack (MP_STREAM_SET_EVENT_SOURCE
+# ioctl, readiness resolution, the deadline-sleep gate relaxation + pollfds
+# wiring + pre-block resolve, and modtls readiness reporting), branched from
+# unix-sleep-process-pending above.  This is what lets an idle asyncio+TLS
+# socket deadline-sleep to ~0% idle CPU instead of period-capping; it does
+# NOT make pr/unix-select-ioctl-period-configurable above redundant -
+# poll_set_all_are_fds() is a whole-poll-set AND, so any other genuinely
+# fd-less pollable sharing the same asyncio loop (increment 2's SOURCE_SIGNAL
+# entries - hardware ISR / ThreadSafeFlag - once they exist) still falls back
+# to the period cap for the whole set, TLS included.  Draft fork PR pending
+# Andrew's review before upstream submission.  Tracked by branch name only:
+# SHAs inside it have already moved once (commit-message-only rewrite,
+# verified byte-identical trees; two more rewrites - folding the op-field
+# commit and a comment-only commit into their origins - are scheduled).
+# Merged last so the ports/unix/main.c conflict against the base matches the
+# seeded rerere resolution (rerere/fbe548e8f69a21296b4451cec02c8a10a55840f7).
+[[submodules.branches]]
+name = "select-event-source"
+pr_url = "https://github.com/andrewleech/micropython/pull/52"
+pr_number = 52
+title = "extmod/modselect: Let a stream declare its own wake source and readiness."
 
 # --- Renderer-specific PRs added here as they're written ---
 # - picolet webview bridge bootstrap
