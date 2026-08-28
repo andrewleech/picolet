@@ -196,5 +196,313 @@ class TestBuildCmdResolverIntegration(unittest.TestCase):
         self.assertIsNone(captured.get("explicit_path"))
 
 
+class TestBuildCmdVariantOverride(unittest.TestCase):
+    """[build].variant explicit override wins over [ui].renderer-derived variant."""
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.app_root = Path(self._tmpdir.name)
+        (self.app_root / "src").mkdir()
+        (self.app_root / "src" / "main.py").write_text("print('hi')\n")
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def _write_toml(self, extra: str) -> None:
+        (self.app_root / "picolet.toml").write_text(
+            "[app]\n"
+            'name = "test"\n'
+            'version = "0.1.0"\n'
+            'entry = "src/main.py"\n'
+            + extra
+        )
+
+    def _make_args(self):
+        class Args:
+            target = "linux-x64"
+            verbose = False
+            keep_staging = False
+            runtime = None
+            from_source = False
+            no_cache = False
+            allow_unverified_runtime = False
+            no_sbom = True
+        return Args()
+
+    def _capture_variant(self, args) -> str | None:
+        """Run build_cmd.run() with resolve_runtime patched to capture `variant`.
+
+        Same technique as TestBuildCmdResolverIntegration._capture_resolve_args,
+        against a per-test app_root rather than the shared hello-cli fixture.
+        """
+        from picolet.cli import runtime_resolver as rr
+
+        captured: dict = {}
+
+        def fake_resolve(target, variant, **kwargs):
+            captured["variant"] = variant
+            raise rr.RuntimeNotFound("captured")
+
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(str(self.app_root))
+            with mock.patch.object(build_cmd, "resolve_runtime", side_effect=fake_resolve):
+                try:
+                    build_cmd.run(args)
+                except SystemExit:
+                    pass
+        finally:
+            os.chdir(orig_cwd)
+        return captured.get("variant")
+
+    def test_explicit_variant_wins(self) -> None:
+        """[build].variant = "mcp" is used when [ui] is absent."""
+        self._write_toml('\n[build]\nvariant = "mcp"\n')
+        self.assertEqual(self._capture_variant(self._make_args()), "mcp")
+
+    def test_no_override_falls_back_to_renderer(self) -> None:
+        """Without [build].variant, absent [ui] still resolves to "cli"."""
+        self._write_toml("")
+        self.assertEqual(self._capture_variant(self._make_args()), "cli")
+
+    def test_explicit_variant_wins_over_explicit_renderer(self) -> None:
+        """[build].variant wins even when [ui].renderer is also set."""
+        self._write_toml('\n[ui]\nrenderer = "tui"\n\n[build]\nvariant = "mcp"\n')
+        self.assertEqual(self._capture_variant(self._make_args()), "mcp")
+
+
+class TestCopyIncludesExcludeAndCompile(unittest.TestCase):
+    """[romfs].exclude pruning, .py -> .mpy compilation, and the collision guard."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from picolet.cli.runtime_resolver import locate_mpy_cross, RuntimeNotFound
+        try:
+            cls.mpy_cross = locate_mpy_cross()
+        except RuntimeNotFound:
+            raise unittest.SkipTest("mpy-cross not available on PATH or in-tree")
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmpdir = tempfile.TemporaryDirectory()
+        tmp = Path(self._tmpdir.name)
+        self.app_root = tmp / "app"
+        self.app_root.mkdir()
+        self.romfs_root = tmp / "romfs"
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def test_py_file_compiled_to_mpy(self) -> None:
+        """A .py file under an include dir is compiled to .mpy, not copied verbatim."""
+        lib = self.app_root / "lib"
+        lib.mkdir()
+        (lib / "mod.py").write_text("x = 1\n")
+
+        build_cmd._copy_includes(
+            self.app_root, ["lib"], [], self.romfs_root, self.mpy_cross, False
+        )
+
+        self.assertFalse((self.romfs_root / "lib" / "mod.py").exists())
+        self.assertTrue((self.romfs_root / "lib" / "mod.mpy").exists())
+
+    def test_non_py_file_copied_verbatim(self) -> None:
+        """A non-.py asset file is copied unchanged, byte for byte."""
+        assets = self.app_root / "assets"
+        assets.mkdir()
+        (assets / "cert.der").write_bytes(b"\x01\x02\x03")
+
+        build_cmd._copy_includes(
+            self.app_root, ["assets"], [], self.romfs_root, self.mpy_cross, False
+        )
+
+        copied = self.romfs_root / "assets" / "cert.der"
+        self.assertTrue(copied.exists())
+        self.assertEqual(copied.read_bytes(), b"\x01\x02\x03")
+
+    def test_exclude_prunes_matching_directory(self) -> None:
+        """A directory name matching an exclude pattern is pruned, with its contents."""
+        lib = self.app_root / "lib"
+        (lib / "tests").mkdir(parents=True)
+        (lib / "tests" / "test_mod.py").write_text("assert True\n")
+        (lib / "mod.py").write_text("x = 1\n")
+
+        build_cmd._copy_includes(
+            self.app_root, ["lib"], ["tests"], self.romfs_root, self.mpy_cross, False
+        )
+
+        self.assertFalse((self.romfs_root / "lib" / "tests").exists())
+        self.assertTrue((self.romfs_root / "lib" / "mod.mpy").exists())
+
+    def test_exclude_prunes_matching_basename(self) -> None:
+        """A file basename matching an exclude pattern is skipped."""
+        lib = self.app_root / "lib"
+        lib.mkdir()
+        (lib / "README.md").write_text("docs\n")
+        (lib / "mod.py").write_text("x = 1\n")
+
+        build_cmd._copy_includes(
+            self.app_root, ["lib"], ["README.md"], self.romfs_root, self.mpy_cross, False
+        )
+
+        self.assertFalse((self.romfs_root / "lib" / "README.md").exists())
+        self.assertTrue((self.romfs_root / "lib" / "mod.mpy").exists())
+
+    def test_py_and_mpy_collision_raises(self) -> None:
+        """A .py and a pre-existing .mpy resolving to the same romfs path fails loudly."""
+        lib = self.app_root / "lib"
+        lib.mkdir()
+        (lib / "mod.py").write_text("x = 1\n")
+        (lib / "mod.mpy").write_bytes(b"STALE_PREBUILT_MPY")
+
+        with self.assertRaises(build_cmd.BuildFailed):
+            build_cmd._copy_includes(
+                self.app_root, ["lib"], [], self.romfs_root, self.mpy_cross, False
+            )
+
+    def test_own_staging_output_never_included(self) -> None:
+        """include=["."] doesn't walk back into app_root/target (this
+        build's own staging/output tree), which would otherwise be live on
+        disk by the time _copy_includes runs after _compile_mpy."""
+        (self.app_root / "asset.der").write_bytes(b"\x01")
+        stale_staging = self.app_root / "target" / "linux-x64" / ".picolet-build" / "romfs"
+        stale_staging.mkdir(parents=True)
+        (stale_staging / "main.mpy").write_bytes(b"SHOULD_NOT_BE_RECOPIED")
+
+        build_cmd._copy_includes(
+            self.app_root, ["."], [], self.romfs_root, self.mpy_cross, False
+        )
+
+        self.assertTrue((self.romfs_root / "asset.der").exists())
+        self.assertFalse((self.romfs_root / "target").exists())
+
+    def test_pycache_and_pyc_still_skipped(self) -> None:
+        """Pre-existing __pycache__/.pyc skip behaviour is unchanged."""
+        lib = self.app_root / "lib"
+        cache = lib / "__pycache__"
+        cache.mkdir(parents=True)
+        (cache / "mod.cpython-312.pyc").write_bytes(b"\x00")
+        (lib / "mod.py").write_text("x = 1\n")
+
+        build_cmd._copy_includes(
+            self.app_root, ["lib"], [], self.romfs_root, self.mpy_cross, False
+        )
+
+        self.assertFalse((self.romfs_root / "lib" / "__pycache__").exists())
+        self.assertTrue((self.romfs_root / "lib" / "mod.mpy").exists())
+
+
+class TestCompileMpyExclude(unittest.TestCase):
+    """_compile_mpy's [romfs].exclude support (entry tree, not just includes)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from picolet.cli.runtime_resolver import locate_mpy_cross, RuntimeNotFound
+        try:
+            cls.mpy_cross = locate_mpy_cross()
+        except RuntimeNotFound:
+            raise unittest.SkipTest("mpy-cross not available on PATH or in-tree")
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmpdir = tempfile.TemporaryDirectory()
+        tmp = Path(self._tmpdir.name)
+        self.app_root = tmp / "app"
+        self.app_root.mkdir()
+        self.romfs_root = tmp / "romfs"
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def test_excluded_sibling_not_compiled(self) -> None:
+        """A test file alongside the entry, matching an exclude, is skipped."""
+        (self.app_root / "plugin.py").write_text("print('hi')\n")
+        tests_dir = self.app_root / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_plugin.py").write_text("assert True\n")
+
+        build_cmd._compile_mpy(
+            self.app_root, "plugin.py", self.romfs_root, self.mpy_cross,
+            ["tests"], False,
+        )
+
+        self.assertFalse((self.romfs_root / "tests").exists())
+        self.assertTrue((self.romfs_root / "main.mpy").exists())
+
+    def test_entry_itself_never_excluded(self) -> None:
+        """The entry point still compiles to main.mpy even if it would
+        otherwise match an (overly broad) exclude pattern."""
+        (self.app_root / "plugin.py").write_text("print('hi')\n")
+
+        build_cmd._compile_mpy(
+            self.app_root, "plugin.py", self.romfs_root, self.mpy_cross,
+            ["*.py"], False,
+        )
+
+        self.assertTrue((self.romfs_root / "main.mpy").exists())
+
+
+class TestRunVersionChecks(unittest.TestCase):
+    """[[version_check]] enforcement."""
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.app_root = Path(self._tmpdir.name)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def test_no_entries_is_noop(self) -> None:
+        """Absent [[version_check]] does nothing."""
+        build_cmd._run_version_checks({}, self.app_root)
+
+    def test_matching_sources_pass(self) -> None:
+        """All sources extracting the same string passes silently."""
+        (self.app_root / "a.py").write_text('VERSION = "1.2.3"\n')
+        (self.app_root / "b.json").write_text('{"version": "1.2.3"}\n')
+        data = {
+            "version_check": [
+                {"path": "a.py", "pattern": r'VERSION = "([^"]+)"'},
+                {"path": "b.json", "pattern": r'"version": "([^"]+)"'},
+            ]
+        }
+        build_cmd._run_version_checks(data, self.app_root)
+
+    def test_mismatched_sources_raise(self) -> None:
+        """Sources extracting different strings raises BuildFailed."""
+        (self.app_root / "a.py").write_text('VERSION = "1.2.3"\n')
+        (self.app_root / "b.json").write_text('{"version": "9.9.9"}\n')
+        data = {
+            "version_check": [
+                {"path": "a.py", "pattern": r'VERSION = "([^"]+)"'},
+                {"path": "b.json", "pattern": r'"version": "([^"]+)"'},
+            ]
+        }
+        with self.assertRaises(build_cmd.BuildFailed):
+            build_cmd._run_version_checks(data, self.app_root)
+
+    def test_pattern_no_match_raises(self) -> None:
+        """A pattern that doesn't match its file raises BuildFailed."""
+        (self.app_root / "a.py").write_text("no version here\n")
+        data = {"version_check": [{"path": "a.py", "pattern": r'VERSION = "([^"]+)"'}]}
+        with self.assertRaises(build_cmd.BuildFailed):
+            build_cmd._run_version_checks(data, self.app_root)
+
+    def test_pattern_wrong_group_count_raises(self) -> None:
+        """A pattern with zero capture groups raises BuildFailed."""
+        (self.app_root / "a.py").write_text('VERSION = "1.2.3"\n')
+        data = {"version_check": [{"path": "a.py", "pattern": r'VERSION = ".+"'}]}
+        with self.assertRaises(build_cmd.BuildFailed):
+            build_cmd._run_version_checks(data, self.app_root)
+
+    def test_missing_file_raises(self) -> None:
+        """A path that doesn't exist raises BuildFailed."""
+        data = {"version_check": [{"path": "does-not-exist.py", "pattern": r"(.+)"}]}
+        with self.assertRaises(build_cmd.BuildFailed):
+            build_cmd._run_version_checks(data, self.app_root)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,20 +8,27 @@ Usage:
 Pipeline (FR-BP-1 through FR-BP-6):
 
   1. Read + validate picolet.toml (FR-CLI-8 pre-flight).
-  2. Resolve runtime variant from [ui] (absent → cli) (FR-BP-1).
-  3. Resolve target from --target or host auto-detection (FR-BP-1).
-  4. Locate runtime artifact + mpy-cross, verify version match.
-  5. Compile user .py sources → .mpy via mpy-cross (FR-BP-3).
-  6. Copy [romfs] include dirs into staging (FR-BP-4).
-  7. Zero mtimes for reproducibility (FR-BP-6).
-  8. Build romfs image with mpremote (FR-BP-4).
-  9. Append romfs + 24-byte trailer to runtime binary (FR-BP-5).
- 10. Emit SBOM sibling .cdx.json (FR-SBOM-1, FR-SBOM-2, FR-SBOM-3).
+  2. Enforce [[version_check]], if present — fail fast on a version mismatch
+     across the app's own source files, before any runtime work.
+  3. Resolve runtime variant: explicit [build].variant, else from [ui]
+     (absent → cli) (FR-BP-1).
+  4. Resolve target from --target or host auto-detection (FR-BP-1).
+  5. Locate runtime artifact + mpy-cross, verify version match.
+  6. Compile user .py sources → .mpy via mpy-cross, applying [romfs].exclude
+     to skip test/example files living alongside the entry (FR-BP-3).
+  7. Copy [romfs] include dirs into staging, applying [romfs].exclude and
+     compiling any .py found there to .mpy too — an appended romfs never
+     ships raw .py, regardless of which step put a file there (FR-BP-4).
+  8. Zero mtimes for reproducibility (FR-BP-6).
+  9. Build romfs image with mpremote (FR-BP-4).
+ 10. Append romfs + 24-byte trailer to runtime binary (FR-BP-5).
+ 11. Emit SBOM sibling .cdx.json (FR-SBOM-1, FR-SBOM-2, FR-SBOM-3).
 """
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import importlib.resources
 import os
 import platform
@@ -215,21 +222,33 @@ def _do_build(args) -> int:
     app_name: str = data["app"]["name"]
     entry: str = data["app"]["entry"]            # e.g. "src/main.py"
     romfs_includes: list[str] = data.get("romfs", {}).get("include", [])
+    romfs_excludes: list[str] = data.get("romfs", {}).get("exclude", [])
     app_root: Path = toml_path.parent
+
+    _run_version_checks(data, app_root)
 
     # -------------------------------------------------------------------------
     # Step 2 – Resolve runtime variant (FR-BP-1).
+    #
+    # [build].variant is an explicit override for variants with no UI at all
+    # (e.g. "mcp" — a stdio-only variant that doesn't fit the renderer
+    # concept), and always wins when present. Absent it, variant is derived
+    # from [ui].renderer as before.
     # -------------------------------------------------------------------------
-    renderer = data.get("ui", {}).get("renderer") if "ui" in data else None
-    try:
-        variant = variant_for_renderer(renderer)
-    except ValueError:
-        # Validator already rejected invalid renderer values; this is a
-        # belt-and-suspenders guard.
-        sys.exit(
-            f"error: unknown ui.renderer {renderer!r}; "
-            f"valid values are: {', '.join(sorted(SUPPORTED_RENDERERS))}"
-        )
+    explicit_variant = data.get("build", {}).get("variant")
+    if explicit_variant:
+        variant = explicit_variant
+    else:
+        renderer = data.get("ui", {}).get("renderer") if "ui" in data else None
+        try:
+            variant = variant_for_renderer(renderer)
+        except ValueError:
+            # Validator already rejected invalid renderer values; this is a
+            # belt-and-suspenders guard.
+            sys.exit(
+                f"error: unknown ui.renderer {renderer!r}; "
+                f"valid values are: {', '.join(sorted(SUPPORTED_RENDERERS))}"
+            )
 
     # -------------------------------------------------------------------------
     # Step 3 – Resolve target (FR-BP-1).
@@ -293,10 +312,12 @@ def _do_build(args) -> int:
     try:
         # Step 5 – Compile .py → .mpy (FR-BP-3).
         romfs_root = staging / "romfs"
-        _compile_mpy(app_root, entry, romfs_root, mpy_cross, args.verbose)
+        _compile_mpy(app_root, entry, romfs_root, mpy_cross, romfs_excludes, args.verbose)
 
-        # Step 6 – Copy [romfs] include dirs (FR-BP-4).
-        _copy_includes(app_root, romfs_includes, romfs_root, args.verbose)
+        # Step 6 – Copy [romfs] include dirs, compiling .py -> .mpy (FR-BP-4).
+        _copy_includes(
+            app_root, romfs_includes, romfs_excludes, romfs_root, mpy_cross, args.verbose
+        )
 
         # Step 6a – For non-vanilla frontend frameworks, copy the built
         # dist/ into romfs at the [ui] root.  Vanilla apps include their
@@ -763,17 +784,94 @@ def _escape_toml_string(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _run_version_checks(data: dict, app_root: Path) -> None:
+    """Enforce [[version_check]]: every entry's regex extraction must agree.
+
+    Each entry is {path, pattern}; pattern must have exactly one capture
+    group. Runs before any runtime resolution work, so a version mismatch
+    across an app's own source files is reported immediately rather than
+    after a slow build. Absent or empty [[version_check]] is a no-op.
+    """
+    checks = data.get("version_check", [])
+    if not checks:
+        return
+
+    extracted: list[tuple[str, str]] = []
+    for entry in checks:
+        rel_path = entry["path"]
+        pattern = entry["pattern"]
+        try:
+            compiled = re.compile(pattern)
+        except re.error as exc:
+            print(
+                f"error: [[version_check]] invalid pattern {pattern!r}: {exc}",
+                file=sys.stderr,
+            )
+            raise BuildFailed()
+        if compiled.groups != 1:
+            print(
+                f"error: [[version_check]] pattern {pattern!r} must have "
+                f"exactly one capture group, has {compiled.groups}",
+                file=sys.stderr,
+            )
+            raise BuildFailed()
+
+        full_path = app_root / rel_path
+        try:
+            text = full_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(
+                f"error: [[version_check]] could not read {rel_path}: {exc}",
+                file=sys.stderr,
+            )
+            raise BuildFailed()
+
+        match = compiled.search(text)
+        if match is None:
+            print(
+                f"error: [[version_check]] pattern {pattern!r} did not match "
+                f"in {rel_path}",
+                file=sys.stderr,
+            )
+            raise BuildFailed()
+        extracted.append((rel_path, match.group(1)))
+
+    values = {value for _, value in extracted}
+    if len(values) > 1:
+        print("error: [[version_check]] sources disagree:", file=sys.stderr)
+        for rel_path, value in extracted:
+            print(f"  {rel_path}: {value!r}", file=sys.stderr)
+        raise BuildFailed()
+
+
+def _is_excluded(rel_parts: tuple[str, ...], excludes: list[str]) -> bool:
+    """True if any path component (any depth) matches an fnmatch exclude pattern.
+
+    A directory-name match therefore excludes its whole subtree, since every
+    file under it has that name among its rel_parts. Shared by _compile_mpy
+    and _copy_includes so [romfs].exclude applies uniformly to everything
+    picolet build walks, not just explicitly-included directories.
+    """
+    return any(
+        fnmatch.fnmatch(part, pat) for part in rel_parts for pat in excludes
+    )
+
+
 def _compile_mpy(
     app_root: Path,
     entry_str: str,
     romfs_root: Path,
     mpy_cross: Path,
+    excludes: list[str],
     verbose: bool,
 ) -> None:
     """Compile all .py files under dirname(entry) → .mpy in romfs_root.
 
     Files are processed in sorted order for reproducibility (FR-BP-6).
-    Output paths mirror the input tree relative to app_root.
+    Output paths mirror the input tree relative to app_root. excludes (see
+    _is_excluded) skips files the entry tree shouldn't ship, e.g. tests or
+    examples living alongside the app's real source — the entry point
+    itself is never excludable (see below).
 
     The entry point file is additionally compiled to romfs_root/main.mpy so
     the runtime's auto-run path (/rom/main.mpy) executes the app entry.
@@ -801,6 +899,9 @@ def _compile_mpy(
         )
 
     for py in py_files:
+        rel_in_src = py.relative_to(src_dir).parts
+        if py != entry_abs and _is_excluded(rel_in_src, excludes):
+            continue
         rel = py.relative_to(app_root)          # e.g. src/main.py
         out_mpy = romfs_root / rel.with_suffix(".mpy")
         out_mpy.parent.mkdir(parents=True, exist_ok=True)
@@ -876,14 +977,34 @@ def _compile_mpy(
 def _copy_includes(
     app_root: Path,
     includes: list[str],
+    excludes: list[str],
     romfs_root: Path,
+    mpy_cross: Path,
     verbose: bool,
 ) -> None:
     """Copy [romfs] include directories into romfs_root (FR-BP-4).
 
     Files are copied preserving their relative path within each include dir.
     Destination paths mirror the source tree rooted at romfs_root.
+
+    `.py` files are cross-compiled to `.mpy` via mpy_cross rather than copied
+    verbatim, so an appended romfs never ships raw `.py` regardless of which
+    pipeline step put a file there. MicroPython's import resolution prefers
+    `.py` over `.mpy` when both exist at the same path, so a raw `.py` here
+    would silently win and recompile on every process start — the failure
+    mode docs/proposals/app-romfs-mpy-packaging.md describes.
+
+    excludes are fnmatch glob patterns matched against each path component
+    (any depth) relative to its include dir — e.g. "tests" excludes a
+    directory of that name and everything under it; "*.der" excludes files
+    by extension anywhere in the tree. Matches claude-net-mpy's
+    package-plugin.py _EXCLUDE_PATTERNS semantics.
     """
+    # romfs .mpy destination -> its source file, to catch a .py and a
+    # pre-existing .mpy in the source tree both resolving to the same romfs
+    # path (ambiguous which one ships; previously silent and order-dependent).
+    mpy_sources: dict[Path, Path] = {}
+
     for inc in includes:
         src = app_root / inc
         if not src.is_dir():
@@ -898,12 +1019,46 @@ def _copy_includes(
             # Skip CPython cache artefacts that have no meaning in the romfs.
             if "__pycache__" in f.parts or f.suffix == ".pyc":
                 continue
+            # Skip this build's own staging/output tree unconditionally: it
+            # lives under app_root/target, so an include of "." (or any
+            # ancestor of it) would otherwise walk back into the very romfs
+            # this function is populating, mid-build.
+            if f.relative_to(app_root).parts[0] == "target":
+                continue
+            rel_in_src = f.relative_to(src).parts
+            if _is_excluded(rel_in_src, excludes):
+                continue
+
             rel = f.relative_to(app_root)
-            dst = romfs_root / rel
+            dst = romfs_root / (rel.with_suffix(".mpy") if f.suffix == ".py" else rel)
+
+            if dst.suffix == ".mpy":
+                if dst in mpy_sources and mpy_sources[dst] != f:
+                    print(
+                        f"error: [romfs] include: {mpy_sources[dst]} and {f} "
+                        f"both resolve to romfs/{dst.relative_to(romfs_root)} "
+                        f"— ship only one",
+                        file=sys.stderr,
+                    )
+                    raise BuildFailed()
+                mpy_sources[dst] = f
+
             dst.parent.mkdir(parents=True, exist_ok=True)
-            if verbose:
-                print(f"  include: {rel} → romfs/{rel}", file=sys.stderr)
-            shutil.copy2(f, dst)
+            if f.suffix == ".py":
+                if verbose:
+                    print(
+                        f"  mpy-cross: {rel} → romfs/{rel.with_suffix('.mpy')}",
+                        file=sys.stderr,
+                    )
+                subprocess.run(
+                    [str(mpy_cross), "-o", str(dst), str(f)],
+                    check=True,
+                    capture_output=not verbose,
+                )
+            else:
+                if verbose:
+                    print(f"  include: {rel} → romfs/{rel}", file=sys.stderr)
+                shutil.copy2(f, dst)
 
 
 def _zero_mtimes(root: Path) -> None:

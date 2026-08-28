@@ -26,7 +26,7 @@ from typing import Any
 # see [PH13] Caveat commit — deferred to avoid manifest-parsing complexity).
 _ALLOWED_SECTIONS: frozenset[str] = frozenset(
     {"app", "ui", "window", "build", "romfs", "sbom", "runtime", "dependencies",
-     "dependency_meta"}
+     "dependency_meta", "version_check"}
 )
 
 # Keys allowed in each section, with their expected Python types.
@@ -69,10 +69,12 @@ _WINDOW_SCHEMA: dict[str, type | tuple[type, ...]] = {
 
 _BUILD_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "targets": list,
+    "variant": str,   # explicit runtime-variant override; wins over [ui].renderer
 }
 
 _ROMFS_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "include": list,
+    "exclude": list,   # fnmatch glob patterns, matched against basenames
 }
 
 _SBOM_SCHEMA: dict[str, type | tuple[type, ...]] = {
@@ -411,6 +413,58 @@ def validate_toml(path: Path) -> list[PicoletTomlError]:
                         _DEPENDENCY_META_ENTRY_SCHEMA,
                     )
                 )
+
+    # [[version_check]] — optional array of tables; each entry regex-extracts
+    # a string from `path` (relative to app_root), and the build fails if any
+    # two entries extract different strings.
+    if "version_check" in data:
+        checks = data["version_check"]
+        if not isinstance(checks, list):
+            errors.append(
+                PicoletTomlError(
+                    file=file_str,
+                    section="version_check",
+                    key="(section)",
+                    reason='"[[version_check]]" must be an array of tables',
+                )
+            )
+        else:
+            for i, entry in enumerate(checks):
+                if not isinstance(entry, dict):
+                    errors.append(
+                        PicoletTomlError(
+                            file=file_str,
+                            section="version_check",
+                            key=f"[{i}]",
+                            reason=(
+                                f"entry must be a table, "
+                                f"got {type(entry).__name__} ({entry!r})"
+                            ),
+                        )
+                    )
+                    continue
+                for key in ("path", "pattern"):
+                    if key not in entry:
+                        errors.append(
+                            PicoletTomlError(
+                                file=file_str,
+                                section="version_check",
+                                key=f"[{i}].{key}",
+                                reason=f'required key "{key}" is missing',
+                            )
+                        )
+                    elif not isinstance(entry[key], str):
+                        errors.append(
+                            PicoletTomlError(
+                                file=file_str,
+                                section="version_check",
+                                key=f"[{i}].{key}",
+                                reason=(
+                                    f"expected str, got "
+                                    f"{type(entry[key]).__name__} ({entry[key]!r})"
+                                ),
+                            )
+                        )
 
     return errors
 

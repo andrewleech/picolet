@@ -151,9 +151,38 @@ resizable = true
 
 [build]
 targets = ["windows-x64", "linux-x64"]
+variant = "mcp"             # explicit runtime-variant override; wins over
+                             # [ui].renderer. For a variant with no UI at all
+                             # (e.g. a stdio-only MCP server) — forcing it
+                             # into the renderer concept would be wrong, so
+                             # this is a separate, independent selector.
 
 [romfs]
 include = ["ui", "assets"]
+exclude = ["tests", "*.pyc", "README.md"]
+                             # fnmatch glob patterns, matched against each
+                             # path component (any depth) relative to the
+                             # entry directory and each include dir; a
+                             # directory-name match prunes its whole subtree.
+                             # Applies to BOTH the app entry tree and [romfs]
+                             # include dirs — e.g. test/example files living
+                             # alongside the entry point are excluded the
+                             # same way. `.py` files that survive are
+                             # cross-compiled to `.mpy`; an appended romfs
+                             # never ships raw `.py`, which recompiles on
+                             # every process start (see
+                             # docs/proposals/app-romfs-mpy-packaging.md).
+
+# Optional: fail the build if these sources disagree on a version string.
+# Each pattern must have exactly one capture group; useful when an app's
+# version is duplicated across a source constant, package.json, etc.
+[[version_check]]
+path = "src/_version.py"
+pattern = 'VERSION = "([^"]+)"'
+
+[[version_check]]
+path = "../package.json"
+pattern = '"version": "([^"]+)"'
 ```
 
 ## Source layout for `picolet-runtime`

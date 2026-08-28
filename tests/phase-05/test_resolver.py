@@ -902,6 +902,136 @@ class TestValidatorRuntimeSection(unittest.TestCase):
         self.assertTrue(any("notavalidsection" in str(e) for e in errors))
 
 
+class TestValidatorPackagingExtensions(unittest.TestCase):
+    """[build].variant, [romfs].exclude, [[version_check]] schema additions."""
+
+    def _make_toml(self, tmpdir: Path, extra: str = "") -> Path:
+        toml = tmpdir / "picolet.toml"
+        toml.write_text(
+            "[app]\n"
+            'name = "test"\n'
+            'version = "0.1.0"\n'
+            'entry = "src/main.py"\n'
+            + extra
+        )
+        return toml
+
+    def test_build_variant_valid(self) -> None:
+        """[build].variant, an explicit runtime-variant override, is a valid str."""
+        import tempfile
+        from picolet.cli.validator import validate_toml
+
+        with tempfile.TemporaryDirectory() as d:
+            toml = self._make_toml(Path(d), '\n[build]\nvariant = "mcp"\n')
+            errors = validate_toml(toml)
+        self.assertEqual(errors, [])
+
+    def test_build_variant_wrong_type(self) -> None:
+        """[build].variant with wrong type (integer) yields a validation error."""
+        import tempfile
+        from picolet.cli.validator import validate_toml
+
+        with tempfile.TemporaryDirectory() as d:
+            toml = self._make_toml(Path(d), "\n[build]\nvariant = 5\n")
+            errors = validate_toml(toml)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("variant", str(errors[0]))
+
+    def test_romfs_exclude_valid(self) -> None:
+        """[romfs].exclude alongside include passes validation."""
+        import tempfile
+        from picolet.cli.validator import validate_toml
+
+        with tempfile.TemporaryDirectory() as d:
+            toml = self._make_toml(
+                Path(d),
+                '\n[romfs]\ninclude = ["lib"]\nexclude = ["tests", "*.pyc"]\n',
+            )
+            errors = validate_toml(toml)
+        self.assertEqual(errors, [])
+
+    def test_romfs_exclude_wrong_type(self) -> None:
+        """[romfs].exclude with wrong type (string, not list) yields an error."""
+        import tempfile
+        from picolet.cli.validator import validate_toml
+
+        with tempfile.TemporaryDirectory() as d:
+            toml = self._make_toml(Path(d), '\n[romfs]\nexclude = "tests"\n')
+            errors = validate_toml(toml)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("exclude", str(errors[0]))
+
+    def test_version_check_valid(self) -> None:
+        """[[version_check]] with valid path/pattern entries passes validation."""
+        import tempfile
+        from picolet.cli.validator import validate_toml
+
+        with tempfile.TemporaryDirectory() as d:
+            toml = self._make_toml(
+                Path(d),
+                "\n[[version_check]]\n"
+                'path = "a.py"\n'
+                'pattern = \'VERSION = "([^"]+)"\'\n'
+                "\n[[version_check]]\n"
+                'path = "b.json"\n'
+                'pattern = \'"version": "([^"]+)"\'\n',
+            )
+            errors = validate_toml(toml)
+        self.assertEqual(errors, [])
+
+    def test_version_check_missing_pattern(self) -> None:
+        """[[version_check]] entry missing the required pattern key errors."""
+        import tempfile
+        from picolet.cli.validator import validate_toml
+
+        with tempfile.TemporaryDirectory() as d:
+            toml = self._make_toml(Path(d), '\n[[version_check]]\npath = "a.py"\n')
+            errors = validate_toml(toml)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("pattern", str(errors[0]))
+
+    def test_version_check_not_a_list(self) -> None:
+        """version_check as a scalar (not an array of tables) errors.
+
+        version_check must precede [app] here: once a [table] header has
+        opened, TOML treats every following `key = value` line as part of
+        that table, not as a new top-level key (no blank-line table close).
+        """
+        import tempfile
+        from picolet.cli.validator import validate_toml
+
+        with tempfile.TemporaryDirectory() as d:
+            toml = Path(d) / "picolet.toml"
+            toml.write_text(
+                "version_check = 1\n"
+                "[app]\n"
+                'name = "test"\n'
+                'version = "0.1.0"\n'
+                'entry = "src/main.py"\n'
+            )
+            errors = validate_toml(toml)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("array of tables", str(errors[0]))
+
+    def test_version_check_entry_wrong_type(self) -> None:
+        """A version_check entry that isn't itself a table errors."""
+        import tempfile
+        from picolet.cli.validator import validate_toml
+
+        with tempfile.TemporaryDirectory() as d:
+            toml = Path(d) / "picolet.toml"
+            toml.write_text(
+                "version_check = [1]\n"
+                "[app]\n"
+                'name = "test"\n'
+                'version = "0.1.0"\n'
+                'entry = "src/main.py"\n'
+            )
+            errors = validate_toml(toml)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("must be a table", str(errors[0]))
+
+
 class TestRuntimeTagResourceLookup(unittest.TestCase):
     """A6 fix: RUNTIME_TAG is resolved via importlib.resources, not only repo-walk."""
 
