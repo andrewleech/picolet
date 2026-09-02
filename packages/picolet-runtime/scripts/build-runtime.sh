@@ -452,22 +452,28 @@ build_linux_x64() {
         # libtool 2.4.6, which lacks the LT_SYS_SYMBOL_USCORE macro libffi's
         # configure.ac needs, so autogen *inside* the container fails.
         #
-        # Prefer the vendored configure (vendor/libffi/) over regenerating on
-        # the host: host autogen is not reliably portable even when the
+        # Prefer the vendored autogen output (vendor/libffi/) over regenerating
+        # on the host: host autogen is not reliably portable even when the
         # advertised package versions look new enough — confirmed a plain
         # ubuntu:24.04 container generates a working configure with
         # libtool/automake/autoconf/texinfo installed, while a GitHub Actions
         # ubuntu-latest runner with the identical package list still hit
         # "possibly undefined macro: LT_SYS_SYMBOL_USCORE" (some other
         # automake/aclocal earlier in that runner's PATH, not a missing
-        # package). The vendored copy makes every fresh machine's autotools
-        # quirks irrelevant. See vendor/libffi/README.md to regenerate it
-        # after a libffi submodule bump.
+        # package). The vendored tree makes every fresh machine's autotools
+        # quirks irrelevant. configure alone is not sufficient — it needs its
+        # generated companions (ltmain.sh, compile, install-sh, missing,
+        # depcomp, the Makefile.in templates, the m4/ macros) alongside it, or
+        # configure itself fails with "cannot find required auxiliary files".
+        # See vendor/libffi/README.md to regenerate the whole tree after a
+        # libffi submodule bump.
         vendored_configure="$PKG_ROOT/vendor/libffi/configure"
         if [[ -f "$vendored_configure" ]]; then
-            echo "  libffi: cold cache; using vendored configure"
-            cp "$vendored_configure" "$libffi_src/configure"
-            chmod +x "$libffi_src/configure"
+            echo "  libffi: cold cache; using vendored autogen output"
+            cp -R "$PKG_ROOT/vendor/libffi/." "$libffi_src/"
+            chmod +x "$libffi_src/configure" "$libffi_src/compile" "$libffi_src/install-sh" \
+                "$libffi_src/missing" "$libffi_src/depcomp" "$libffi_src/ltmain.sh" \
+                "$libffi_src/doc/mdate-sh"
         elif command -v libtoolize >/dev/null 2>&1; then
             echo "  libffi: cold cache, no vendored configure — running autogen on host"
             autogen_log="$(cd "$libffi_src" && ./autogen.sh 2>&1)" || {
