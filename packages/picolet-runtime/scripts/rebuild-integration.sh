@@ -107,6 +107,23 @@ git -C "$SUBMODULE" checkout upstream/master --quiet
 echo "[0/2] Updating transitive submodules"
 git -C "$SUBMODULE" submodule update --init --recursive
 
+# Several PRs (notably #38) bump lib/micropython-lib's pointer to a commit
+# that only exists on andrewleech's fork. Must happen before the merge loop
+# below, not after: pr/lib-pyusb-windows merges that pointer bump, and a
+# submodule merge needs the target commit fetchable at merge time -- a
+# machine that has never fetched this remote hits "Failed to merge
+# submodule lib/micropython-lib (commits not present)" on the very first
+# merge otherwise (only invisible on a machine that already had this
+# remote warm from an earlier run).
+MPL_DIR="$SUBMODULE/lib/micropython-lib"
+if [ -d "$MPL_DIR" ]; then
+    if ! git -C "$MPL_DIR" remote | grep -q '^andrewleech$'; then
+        echo "    adding andrewleech remote on lib/micropython-lib"
+        git -C "$MPL_DIR" remote add andrewleech https://github.com/andrewleech/micropython-lib.git
+    fi
+    git -C "$MPL_DIR" fetch andrewleech --quiet
+fi
+
 if ! git -C "$SUBMODULE" diff-index --quiet HEAD --; then
     echo "error: $SUBMODULE still has uncommitted changes after submodule update" >&2
     git -C "$SUBMODULE" status
@@ -154,18 +171,6 @@ done
 echo "[2/2] Promote integration_update -> integration"
 git -C "$SUBMODULE" branch -f integration integration_update
 git -C "$SUBMODULE" checkout integration
-
-# Several PRs (notably #38) bump nested-submodule pointers to commits
-# that only exist on andrewleech's forks. Ensure the andrewleech remote
-# is present on lib/micropython-lib so the desired commit is reachable.
-MPL_DIR="$SUBMODULE/lib/micropython-lib"
-if [ -d "$MPL_DIR" ]; then
-    if ! git -C "$MPL_DIR" remote | grep -q '^andrewleech$'; then
-        echo "    adding andrewleech remote on lib/micropython-lib"
-        git -C "$MPL_DIR" remote add andrewleech https://github.com/andrewleech/micropython-lib.git
-    fi
-    git -C "$MPL_DIR" fetch andrewleech --quiet
-fi
 git -C "$SUBMODULE" submodule update --init --recursive
 
 echo
