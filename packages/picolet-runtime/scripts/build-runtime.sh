@@ -457,8 +457,9 @@ build_linux_x64() {
         # proceeds inside the container as normal.
         echo "  libffi: cold cache and no configure — running autogen on host"
         if command -v libtoolize >/dev/null 2>&1; then
-            (cd "$libffi_src" && ./autogen.sh) >/dev/null 2>&1 || {
+            autogen_log="$(cd "$libffi_src" && ./autogen.sh 2>&1)" || {
                 echo "  libffi: host autogen.sh failed; need libtool 2.4.7+ on host or pre-shipped configure" >&2
+                echo "$autogen_log" | sed 's/^/    /' >&2
                 exit 1
             }
         else
@@ -648,9 +649,10 @@ build_macos() {
         # installs these before invoking this script.
         echo "  libffi: cold cache and no configure — running autogen on host"
         if command -v libtoolize >/dev/null 2>&1; then
-            (cd "$libffi_src" && ./autogen.sh) >/dev/null 2>&1 || {
+            autogen_log="$(cd "$libffi_src" && ./autogen.sh 2>&1)" || {
                 echo "  libffi: autogen.sh failed; ensure automake + libtool are installed" >&2
                 echo "  Hint: brew install automake libtool" >&2
+                echo "$autogen_log" | sed 's/^/    /' >&2
                 exit 1
             }
         else
