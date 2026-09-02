@@ -60,12 +60,18 @@ if [ -d "$RERERE_SRC" ] && [ -n "$(ls -A "$RERERE_SRC" 2>/dev/null | grep -v '^R
     done
 fi
 
-# Ensure the upstream remote exists so PR refs resolve.
+# Ensure the upstream remote exists, and always fetch it: upstream/master is
+# a live, moving branch, and a machine that already had this remote from an
+# earlier run must never build against a stale cached upstream/master --
+# that silently diverges from what a fresh checkout would see, up to and
+# including breaking submodule-pointer merges that depend on upstream/
+# master's current state having a fast-forward relationship with an
+# mbm.toml branch's own recorded pointer.
 if ! git -C "$SUBMODULE" remote | grep -q '^upstream$'; then
     echo "[0/2] Adding upstream remote (https://github.com/andrewleech/micropython.git)"
     git -C "$SUBMODULE" remote add upstream https://github.com/andrewleech/micropython.git
-    git -C "$SUBMODULE" fetch upstream
 fi
+git -C "$SUBMODULE" fetch upstream --quiet
 
 # Ensure PR refs are configured on origin.
 if ! git -C "$SUBMODULE" config --get remote.origin.fetch | grep -q 'pull.*head'; then
