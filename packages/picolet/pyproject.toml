@@ -25,6 +25,7 @@ classifiers = [
 ]
 dependencies = [
     "mpremote",
+    "pefile>=2023.2.7",  # Windows PE resource surgery for [app] icon embedding
     # picolet.testing optional dep group below provides playwright/websockets/
     # pillow.  The CLI's `picolet test` works without those (it can still spawn
     # binaries + read stdout); the harness is needed only for screenshot /

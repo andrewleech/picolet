@@ -35,6 +35,9 @@ _APP_SCHEMA: dict[str, type | tuple[type, ...]] = {
     "name": str,
     "version": str,
     "entry": str,
+    # Windows only; embeds this .ico as the built exe's icon (build_cmd.py
+    # checks the file exists / build-time support, not this shape check).
+    "icon": str,
 }
 _APP_REQUIRED: frozenset[str] = frozenset({"name", "version", "entry"})
 

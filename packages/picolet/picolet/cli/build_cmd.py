@@ -53,6 +53,7 @@ from picolet.cli._targets import (
     variant_for_renderer,
 )
 from picolet.cli._trailer import pack_trailer
+from picolet.pe_icon import _read_ico, inject_icon
 from picolet.cli.runtime_resolver import (
     locate_mpy_cross,
     resolve_runtime,
@@ -286,6 +287,37 @@ def _do_build(args) -> int:
     runtime_path = resolved.binary
     # resolved.sbom is preserved for PH13's SBOM emitter; unused here.
 
+    # -------------------------------------------------------------------------
+    # Step 4a – Windows icon embedding (FR-ICON-1): validate early, patch just
+    # before the romfs append (Step 9) once a staging dir exists to hold the
+    # patched copy — runtime_path itself is the resolver's cache and must not
+    # be mutated in place.
+    # -------------------------------------------------------------------------
+    icon = data["app"].get("icon")
+    icon_path: Path | None = None
+    if icon == "":
+        print("error: [app] icon is set but empty", file=sys.stderr)
+        return 1
+    if icon:
+        if target != TARGET_WINDOWS_X64:
+            print(
+                f"error: [app] icon is only supported for --target {TARGET_WINDOWS_X64}",
+                file=sys.stderr,
+            )
+            return 1
+        icon_path = app_root / icon
+        if not icon_path.is_file():
+            print(f"error: [app] icon file not found: {icon_path}", file=sys.stderr)
+            return 1
+        if icon_path.suffix.lower() != ".ico":
+            print(f"error: [app] icon must be a .ico file, got: {icon_path}", file=sys.stderr)
+            return 1
+        try:
+            _read_ico(icon_path)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
     try:
         mpy_cross = locate_mpy_cross()
     except RuntimeNotFound as exc:
@@ -352,6 +384,21 @@ def _do_build(args) -> int:
         # Step 8 – Build romfs image with mpremote.
         romfs_img = staging / f"{app_name}.romfs"
         _build_romfs(romfs_root, romfs_img, args.verbose)
+
+        # Step 8a – Patch the app icon into a staged copy of the runtime
+        # binary (FR-ICON-1). Never mutate runtime_path itself: it's the
+        # resolver's cache and may be shared by other builds/targets.
+        if icon_path is not None:
+            if args.verbose:
+                print(f"  icon: embedding {icon_path}", file=sys.stderr)
+            try:
+                patched_bytes = inject_icon(runtime_path.read_bytes(), icon_path)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            patched_runtime = staging / runtime_path.name
+            patched_runtime.write_bytes(patched_bytes)
+            runtime_path = patched_runtime
 
         # Step 9 – Append + trailer → final binary.
         output_dir = app_root / "target" / target
