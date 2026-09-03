@@ -42,6 +42,13 @@ _APP_SCHEMA: dict[str, type | tuple[type, ...]] = {
     # window flashes on launch (build_cmd.py enforces the target, not this
     # shape check).
     "console": bool,
+    # Windows only; replace the runtime's generic VERSION_INFO resource
+    # (build_cmd.py enforces the target; "version" is required already and
+    # doubles as FileVersion/ProductVersion, or "git" to derive it from the
+    # nearest git tag -- see git_version.py).
+    "company_name": str,
+    "file_description": str,
+    "product_name": str,
 }
 _APP_REQUIRED: frozenset[str] = frozenset({"name", "version", "entry"})
 

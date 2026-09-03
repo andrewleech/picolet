@@ -53,8 +53,11 @@ from picolet.cli._targets import (
     variant_for_renderer,
 )
 from picolet.cli._trailer import pack_trailer
-from picolet.pe_icon import _read_ico, inject_icon
+from picolet.git_version import resolve_git_version
+from picolet.pe_icon import _read_ico, apply_icon
+from picolet.pe_resources import load_resource_tree, save_resource_tree
 from picolet.pe_subsystem import set_subsystem_gui
+from picolet.pe_version import apply_version_info
 from picolet.cli.runtime_resolver import (
     locate_mpy_cross,
     resolve_runtime,
@@ -230,6 +233,18 @@ def _do_build(args) -> int:
     _run_version_checks(data, app_root)
 
     # -------------------------------------------------------------------------
+    # Step 1a – Resolve [app] version = "git" to a concrete version string
+    # (FR-GITVER-1). Mutates `data` in place so every downstream consumer
+    # (VERSION_INFO patch below, SBOM emission) sees the resolved value.
+    # -------------------------------------------------------------------------
+    if data["app"]["version"] == "git":
+        try:
+            data["app"]["version"] = resolve_git_version(app_root)
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+    # -------------------------------------------------------------------------
     # Step 2 – Resolve runtime variant (FR-BP-1).
     #
     # [build].variant is an explicit override for variants with no UI at all
@@ -400,14 +415,36 @@ def _do_build(args) -> int:
         romfs_img = staging / f"{app_name}.romfs"
         _build_romfs(romfs_root, romfs_img, args.verbose)
 
-        # Step 8a – Patch the app icon into a staged copy of the runtime
-        # binary (FR-ICON-1). Never mutate runtime_path itself: it's the
-        # resolver's cache and may be shared by other builds/targets.
-        if icon_path is not None:
+        # Step 8a – Patch PE resources on a staged copy of the runtime binary
+        # (FR-ICON-1, FR-VERINFO-1): the app icon (if any) and VERSION_INFO
+        # both go through one load_resource_tree/save_resource_tree round
+        # trip so a build using both appends a single new section rather
+        # than two (each pass's serialized tree carries every resource, so
+        # doing this as two separate inject_* calls would duplicate the
+        # icon's bytes into two orphaned-plus-live sections). Never mutate
+        # runtime_path itself: it's the resolver's cache and may be shared
+        # by other builds/targets.
+        if target == TARGET_WINDOWS_X64:
             if args.verbose:
-                print(f"  icon: embedding {icon_path}", file=sys.stderr)
+                print(
+                    "  patching PE resources (version-info"
+                    + (f", icon: {icon_path}" if icon_path is not None else "")
+                    + ")",
+                    file=sys.stderr,
+                )
+            app_version = data["app"]["version"]
+            version_fields = {
+                "CompanyName": data["app"].get("company_name", ""),
+                "FileDescription": data["app"].get("file_description") or app_name,
+                "ProductName": data["app"].get("product_name") or app_name,
+            }
             try:
-                patched_bytes = inject_icon(runtime_path.read_bytes(), icon_path)
+                original_bytes = runtime_path.read_bytes()
+                pe, tree, old_resource_section = load_resource_tree(original_bytes)
+                if icon_path is not None:
+                    apply_icon(tree, icon_path)
+                apply_version_info(tree, version_fields, app_version, app_version)
+                patched_bytes = save_resource_tree(pe, original_bytes, tree, old_resource_section)
             except ValueError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1

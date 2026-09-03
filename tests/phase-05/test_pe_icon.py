@@ -20,7 +20,7 @@ if str(_PKG_PARENT) not in sys.path:
 
 pefile = pytest.importorskip("pefile")
 
-from picolet import pe_icon  # noqa: E402
+from picolet import pe_icon, pe_resources  # noqa: E402
 
 RUNTIME_PATH = (
     _REPO_ROOT / "packages" / "picolet-runtime" / "build" / "picolet-runtime-windows-x64-cli.exe"
@@ -69,7 +69,7 @@ def test_round_trip_preserves_existing_resources(runtime_bytes, ico_path):
     pe_before.parse_data_directories(
         directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]]
     )
-    before = pe_icon._extract_existing_resources(pe_before)
+    before = pe_resources._extract_existing_resources(pe_before)
     before_non_icon = {
         (t, n, lang, data)
         for (t, n, lang, data) in _all_leaves(before)
@@ -84,7 +84,7 @@ def test_round_trip_preserves_existing_resources(runtime_bytes, ico_path):
         directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]]
     )
     assert not pe_after.get_warnings()
-    after = pe_icon._extract_existing_resources(pe_after)
+    after = pe_resources._extract_existing_resources(pe_after)
     after_non_icon = {
         (t, n, lang, data)
         for (t, n, lang, data) in _all_leaves(after)
@@ -107,7 +107,7 @@ def test_reinjection_replaces_rather_than_stacks(runtime_bytes, ico_path):
     pe = pefile.PE(data=twice, fast_load=True)
     pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]])
     assert not pe.get_warnings()
-    tree = pe_icon._extract_existing_resources(pe)
+    tree = pe_resources._extract_existing_resources(pe)
     # Exactly one RT_GROUP_ICON, at id 1 -- not two competing groups.
     assert list(tree[pe_icon.RT_GROUP_ICON].keys()) == [1]
     assert len(tree[pe_icon.RT_ICON]) == 2
@@ -119,13 +119,13 @@ def test_distinct_sublanguages_both_survive(runtime_bytes, ico_path):
     # one key (the bug: pefile's .data.lang truncates to primary language).
     pe = pefile.PE(data=runtime_bytes, fast_load=True)
     pe.parse_data_directories(directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]])
-    tree = pe_icon._extract_existing_resources(pe)
+    tree = pe_resources._extract_existing_resources(pe)
     version_type = next(iter(tree))
     version_name = next(iter(tree[version_type]))
     lang, (data, codepage) = next(iter(tree[version_type][version_name].items()))
     tree[version_type][version_name][0x0809] = (data, codepage)  # en-GB, same bytes
 
-    section_data = pe_icon._serialize_resources(tree, base_rva=0x100000)
+    section_data = pe_resources._serialize_resources(tree, base_rva=0x100000)
     # Round-trip the serialized bytes back through the same extractor logic
     # by re-reading the two data entries directly.
     langs = sorted(tree[version_type][version_name])

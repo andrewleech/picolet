@@ -103,15 +103,18 @@ written to `target/<target>/<app-name>[.exe]`.
 **Pipeline:**
 
 1. Read and validate `picolet.toml`.
-2. Resolve the runtime variant from `[ui]` (absent → `cli`).
-3. Resolve the build target from `--target` or host auto-detection.
-4. Locate the runtime artifact and `mpy-cross`; verify version match.
-5. Compile `.py` sources → `.mpy` via `mpy-cross`.
-6. Copy `[romfs]` include directories into staging.
-7. Zero all file mtimes for reproducible output.
-8. Build the romfs image with `mpremote`.
-9. Append romfs + 24-byte trailer to the runtime binary.
-10. Emit an SBOM sidecar `.cdx.json`.
+2. Resolve `[app] version = "git"` to a concrete string from `git describe`, if set.
+3. Resolve the runtime variant from `[ui]` (absent → `cli`).
+4. Resolve the build target from `--target` or host auto-detection.
+5. Locate the runtime artifact and `mpy-cross`; verify version match.
+6. Compile `.py` sources → `.mpy` via `mpy-cross`.
+7. Copy `[romfs]` include directories into staging.
+8. Zero all file mtimes for reproducible output.
+9. Build the romfs image with `mpremote`.
+10. On `windows-x64`, patch PE resources on a staged copy of the runtime: the
+    `[app] icon` (if set) and a VERSION_INFO resource built from `[app]`.
+11. Append romfs + 24-byte trailer to the runtime binary.
+12. Emit an SBOM sidecar `.cdx.json`.
 
 **Arguments:**
 

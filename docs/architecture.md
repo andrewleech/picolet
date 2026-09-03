@@ -141,6 +141,17 @@ entry = "src/main.py"
 icon = "assets/app.ico"     # windows-x64 only; embeds this .ico as the exe's icon
 console = false             # windows-x64 only; no console window flash (no stdio either)
 
+# windows-x64 only; replace the runtime's generic VERSION_INFO (Explorer's
+# Properties > Details tab). name/version above always feed FileDescription/
+# ProductName/FileVersion/ProductVersion unless overridden here.
+company_name = "My Company"
+file_description = "My App"    # defaults to [app] name
+product_name = "My App"        # defaults to [app] name
+
+# version = "git" derives the version from `git describe` instead of a
+# static string -- see git_version.py for the scheme (setuptools-scm-like,
+# not byte-identical).
+
 # Omit [ui] for a CLI tool — picks the *-cli runtime variant.
 [ui]
 renderer = "webview"        # "webview" | "lvgl"
