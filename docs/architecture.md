@@ -139,6 +139,7 @@ name = "my-app"
 version = "0.1.0"
 entry = "src/main.py"
 icon = "assets/app.ico"     # windows-x64 only; embeds this .ico as the exe's icon
+console = false             # windows-x64 only; no console window flash (no stdio either)
 
 # Omit [ui] for a CLI tool — picks the *-cli runtime variant.
 [ui]

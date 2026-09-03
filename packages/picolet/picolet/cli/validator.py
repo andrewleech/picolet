@@ -38,6 +38,10 @@ _APP_SCHEMA: dict[str, type | tuple[type, ...]] = {
     # Windows only; embeds this .ico as the built exe's icon (build_cmd.py
     # checks the file exists / build-time support, not this shape check).
     "icon": str,
+    # Windows only; false flips the exe's PE subsystem to GUI so no console
+    # window flashes on launch (build_cmd.py enforces the target, not this
+    # shape check).
+    "console": bool,
 }
 _APP_REQUIRED: frozenset[str] = frozenset({"name", "version", "entry"})
 

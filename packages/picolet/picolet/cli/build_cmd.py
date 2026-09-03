@@ -54,6 +54,7 @@ from picolet.cli._targets import (
 )
 from picolet.cli._trailer import pack_trailer
 from picolet.pe_icon import _read_ico, inject_icon
+from picolet.pe_subsystem import set_subsystem_gui
 from picolet.cli.runtime_resolver import (
     locate_mpy_cross,
     resolve_runtime,
@@ -318,6 +319,20 @@ def _do_build(args) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
 
+    # -------------------------------------------------------------------------
+    # Step 4b – Windows console suppression (FR-CONSOLE-1): [app] console =
+    # false flips the staged runtime copy's PE subsystem from CUI to GUI so
+    # no console window flashes on launch. Same staging/timing rules as the
+    # icon patch above.
+    # -------------------------------------------------------------------------
+    console = data["app"].get("console", True)
+    if console is False and target != TARGET_WINDOWS_X64:
+        print(
+            f"error: [app] console = false is only supported for --target {TARGET_WINDOWS_X64}",
+            file=sys.stderr,
+        )
+        return 1
+
     try:
         mpy_cross = locate_mpy_cross()
     except RuntimeNotFound as exc:
@@ -396,6 +411,15 @@ def _do_build(args) -> int:
             except ValueError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1
+            patched_runtime = staging / runtime_path.name
+            patched_runtime.write_bytes(patched_bytes)
+            runtime_path = patched_runtime
+
+        # Step 8b – Flip the staged runtime copy to GUI subsystem (FR-CONSOLE-1).
+        if console is False:
+            if args.verbose:
+                print("  console: disabling (GUI subsystem)", file=sys.stderr)
+            patched_bytes = set_subsystem_gui(runtime_path.read_bytes())
             patched_runtime = staging / runtime_path.name
             patched_runtime.write_bytes(patched_bytes)
             runtime_path = patched_runtime
