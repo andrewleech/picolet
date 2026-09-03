@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:2a8727bc-ad1c-4c12-ad78-a7104bf427a6",
+  "serialNumber": "urn:uuid:49935ab7-204f-4333-a591-664b075795e6",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-05-20T14:17:20.154224Z",
+    "timestamp": "2026-09-03T06:19:06.569256Z",
     "tools": [
       {
         "vendor": "picolet",
@@ -15,11 +15,11 @@
     "component": {
       "type": "library",
       "name": "picolet-runtime-windows-x64-cli",
-      "version": "runtime-v0.1.0",
+      "version": "runtime-v0.0.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "efa38502ae51dd129e455897e27eadf333a29b479055a7e28b9c65cc1c86e7f2"
+          "content": "e4083d4ab55d032b5011b63ebe82b8406ba5093448ceb286885615e68ddff58a"
         }
       ]
     }
@@ -50,7 +50,7 @@
           "value": "static"
         }
       ],
-      "description": "Integration PRs are MicroPython-derived patches sharing the MicroPython MIT licence; the generator injects the full PR list from mbm.toml automatically.\npr/lib-pyusb-windows: lib/micropython-lib: Update pyusb with Windows support.\npr/mkrules-exe-fix: py/mkrules.mk: Allow PROG to be set on the command line for .exe targets.\npr/mkrules-frozen-str: py/mkrules.mk: Make MICROPY_MODULE_FROZEN_STR conditional on compiler.\npr/gc-add-heap: py/modgc: Add gc.add_heap() function for runtime heap expansion.\npr/ports-windows-ffi: ports/windows: Add FFI module support with libffi.\npr/unix-windows-romfs: ports/unix,windows: Add embedded romfs support with auto-mount.\npr/ports-windows-variant-overrides: ports/windows: Allow variant override of common config defines."
+      "description": "Integration PRs are MicroPython-derived patches sharing the MicroPython MIT licence; the generator injects the full PR list from mbm.toml automatically.\npr/lib-pyusb-windows: lib/micropython-lib: Update pyusb with Windows support.\npr/mkrules-exe-fix: py/mkrules.mk: Allow PROG to be set on the command line for .exe targets.\npr/mkrules-frozen-str: py/mkrules.mk: Make MICROPY_MODULE_FROZEN_STR conditional on compiler.\npr/gc-add-heap: py/modgc: Add gc.add_heap() function for runtime heap expansion.\npr/ports-windows-ffi: ports/windows: Add FFI module support with libffi.\npr/unix-windows-romfs: ports/unix,windows: Add embedded romfs support with auto-mount.\npr/ports-windows-variant-overrides: ports/windows: Allow variant override of common config defines.\nmanifest_c_module: py: Add c_module() manifest function for user C modules.\npr/windows-extra-src-c: ports/windows: Add EXTRA_SRC_C hook for variant-supplied source files.\npr/unix-asyncio-stdin-poll-fix: extmod/vfs_posix_file: read()/readinto() do a single syscall.\npr/unix-select-ioctl-period-configurable: extmod/modselect: make IOCTL_CALL_PERIOD_MS overridable.\nunix-sleep-process-pending: ports/unix: Process pending callbacks during time.sleep().\nselect-event-source: extmod/modselect: Let a stream declare its own wake source and readiness."
     },
     {
       "type": "library",

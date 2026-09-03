@@ -143,6 +143,77 @@ static uint32_t picolet_crc32(const uint8_t *data, size_t len) {
     return crc ^ 0xFFFFFFFF;
 }
 
+#ifdef _WIN32
+// Locate a PE's IMAGE_DIRECTORY_ENTRY_SECURITY file offset, if present.
+//
+// Uniquely among PE data directories, the Security directory's
+// "VirtualAddress" field holds a plain file offset, not an RVA (the
+// Authenticode certificate table isn't mapped into the process's address
+// space). When an already-built picolet exe is Authenticode-signed after
+// the fact, the signing tool appends the WIN_CERTIFICATE blob at the true
+// end of the file -- after picolet's own appended romfs+trailer -- and
+// points this directory at where it starts. Without accounting for that,
+// the trailer lookup below (which otherwise assumes "trailer = last 24
+// bytes of the file") reads into the certificate blob instead of the real
+// trailer, and silently falls back to an empty romfs.
+//
+// Returns the certificate table's file offset, or 0 if the PE has none
+// (or on any parse failure -- callers treat 0 as "use the raw file size").
+static long picolet_pe_security_dir_offset(FILE *f) {
+    uint8_t dos_header[64];
+    if (fseek(f, 0, SEEK_SET) != 0 || fread(dos_header, sizeof(dos_header), 1, f) != 1) {
+        return 0;
+    }
+    if (dos_header[0] != 'M' || dos_header[1] != 'Z') {
+        return 0;
+    }
+    uint32_t e_lfanew;
+    memcpy(&e_lfanew, &dos_header[0x3c], sizeof(e_lfanew));
+
+    if (fseek(f, (long)e_lfanew, SEEK_SET) != 0) {
+        return 0;
+    }
+    uint8_t pe_sig[4];
+    if (fread(pe_sig, sizeof(pe_sig), 1, f) != 1 || memcmp(pe_sig, "PE\0\0", 4) != 0) {
+        return 0;
+    }
+
+    // IMAGE_FILE_HEADER is 20 bytes; the optional header starts right after it.
+    long opt_header_off = (long)e_lfanew + 4 + 20;
+    if (fseek(f, opt_header_off, SEEK_SET) != 0) {
+        return 0;
+    }
+    uint16_t magic;
+    if (fread(&magic, sizeof(magic), 1, f) != 1) {
+        return 0;
+    }
+
+    long data_dir_off;
+    if (magic == 0x10b) {        // PE32
+        data_dir_off = opt_header_off + 96;
+    } else if (magic == 0x20b) { // PE32+
+        data_dir_off = opt_header_off + 112;
+    } else {
+        return 0;
+    }
+
+    // IMAGE_DIRECTORY_ENTRY_SECURITY = index 4; each entry is 8 bytes
+    // (VirtualAddress, Size).
+    if (fseek(f, data_dir_off + 4 * 8, SEEK_SET) != 0) {
+        return 0;
+    }
+    uint32_t sec_offset, sec_size;
+    if (fread(&sec_offset, sizeof(sec_offset), 1, f) != 1 ||
+        fread(&sec_size, sizeof(sec_size), 1, f) != 1) {
+        return 0;
+    }
+    if (sec_size == 0) {
+        return 0;
+    }
+    return (long)sec_offset;
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // picolet_load_romfs_trailer
 // ---------------------------------------------------------------------------
@@ -186,6 +257,38 @@ bool picolet_load_romfs_trailer(const uint8_t **buf_out, size_t *size_out) {
         fclose(f);
         return false;
     }
+
+#ifdef _WIN32
+    // If this exe was Authenticode-signed after picolet built it, the
+    // certificate table's start (not raw EOF) is the end of our own
+    // appended data -- see picolet_pe_security_dir_offset() above. Signing
+    // tools commonly pad the certificate table's start to an alignment
+    // boundary (observed: 8 bytes) past where our data actually ends, so
+    // scan backward a short distance for our magic rather than assuming
+    // security_off is exactly it. No match found -> leave file_size as the
+    // raw file size; the normal magic check below will just fail as usual.
+    long security_off = picolet_pe_security_dir_offset(f);
+    if (security_off > 0 && security_off < file_size) {
+        const size_t max_pad = 15;
+        uint8_t scan[PICOLET_TRAILER_SIZE + 15];
+        long scan_start = security_off - (long)sizeof(scan);
+        if (scan_start < 0) {
+            scan_start = 0;
+        }
+        size_t scan_len = (size_t)(security_off - scan_start);
+        if (scan_len >= PICOLET_TRAILER_SIZE &&
+            fseek(f, scan_start, SEEK_SET) == 0 &&
+            fread(scan, scan_len, 1, f) == 1) {
+            for (size_t pad = 0; pad <= max_pad && pad + PICOLET_TRAILER_SIZE <= scan_len; pad++) {
+                size_t candidate_off = scan_len - PICOLET_TRAILER_SIZE - pad;
+                if (memcmp(scan + candidate_off, PICOLET_TRAILER_MAGIC, 4) == 0) {
+                    file_size = scan_start + (long)candidate_off + PICOLET_TRAILER_SIZE;
+                    break;
+                }
+            }
+        }
+    }
+#endif
 
     // Fallback 2: file too small to hold a trailer — silent.
     if ((uint64_t)file_size < (uint64_t)PICOLET_TRAILER_SIZE) {
