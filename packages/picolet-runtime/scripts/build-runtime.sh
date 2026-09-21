@@ -46,6 +46,23 @@ PKG_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_ROOT/../.." && pwd)"
 SUBMODULE="$PKG_ROOT/micropython"
 
+# micropython-lib source for manifest.py require().  Overriding MPY_LIB_DIR
+# rather than using micropython's own lib/micropython-lib matters for more
+# than path redirection: py/mkrules.mk only adds the nested pointer to
+# GIT_SUBMODULES while MPY_LIB_DIR still equals MPY_LIB_SUBMODULE_DIR, so
+# setting it also drops that submodule from the build's requirements.
+MPY_LIB_DIR="$PKG_ROOT/lib/micropython-lib"
+
+require_mpy_lib() {
+    if [[ -d "$MPY_LIB_DIR/python-stdlib/os-path" ]]; then
+        return
+    fi
+    echo "error: $MPY_LIB_DIR/python-stdlib/os-path not found." >&2
+    echo "       Run: git -C $REPO_ROOT submodule update --init \\" >&2
+    echo "            packages/picolet-runtime/lib/micropython-lib" >&2
+    exit 1
+}
+
 export PICOLET_RUNTIME_ROOT="$PKG_ROOT"
 
 # ---------------------------------------------------------------------------
@@ -407,11 +424,7 @@ build_linux_x64() {
         echo "error: $SUBMODULE/extmod/asyncio not found." >&2
         exit 1
     fi
-    if [[ ! -d "$SUBMODULE/lib/micropython-lib/python-stdlib/os-path" ]]; then
-        echo "error: micropython-lib/python-stdlib/os-path not found." >&2
-        echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
-        exit 1
-    fi
+    require_mpy_lib
 
     # lvgl variant: init lv_binding_micropython (now at lib/, not overlay/lib/).
     if [[ "$VARIANT" == "lvgl" ]]; then
@@ -432,6 +445,7 @@ build_linux_x64() {
 
     echo "[4/8] Fetching port submodules (libffi)"
     make -C "$UNIX_PORT" -j submodules \
+        MPY_LIB_DIR="$MPY_LIB_DIR" \
         VARIANT_DIR="$VARIANT_DIR_UNIX" \
         BUILD="build-${VARIANT_NAME}" \
         MICROPY_STANDALONE=1
@@ -502,6 +516,7 @@ build_linux_x64() {
             deplibs
     fi
     docker_linux "$UNIX_PORT" make \
+        MPY_LIB_DIR="$MPY_LIB_DIR" \
         -j \
         VARIANT_DIR="$VARIANT_DIR_UNIX" \
         BUILD="build-${VARIANT_NAME}" \
@@ -608,11 +623,7 @@ build_macos() {
         echo "error: $SUBMODULE/extmod/asyncio not found." >&2
         exit 1
     fi
-    if [[ ! -d "$SUBMODULE/lib/micropython-lib/python-stdlib/os-path" ]]; then
-        echo "error: micropython-lib/python-stdlib/os-path not found." >&2
-        echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
-        exit 1
-    fi
+    require_mpy_lib
 
     # lvgl variant — init lv_binding_micropython (now at lib/) and locate brew SDL2.
     local SDL2_INCLUDE_DIR="" SDL2_LIB_DIR=""
@@ -650,6 +661,7 @@ build_macos() {
 
     echo "[4/8] Fetching port submodules (libffi)"
     make -C "$UNIX_PORT" -j submodules \
+        MPY_LIB_DIR="$MPY_LIB_DIR" \
         VARIANT_DIR="$VARIANT_DIR_UNIX" \
         BUILD="build-${VARIANT_NAME}" \
         MICROPY_STANDALONE=1
@@ -706,6 +718,7 @@ build_macos() {
             deplibs
     fi
     make -C "$UNIX_PORT" \
+        MPY_LIB_DIR="$MPY_LIB_DIR" \
         -j \
         VARIANT_DIR="$VARIANT_DIR_UNIX" \
         BUILD="build-${VARIANT_NAME}" \
@@ -781,11 +794,7 @@ build_windows_x64() {
         echo "error: $SUBMODULE/extmod/asyncio not found." >&2
         exit 1
     fi
-    if [[ ! -d "$SUBMODULE/lib/micropython-lib/python-stdlib/os-path" ]]; then
-        echo "error: micropython-lib/python-stdlib/os-path not found." >&2
-        echo "       Run: git -C $SUBMODULE submodule update --init --recursive" >&2
-        exit 1
-    fi
+    require_mpy_lib
 
     # lvgl variant: init lv_binding_micropython (now at lib/, not overlay/lib/).
     if [[ "$VARIANT" == "lvgl" ]]; then
@@ -888,6 +897,7 @@ build_windows_x64() {
     # when MICROPY_PY_FFI=1 (set in the variant .mk).  We run `submodules` on
     # the host (pure git op, no compiler needed).
     make -C "$windows_port" -j submodules \
+        MPY_LIB_DIR="$MPY_LIB_DIR" \
         VARIANT_DIR="$VARIANT_DIR_WINDOWS" \
         BUILD="build-${VARIANT_NAME}" \
         "${EXTRA_MAKE_VARS[@]}"
@@ -941,6 +951,7 @@ build_windows_x64() {
 
     echo "[6b/8] Building windows port variant=${VARIANT_NAME} inside dockcross"
     docker_windows "$windows_port" make \
+        MPY_LIB_DIR="$MPY_LIB_DIR" \
         -j \
         VARIANT_DIR="$VARIANT_DIR_WINDOWS" \
         BUILD="build-${VARIANT_NAME}" \

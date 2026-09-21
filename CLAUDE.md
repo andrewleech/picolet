@@ -202,7 +202,10 @@ picolet/
 │   │   │                  is statically-linked FFI surface.
 │   │   ├── python/        Source for frozen modules: `picolet/`, `picolet_ui/`.
 │   │   ├── lib/           Vendored sub-libraries (lv_binding_micropython
-│   │   │                  submodule + its lvgl submodule).
+│   │   │                  submodule + its lvgl submodule; micropython-lib
+│   │   │                  submodule tracking andrewleech/micropython-lib,
+│   │   │                  passed to make as MPY_LIB_DIR so the nested
+│   │   │                  micropython/lib/micropython-lib is unused).
 │   │   ├── scripts/       build-runtime.sh, rebuild-integration.sh,
 │   │   │                  dockerfiles/ for the linux + windows toolchains.
 │   │   ├── rerere/        rerere cache for cross-PR conflict auto-resolution.

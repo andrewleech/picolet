@@ -121,6 +121,11 @@ git -C "$SUBMODULE" submodule update --init --recursive
 # submodule lib/micropython-lib (commits not present)" on the very first
 # merge otherwise (only invisible on a machine that already had this
 # remote warm from an earlier run).
+#
+# Still needed even though the runtime build no longer reads this submodule
+# (build-runtime.sh overrides MPY_LIB_DIR): the pointer bump is part of the
+# commit pr/lib-pyusb-windows contributes upstream, so composing integration
+# merges it regardless of whether the build consumes it.
 MPL_DIR="$SUBMODULE/lib/micropython-lib"
 if [ -d "$MPL_DIR" ]; then
     if ! git -C "$MPL_DIR" remote | grep -q '^andrewleech$'; then
