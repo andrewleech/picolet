@@ -152,9 +152,9 @@ echo "[1/2] Compose integration_update from mbm.toml PR branches"
 git -C "$SUBMODULE" checkout -B integration_update upstream/master
 
 # Read all branch names from mbm.toml, not just those prefixed with `pr/`.
-# Branches like `manifest_c_module` (upstream micropython PRs we carry as
-# named branches on our fork) don't fit the `pr/...` convention but still
-# need to be merged into integration.
+# Branches like `select-event-source` and `unix-sleep-process-pending`
+# don't fit the `pr/...` convention but still need to be merged into
+# integration.
 mapfile -t PR_BRANCHES < <(grep -E '^name = "' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
 
 for branch in "${PR_BRANCHES[@]}"; do
