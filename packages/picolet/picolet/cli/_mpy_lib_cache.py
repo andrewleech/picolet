@@ -59,12 +59,12 @@ from pathlib import Path
 from picolet._vendor.manifestfile import BASE_LIBRARY_NAMES
 from picolet.cli.runtime_resolver import _cache_root
 
-# Tracks packages/picolet-runtime/micropython/lib/micropython-lib's submodule
-# pointer at the time manifest.py support was added. This is a stability
-# pin, not a moving ref; bump it deliberately (and note why) when picking
-# up newer micropython-lib packages, and recompute _PINNED_TREE_SHA256 below
-# to match; see that constant's comment for the verification procedure.
-_PINNED_SHA = "08cc0acb6515c19ebf2d899c98c41f179fd45202"
+# Tracks packages/picolet-runtime/lib/micropython-lib's submodule pointer.
+# This is a stability pin, not a moving ref; bump it deliberately (and note
+# why) when picking up newer micropython-lib packages, and recompute
+# _PINNED_TREE_SHA256 below to match; see that constant's comment for the
+# verification procedure.
+_PINNED_SHA = "cf26fa28f1af4005bb283a0dc1c1aaba59ad002b"
 _REPO_OWNER = "andrewleech"
 _REPO_NAME = "micropython-lib"
 
@@ -79,7 +79,7 @@ _REPO_NAME = "micropython-lib"
 # source. `git archive` is the correct local equivalent because GitHub's
 # codeload endpoint runs the same operation server-side:
 #
-#   SUB=packages/picolet-runtime/micropython/lib/micropython-lib
+#   SUB=packages/picolet-runtime/lib/micropython-lib
 #   D=$(mktemp -d)
 #   git -C $SUB archive --format=tar <NEW_SHA> | tar -x -C "$D"
 #   python -c "from picolet.cli._mpy_lib_cache import _tree_digest; \
@@ -92,7 +92,7 @@ _REPO_NAME = "micropython-lib"
 # upstream the two stop producing identical trees and this whole
 # equivalence needs re-checking. There is none as of this pin (verified
 # by checking for a .gitattributes file in the submodule).
-_PINNED_TREE_SHA256 = "98e0371c66819fc456deeada391c34f60c8ec43e865fa6aad1e36d82ba340e74"
+_PINNED_TREE_SHA256 = "f3d95324d841d274e8874fe9f63df8fc1d25ee2e3f34532f75b29c17587208bd"
 
 _ENV_OVERRIDE = "PICOLET_MPY_LIB_DIR"
 _URLOPEN_TIMEOUT = 60
