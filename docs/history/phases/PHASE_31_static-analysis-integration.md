@@ -12,12 +12,22 @@ The Picolet examples were trialled on 2026-10-05. These are exploratory results,
 
 | Tool | Scope and result | Limitations |
 |---|---|---|
-| Semgrep CE 1.179.0, `p/python` plus MicroPython rules | 45 tracked Python files, 0 findings | 15 files were skipped by `.semgrepignore`; not a full examples pass |
+| Semgrep CE 1.179.0, `p/python` plus MicroPython rules | 45 tracked Python files, 0 findings | Semgrep's default ignore patterns skipped 15 test/config/fixture files; not the full examples tree |
 | Opengrep stable 1.30.0, `p/python` plus MicroPython rules | 55 Python files, 0 findings, 13.07 s | Directory scan also walked non-Python files |
 | Opengrep interfile alpha `v2.0.0-nopython-interfile.alpha.3`, same rules | 55 Python files, 0 findings, 192.83 s | Expanded companion discovery into the Picolet MicroPython checkout; 18 scan warnings, including parser warnings from out-of-scope files |
 | Ruff 0.16.8 `S` | 87 findings: 44 `S101`, 34 `S311`, 9 `S110` | Findings include test and screenshot tooling; no triage was done |
 | Pyrefly 1.3.2 | 55 modules and dependencies, 134 diagnostics | 67 missing imports, 54 missing attributes, 6 bad argument types, and 7 other diagnostics |
 | Pysa 0.10.0 | 0 issues | Used socket / `eval` / `exec` models only; Pyrefly had errors, so the result is exploratory |
+
+## Zero-result recheck, 2026-10-06
+
+The Semgrep result is reproducible, but it is not evidence of broad security coverage. Re-running Semgrep CE 1.179.0 with `p/python` scanned 45 tracked Python files using 151 rules, reported 0 findings and parsed about 100% of the selected files. Verbose output shows that Semgrep's built-in default ignore patterns skipped 15 files, including all example test files; there is no repository `.semgrepignore` file. The rules were the Registry `p/python` set, not GitLab's managed rules or a security-audit profile.
+
+A temporary `socket.recv()` to `eval()` fixture was detected by both Semgrep and Opengrep when the SAST-02 custom MicroPython taint rule was explicitly supplied. That confirms the engines can run the custom rule, but does not show that this rule applies to Picolet's host-side examples or that the original Picolet custom rules were valid. The probe was kept outside the repository.
+
+The Pysa zero remains unverified as a security result: its tested sources and sinks were limited to socket input and `eval` / `exec`, while Pyrefly reported 134 diagnostics. The Opengrep alpha also returned zero with 18 warnings and expanded analysis into the MicroPython checkout. The original Pysa and alpha command lines/raw logs are not retained here, so their exact runs cannot currently be reproduced from this ticket.
+
+Treat all of these zero counts as inconclusive. Before relying on them, retain exact commands and raw scanner output, pin the intended rule packs, make selected-file counts and parse/ignore/warning errors visible, and run realistic positive and negative fixtures for each chosen source/sink pair.
 
 The interfile scan is too slow and broad for an unqualified per-PR gate on this evidence. The Pysa result does not establish clean taint coverage. Neither should be promoted based on a zero-result run alone.
 
