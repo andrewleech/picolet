@@ -24,7 +24,7 @@ The interfile scan is too slow and broad for an unqualified per-PR gate on this 
 ## Scope
 
 - Inventory the current SAST portfolio and the Picolet languages / source classes each tool can analyse, including licence and CI-platform constraints.
-- Decide the role of CodeQL, GitLab / Semgrep, cppcheck, GCC `-fanalyzer`, CodeChecker / Clang Static Analyzer, Ruff `S`, Opengrep stable and interfile alpha, and Pyrefly / Pysa. Mark tools as CI gates, report-only, local-only, deferred or not applicable with reasons.
+- Decide the role of CodeQL, GitLab SAST and Advanced SAST, Semgrep CE, cppcheck, GCC `-fanalyzer`, CodeChecker / Clang Static Analyzer, Coverity, Ruff `S`, Bandit, Opengrep stable and interfile alpha, and Pyrefly / Pysa. Mark tools as CI gates, report-only, local-only, deferred or not applicable with reasons.
 - Derive C/C++ input from the compile commands for the runtime variants actually built in CI. Derive frozen Python from Picolet's manifests and keep it distinct from host CLI / test code and vendored test trees.
 - Define the source scope for JavaScript / TypeScript and decide how generated bundles, vendored dependencies, example tests and screenshot scripts are handled.
 - Make every selected tool reproducible locally with the same version, configuration, scope and result format as CI. Preserve ownership distinctions for Picolet code, vendored code and upstream submodules.
