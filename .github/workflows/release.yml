@@ -273,8 +273,13 @@ jobs:
             brew install sdl2
           fi
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install host prerequisites (mpremote)
-        run: pip3 install --quiet mpremote
+        run: python3 -m pip install --quiet mpremote
 
       - name: Restore libffi build cache
         uses: actions/cache@v4
