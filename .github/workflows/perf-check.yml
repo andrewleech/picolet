@@ -168,7 +168,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     strategy:
       matrix:
-        os: [macos-13, macos-14]
+        os: [macos-15-intel, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

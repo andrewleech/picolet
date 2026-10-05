@@ -107,27 +107,18 @@ jobs:
 
   sast:
     name: "SAST ${{ matrix.target }} / ${{ matrix.variant }}"
-    if: ${{ (inputs.sast_scanner || 'opengrep-stable') != 'opengrep-interfile-alpha' || matrix.runner == 'ubuntu-latest' }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.target == 'macos-x64' && 'macos-15-intel' || matrix.target == 'macos-arm64' && 'macos-14' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { target: linux-x64, variant: cli, runner: ubuntu-latest }
-          - { target: linux-x64, variant: webview, runner: ubuntu-latest }
-          - { target: linux-x64, variant: lvgl, runner: ubuntu-latest }
-          - { target: linux-x64, variant: mcp, runner: ubuntu-latest }
-          - { target: linux-x64, variant: tui, runner: ubuntu-latest }
-          - { target: windows-x64, variant: cli, runner: ubuntu-latest }
-          - { target: windows-x64, variant: webview, runner: ubuntu-latest }
-          - { target: windows-x64, variant: lvgl, runner: ubuntu-latest }
-          - { target: windows-x64, variant: tui, runner: ubuntu-latest }
-          - { target: macos-x64, variant: cli, runner: macos-13 }
-          - { target: macos-x64, variant: webview, runner: macos-13 }
-          - { target: macos-x64, variant: lvgl, runner: macos-13 }
-          - { target: macos-arm64, variant: cli, runner: macos-14 }
-          - { target: macos-arm64, variant: webview, runner: macos-14 }
-          - { target: macos-arm64, variant: lvgl, runner: macos-14 }
+        target: ${{ fromJSON(inputs.sast_scanner == 'opengrep-interfile-alpha' && '["linux-x64","windows-x64"]' || '["linux-x64","windows-x64","macos-x64","macos-arm64"]') }}
+        variant: [cli, webview, lvgl, mcp, tui]
+        exclude:
+          - { target: windows-x64, variant: mcp }
+          - { target: macos-x64, variant: mcp }
+          - { target: macos-x64, variant: tui }
+          - { target: macos-arm64, variant: mcp }
+          - { target: macos-arm64, variant: tui }
     env:
       SAST_SCANNER: ${{ inputs.sast_scanner || 'opengrep-stable' }}
     steps:
