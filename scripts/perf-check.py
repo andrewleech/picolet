@@ -131,7 +131,6 @@ async def _measure_test1_run(
 
     harness = AppHarness(
         binary,
-        args=("-c", "import main"),
         browser="webkit",
         env=env,
         timeout=10.0,
@@ -158,7 +157,7 @@ async def _measure_macos_test1_run(
     from picolet.testing._harness import AppHarness
 
     harness = AppHarness(
-        binary, args=("-c", "import main"), browser="webkit",
+        binary, browser="webkit",
         env=env, timeout=10.0, _cwd=app_dir,
     )
     try:
@@ -276,7 +275,7 @@ async def _measure_macos_ex2_run(
     from picolet.testing._harness import AppHarness
 
     harness = AppHarness(
-        binary, args=("-c", "import main"), browser="webkit", env=env, timeout=10.0,
+        binary, browser="webkit", env=env, timeout=10.0,
     )
     try:
         await harness.start(cwd=str(app_dir))
@@ -379,7 +378,6 @@ async def _measure_ex2_run(
 
     harness = AppHarness(
         binary,
-        args=("-c", "import main"),
         browser="webkit",
         env=env,
         timeout=10.0,
@@ -463,8 +461,8 @@ def _parse_args() -> argparse.Namespace:
         action="append",
         metavar="PATH",
         help=(
-            "path to the platform-specific webview runtime binary; repeat once "
-            "per example to measure distinct built apps"
+            "path to the platform-specific built webview app; repeat once "
+            "per example to measure distinct apps"
         ),
     )
     p.add_argument(

@@ -52,13 +52,13 @@ class AppHarness:
 
     Usage (async context manager):
 
-        async with AppHarness("./picolet-runtime-linux-x64-webview") as h:
+        async with AppHarness("./target/linux-x64/notes") as h:
             title = await h.page.evaluate("document.title")
             await h.screenshot("/tmp/shot.png")
 
     Usage (manual):
 
-        h = AppHarness("./picolet-runtime-linux-x64-webview")
+        h = AppHarness("./target/linux-x64/notes")
         await h.start()
         ...
         await h.stop()
@@ -185,36 +185,8 @@ class AppHarness:
         self.ready_ms = time.time() * 1000.0
         return self
 
-    def _default_args(self) -> list[str]:
-        """Return a default '-c <code>' arg list when the binary has no romfs.
-
-        Without a romfs the binary exits immediately with no output.  Inject
-        a minimal startup script that opens the appropriate event loop so test
-        mode (port announcement, screenshot, etc.) works out of the box.
-        """
-        if self._browser == "lvgl":
-            code = (
-                "import picolet._test; "
-                "from picolet_ui._lvgl import LvglDisplay; "
-                "import picolet._dispatcher as d; "
-                "LvglDisplay(); "
-                "d.run()"
-            )
-        else:
-            code = (
-                "from picolet_ui._window import Window; "
-                "from picolet_ui._webview import Webview, WebviewTransport; "
-                "from picolet_ui import _loop; "
-                "w = Window(title='Test', size=[640, 480], resizable=False); "
-                "t = WebviewTransport(); "
-                "v = Webview(w, root_uri='data:text/html,<html><body>ok</body></html>', transport=t); "
-                "w.show(); "
-                "_loop.run(t)"
-            )
-        return ["-c", code]
-
     def _spawn(self) -> subprocess.Popen:
-        """Spawn the binary with PICOLET_TEST_MODE=1.
+        """Spawn the requested program and arguments with PICOLET_TEST_MODE=1.
 
         Uses ``self._cwd`` as the working directory for the child process when
         set (propagated from ``start(cwd=...)`` or the ``_cwd`` constructor
@@ -226,12 +198,7 @@ class AppHarness:
         """
         import shutil
         import time
-        args = list(self._args)
-        # Auto-inject a default -c startup script when no args are provided.
-        # Without this, binaries without a romfs exit immediately.
-        if not args:
-            args = self._default_args()
-        cmd = [str(self._binary)] + args
+        cmd = [str(self._binary), *self._args]
         self._xvfb_proc: subprocess.Popen | None = None
 
         # Start Xvfb manually if no display is available (Linux headless).

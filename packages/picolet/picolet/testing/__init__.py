@@ -8,7 +8,7 @@ Public API:
 Usage:
     from picolet.testing import AppHarness, TuiHarness
 
-    async with AppHarness("path/to/picolet-runtime-linux-x64-webview") as h:
+    async with AppHarness("path/to/built-webview-app") as h:
         text = await h.page.evaluate("document.title")
         await h.screenshot("/tmp/shot.png")
 
