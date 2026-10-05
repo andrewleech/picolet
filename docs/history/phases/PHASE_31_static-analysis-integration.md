@@ -49,7 +49,7 @@ This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAS
 
 Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack is recorded as a comparison only; it does not replace GitLab Advanced SAST or establish equivalent coverage. Reopen this question only if running the actual analyzer becomes available or the roadmap decision changes.
 
-The source-boundary inventory and JavaScript / TypeScript source map are recorded below, and read-only probes verified manifest resolution for all eight runtime manifests. All trialled scanners must remain available through run-time selection, a settled requirement recorded below; the selection interface remains to be designed. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands, export the manifest file list with build-identical variables, settle whether `mcp` / `tui` variants outside the CI matrix are included, and finish explicit source ownership/exclusion rules before choosing CI gates.
+The source-boundary inventory and JavaScript / TypeScript source map are recorded below, and read-only probes verified manifest resolution for all eight runtime manifests. All trialled scanners must remain available through run-time selection, and static-analysis scope now explicitly includes every runtime variant supported by the build script. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands for all supported target/variant pairs, export the manifest file list with build-identical variables, finish explicit source ownership/exclusion rules, and then choose CI gates.
 
 - Runtime makefiles and variant configurations define native build inputs; a repository-wide source scan is not equivalent.
 - Frozen/runtime Python is manifest-selected and host CLI Python remains a separate package. Examples combine app code with tests and tooling.
@@ -128,12 +128,11 @@ The other example, `tui-pydfu`, is currently Python-only based on its checked-in
 
 The runtime release workflow defines 12 target/variant cells: `linux-x64`, `windows-x64`, `macos-x64`, and `macos-arm64`, each with `cli`, `webview`, and `lvgl`. The perf workflow also builds Linux `webview` and macOS `webview` on x64 / arm64, all combinations already present in the release matrix. Release builds run only on runtime tags or manual dispatch. The runtime build script also supports `mcp` and `tui` combinations that do not appear in these workflow matrices.
 
-For source inventory, keep the CI-declared cells as a distinct set from every variant the build script can produce. Whether PH31 also generates build-resolved inputs for `mcp` / `tui` must be decided explicitly rather than inferred from the release matrix.
+The build script accepts 15 target/variant combinations: `cli`, `webview`, and `lvgl` on Linux x64, Windows x64, macOS x64 and macOS arm64; `mcp` on Linux x64 only; and `tui` on Linux x64 and Windows x64. PH31 scope is all five runtime variants across all 15 accepted combinations. This adds Linux `mcp` and Linux / Windows `tui` beyond the current 12-cell release matrix.
 
 ### Scope decisions still needed
 
-- Choose which runtime variants and target platforms are part of native analysis, including whether the `mcp` and `tui` variants outside the release matrix are covered.
-- Capture each selected make invocation's effective C/C++ compiler commands, then classify commands and files as Picolet, MicroPython integration/overlay, LVGL binding, LVGL, or other dependency. Decide how shared compilation across targets is deduplicated without losing target-specific flags.
+- Capture each supported make invocation's effective C/C++ compiler commands, then classify commands and files as Picolet, MicroPython integration/overlay, LVGL binding, LVGL, or other dependency. Decide how shared compilation across targets is deduplicated without losing target-specific flags.
 - Turn the proven `ManifestFile.files()` resolution into a checked-in/exported input using exactly the build's manifest variables, and report Picolet-owned files separately from library / submodule files.
 - Decide whether the committed bridge bundle needs analysis in addition to its TypeScript source, and map host CLI / examples / tests / screenshot tooling to explicit include/exclude rules.
 - Continue into the per-tool decision table only after these source scopes and ownership boundaries are agreed.
@@ -145,7 +144,7 @@ This pass confirms the scope-authority model and its gaps; it does not implement
 
 - Inventory the current SAST portfolio and the Picolet languages / source classes each tool can analyse, including licence and CI-platform constraints.
 - Decide the role of CodeQL, GitLab SAST and Advanced SAST, Semgrep CE, cppcheck, GCC `-fanalyzer`, CodeChecker / Clang Static Analyzer, Coverity, Ruff `S`, Bandit, Opengrep stable and interfile alpha, and Pyrefly / Pysa. Mark tools as CI gates, report-only, local-only, deferred or not applicable with reasons.
-- Derive C/C++ input from the compile commands for the runtime variants actually built in CI. Derive frozen Python from Picolet's manifests and keep it distinct from host CLI / test code and vendored test trees.
+- Derive C/C++ input from compile commands for all 15 supported runtime target/variant combinations. Derive frozen Python from all runtime manifests and keep it distinct from host CLI / test code and vendored test trees.
 - Define the source scope for JavaScript / TypeScript and decide how generated bundles, vendored dependencies, example tests and screenshot scripts are handled.
 - Make every selected tool reproducible locally with the same version, configuration, scope and result format as CI. Preserve ownership distinctions for Picolet code, vendored code and upstream submodules.
 - Add focused fixtures based on plausible defects to demonstrate signal for each selected analyser, and record known warnings, skips and baseline policy.
@@ -164,6 +163,7 @@ This pass confirms the scope-authority model and its gaps; it does not implement
 - Every scanner trialled to date remains supported and individually selectable, regardless of whether its results are configured as a CI gate.
 - Portfolio candidates not yet trialled have an explicit keep / defer / not-applicable decision for Picolet; duplicate coverage and licence or runner constraints are recorded.
 - Each selected tool scans the intended source scope, and scope tests show that production source is included while unrelated generated, vendored test or host-only code is handled as documented.
+- Analysis inputs cover all five runtime variants and every target/variant combination accepted by `build-runtime.sh`, including `mcp` and `tui`.
 - A clean checkout can run each selected scanner locally using the same pinned version and configuration as CI.
 - Pull-request CI publishes readable results and applies the agreed finding policy without treating known baseline findings as newly introduced defects.
 - Each selected analyser demonstrates detection on a realistic fixture not authored as a trivial scanner echo, and the expected non-findings / exclusions are also checked.
