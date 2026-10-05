@@ -5,9 +5,9 @@
  * variant to convert the lv_snapshot_take() buffer to a PNG that the
  * AppHarness can assert on.
  *
- * The encoder uses system libz (zlib) for DEFLATE compression.  libz is
- * LGPL-2.1+ and is dynamically loaded at runtime (libz.dylib on Darwin,
- * libz.so.1 on Linux).  This satisfies NFR-5 (no static GPL/LGPL linking).
+ * The encoder uses system zlib for DEFLATE compression, loaded at runtime
+ * as libz.dylib on Darwin / libz.so.1 on Linux rather than bundled statically.
+ * zlib uses the permissive zlib licence.
  *
  * License: MIT (picolet code).
  */

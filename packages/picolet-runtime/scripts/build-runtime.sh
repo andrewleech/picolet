@@ -734,6 +734,7 @@ build_macos() {
             deplibs
     fi
     prepare_compile_capture clang as
+    # The link rule strips the executable; keep globals for native FFI lookup.
     make -C "$UNIX_PORT" \
         MPY_LIB_DIR="$MPY_LIB_DIR" \
         -j \
@@ -741,6 +742,7 @@ build_macos() {
         BUILD="build-${VARIANT_NAME}" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
         PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
+        STRIPFLAGS_EXTRA="-x" \
         ${CAPTURE_MAKE_ARGS[@]+"${CAPTURE_MAKE_ARGS[@]}"} \
         ${EXTRA_MAKE_VARS[@]+"${EXTRA_MAKE_VARS[@]}"}
 

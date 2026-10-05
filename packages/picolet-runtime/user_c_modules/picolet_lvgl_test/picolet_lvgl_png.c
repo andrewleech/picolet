@@ -14,8 +14,8 @@
  * Simple, minimal code; compression ratio is lower than adaptive but the
  * output is valid.
  *
- * Dynamic dependency: system zlib (LGPL-2.1+, runtime dlopen).
- * Static link is avoided to satisfy NFR-5.
+ * Dynamic dependency: system zlib (zlib licence, runtime dlopen).
+ * Loading it on demand avoids bundling a static zlib archive.
  *
  * License: MIT (picolet code).
  */
