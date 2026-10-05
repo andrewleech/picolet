@@ -42,7 +42,7 @@ INC += -I$(PICOLET_RUNTIME_ROOT)/variants/common
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-CFLAGS_EXTRA += -fvisibility=hidden
+CFLAGS_EXTRA += -fvisibility=hidden -fblocks
 LDFLAGS_EXTRA += -Wl,-export_dynamic
 LDFLAGS_EXTRA += -framework Cocoa -framework WebKit -framework Foundation
 LDFLAGS_EXTRA += -framework CoreFoundation

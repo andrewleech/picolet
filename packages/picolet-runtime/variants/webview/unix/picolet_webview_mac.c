@@ -755,89 +755,26 @@ PICOLET_API int picolet_wkwv_take_snapshot(void *webview,
 {
     if (!webview || !out_bytes || !out_len) return -1;
 
-    SnapshotCtx ctx;
+    __block SnapshotCtx ctx;
     ctx.sem   = dispatch_semaphore_create(0);
     ctx.image = (id)0;
     ctx.error = 0;
 
     if (!ctx.sem) return -1;
 
-    /* WKSnapshotConfiguration — nil means default (full viewport). */
-    id nil_cfg = (id)0;
-
-    /* Build an ObjC block on the stack using the clang block literal ABI.
-     * We use a libdispatch approach: capture ctx pointer into block.
-     * Since we cannot easily declare a __block lambda in C, we use the
-     * dispatch_block approach via dispatch_async to complete from main queue.
-     *
-     * Simpler alternative: use [WKWebView takeSnapshotWithConfiguration:NULL
-     * completionHandler:^(NSImage *img, NSError *err) { ... }]
-     * via the ObjC block runtime functions.
-     *
-     * The cleanest cross-language approach here is to use dispatch_semaphore
-     * and the raw block trampolining via imp_implementationWithBlock — but
-     * that requires a full ObjC block layout struct.
-     *
-     * For v1.2 we implement a simpler synchronous approach: use the
-     * WebKit offscreen render via -[WKWebView _generateTestReport:] is
-     * private and fragile.
-     *
-     * Practical approach: call takeSnapshotWithConfiguration:completionHandler:
-     * using a pre-compiled block literal.  In pure C, blocks are structs with
-     * a function pointer.  We declare the minimal required layout below.
-     */
-
-    /* Block literal structure (clang blocks ABI v1):
-     *   void *isa;          // &_NSConcreteStackBlock
-     *   int   flags;
-     *   int   reserved;
-     *   void (*invoke)(void *block, id image, id error);
-     *   struct block_descriptor *descriptor;
-     *   SnapshotCtx *ctx;   // captured variable
-     */
-    struct block_descriptor_snapshot {
-        unsigned long int reserved;
-        unsigned long int size;
+    /* Clang keeps the by-reference context alive while WebKit owns the block.
+     * Completion runs on the main queue; a cleared semaphore marks timeout. */
+    typedef void (^SnapshotCompletion)(id, id);
+    SnapshotCompletion completion = ^(id image, id error) {
+        if (!ctx.sem) return;
+        ctx.image = ((id (*)(id, SEL))objc_msgSend)(
+            image, sel_registerName("retain"));
+        ctx.error = error != (id)0;
+        dispatch_semaphore_signal(ctx.sem);
     };
-
-    typedef struct snapshot_block {
-        void *isa;
-        int   flags;
-        int   reserved_field;
-        void (*invoke)(struct snapshot_block *, id, id);
-        struct block_descriptor_snapshot *descriptor;
-        SnapshotCtx *ctx;
-    } SnapshotBlock;
-
-    /* Block invoke function: fires when the snapshot completes.
-     * Signature: void(^)(NSImage *image, NSError *error)              */
-    void snapshot_block_invoke(SnapshotBlock *b, id image, id error) {
-        (void)error;
-        b->ctx->image = image;
-        b->ctx->error = (error && error != (id)0) ? 1 : 0;
-        dispatch_semaphore_signal(b->ctx->sem);
-    }
-
-    static struct block_descriptor_snapshot desc = {
-        0, sizeof(SnapshotBlock)
-    };
-
-    /* _NSConcreteStackBlock — resolved from libobjc at runtime.
-     * The extern symbol is declared in <Block.h> but we access it
-     * directly since we compile as pure C without Block.h.           */
-    extern void _NSConcreteStackBlock;
-
-    SnapshotBlock blk;
-    blk.isa            = &_NSConcreteStackBlock;
-    blk.flags          = 0;
-    blk.reserved_field = 0;
-    blk.invoke         = snapshot_block_invoke;
-    blk.descriptor     = &desc;
-    blk.ctx            = &ctx;
-
     SEL sel_snap = sel_registerName("takeSnapshotWithConfiguration:completionHandler:");
-    ((void (*)(id, SEL, id, SnapshotBlock *))objc_msgSend)(
-        (id)webview, sel_snap, nil_cfg, &blk);
+    ((void (*)(id, SEL, id, SnapshotCompletion))objc_msgSend)(
+        (id)webview, sel_snap, (id)0, completion);
 
     /* Pump the run loop until the semaphore signals or 5 s elapses. */
     int timeout = 0;
@@ -849,9 +786,14 @@ PICOLET_API int picolet_wkwv_take_snapshot(void *webview,
         }
         timeout = 1;
     }
-    dispatch_release(ctx.sem);
+    dispatch_semaphore_t sem = ctx.sem;
+    ctx.sem = NULL;
+    dispatch_release(sem);
 
-    if (timeout || ctx.error || !ctx.image) return -1;
+    if (timeout || ctx.error || !ctx.image) {
+        ((void (*)(id, SEL))objc_msgSend)(ctx.image, sel_registerName("release"));
+        return -1;
+    }
 
     /* Convert NSImage → PNG bytes via NSBitmapImageRep.
      * [NSBitmapImageRep representationOfImageRepsInArray:
@@ -875,6 +817,7 @@ PICOLET_API int picolet_wkwv_take_snapshot(void *webview,
     /* properties = nil (pass 0 as NSDictionary*) */
     id png_data = ((id (*)(id, SEL, id, NSUInteger, id))objc_msgSend)(
         (id)cls_bmpir, sel_png, reps, (NSUInteger)4, (id)0);
+    ((void (*)(id, SEL))objc_msgSend)(ctx.image, sel_registerName("release"));
 
     if (!png_data) return -1;
 
@@ -896,19 +839,9 @@ PICOLET_API int picolet_wkwv_take_snapshot(void *webview,
 /* ----------------------------------------------------------------------- */
 
 PICOLET_API int picolet_wkwv_enable_inspector(int port) {
-    /* Set NSUserDefaults keys before WKWebView is created.
-     *
-     * WebInspectorServerEnabled + WebInspectorPort are the NSUserDefaults
-     * keys that enable the WKRP (WebKit Remote Protocol) TCP listener.
-     * They must be set before any WKWebView is created.
-     *
-     * These keys are documented at:
-     * https://webkit.org/blog/1587/programmatic-access-to-the-web-inspector/
-     *
-     * Note: reliable TCP-port control via WebInspectorPort may not work
-     * on all macOS versions (see FR-WV-MAC-7 risk notes in PHASE_25 spec).
-     * If port = 0, we just enable the inspector without specifying a port.
-     */
+    /* Request inspection preferences before creating the view. These keys
+     * do not establish a supported localhost HTTP/WebSocket endpoint.
+     * The public isInspectable property enables Safari inspection. */
     Class cls_ud = objc_class("NSUserDefaults");
     SEL sel_std = sel_registerName("standardUserDefaults");
     id ud = ((id (*)(id, SEL))objc_msgSend)((id)cls_ud, sel_std);
