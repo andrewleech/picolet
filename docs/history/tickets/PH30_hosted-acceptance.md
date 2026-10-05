@@ -4,6 +4,7 @@ Phase: PH30, with PH31 matrix verification in parallel.
 Depends on: successful clean checkout and integration composition, six macOS runtime builds.
 Written: 2026-10-06 at HEAD 75fe167.
 Revalidated: 2026-10-06 at HEAD 75fe167, current execution ticket.
+Revalidated: 2026-10-06 at HEAD 1968a96, after hosted checkout/build portability repairs.
 
 ## Context
 
@@ -39,4 +40,8 @@ Use Luna for independently bounded fixes and evidence collection, coordinator ow
 
 ## Unresolved evidence
 
-Hosted builds/runtime results are still pending. Apple SDK cross-build licensing, signing credentials and post-v1.2 packaging/architecture design are not needed to verify this ticket and are not guessed.
+Hosted macOS runtime results remain pending. Linux/Windows CLI, webview and LVGL builds have passed. The existing WKWebView inspector contract is not established: the runtime selects/announces an unused port but starts no listener, while AppHarness assumes HTTP target discovery and WebSocket transport. Apple documents `WKWebView.isInspectable` for Safari's Develop menu, not a supported localhost HTTP/WebSocket automation endpoint. WebKit's `Page` protocol defines snapshot methods returning `dataURL`, not Chromium's `Page.captureScreenshot` response. FR-WV-MAC-7 and FR-TEST-MAC-2 therefore require a contract/design decision before they can be honestly accepted. The native `takeSnapshotWithConfiguration:completionHandler:` implementation is available, but the harness does not route to it. Do not replace this requirement silently with a different test bridge.
+
+Primary references: [Apple isInspectable API](https://developer.apple.com/documentation/webkit/wkwebview/isinspectable), [WebKit inspection guidance](https://webkit.org/blog/13936/enabling-the-inspection-of-web-content-in-apps/), and [WebKit Page protocol](https://github.com/WebKit/WebKit/blob/main/Source/JavaScriptCore/inspector/protocol/Page.json). The phase-25 script also calls nonexistent `AppHarness.snapshot()` rather than the implemented `screenshot(path)` method, so it is not existing runtime proof.
+
+The macOS performance checker now attempts native window visibility and a PNG capture, recording connection/capture failures as failed measurements rather than Linux-only success/skips. Its first-paint verdict depends on resolving the inspector/snapshot contract above. Apple SDK cross-build licensing, signing credentials and post-v1.2 packaging/architecture design are separate decisions and are not guessed.
