@@ -59,7 +59,11 @@ The CI SAST matrix is configured for all 15 runtime combinations on their suppor
 
 Opengrep stable 1.30.0 is the default report-only scanner. Manual workflow dispatch selects one analyzer from Opengrep stable, Opengrep interfile alpha, Semgrep CE 1.179.0, Ruff `S` 0.16.8, Pyrefly 1.3.2, or Pysa 0.10.0. Each scanner has a positive and negative fixture check and produces SARIF or its native JSON output. Findings remain report-only because the existing findings have not been triaged into a reviewed baseline.
 
-The SAST matrix captures actual C/C++ compiler calls while building all 15 accepted target/variant combinations. The manifest exporter uses the same MicroPython `ManifestFile` resolver inputs as runtime builds; scope JSON preserves each frozen file's repository path, frozen target path and owner. The interfile alpha runs on Linux cells only because its tested binary is Linux x86 and its previous trial was slow and noisy.
+Report-only applies to findings/type diagnostics, not scanner startup or operational errors. Each invocation removes its previous report before execution and requires a new report; unexpected tool exit codes fail the command. Pyrefly diagnostics remain non-gating but are recorded in `analysis-prerequisites.json` and the summary; Pysa summaries mark coverage incomplete when that prerequisite has diagnostics. This does not establish complete coverage when diagnostics are absent. Source-scope and execution-status regression tests run in the SAST matrix.
+
+The initial Linux CLI findings dispositions are recorded in [PH31_findings-review.md](PH31_findings-review.md). They do not introduce suppressions or a gating baseline.
+
+The SAST matrix captures actual C/C++ compiler calls while building all 15 accepted target/variant combinations. The manifest exporter uses the same MicroPython `ManifestFile` resolver inputs as runtime builds; scope JSON preserves each frozen file's repository path, frozen target path and owner. The interfile alpha runs on Linux-hosted cells, including Windows cross-builds, because its tested binary is Linux x86 and its previous trial was slow and noisy. Its matrix is selected before job expansion rather than through an invalid job-level matrix condition.
 
 
 No GitLab rule-pack expansion is part of this work.

@@ -13,7 +13,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-
 SCANNERS = (
     "opengrep-stable",
     "opengrep-interfile-alpha",
@@ -108,10 +107,25 @@ def _write_summary(path: Path, scanner: str, target: str, variant: str, sources:
         "source_counts": {name: len(files) for name, files in sources.items()},
         "source_owners": sorted(owners),
     }
+    if scanner in {"pyrefly", "pysa"}:
+        prerequisites = json.loads(path.parent.joinpath("analysis-prerequisites.json").read_text(encoding="utf-8"))
+        payload["prerequisites"] = prerequisites
+        payload["coverage_status"] = "incomplete" if prerequisites["type_diagnostics_present"] else "not_assessed"
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _invoke(command: list[str], cwd: Path, output: Path | None = None, log_path: Path | None = None) -> int:
+def _invoke(
+    command: list[str],
+    cwd: Path,
+    output: Path | None = None,
+    log_path: Path | None = None,
+    allowed_exit_codes: tuple[int, ...] = (0,),
+) -> int:
+    if output is not None:
+        if output.is_dir():
+            shutil.rmtree(output)
+        else:
+            output.unlink(missing_ok=True)
     result = subprocess.run(command, cwd=cwd, check=False, capture_output=True, text=True)
     log = result.stdout + result.stderr
     if log_path is not None:
@@ -120,9 +134,21 @@ def _invoke(command: list[str], cwd: Path, output: Path | None = None, log_path:
         print(result.stdout, end="")
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
-    if result.returncode and (output is None or not output.exists()):
-        raise RuntimeError(f"analysis tool failed without producing its report (exit {result.returncode}): {command[0]}")
+    if result.returncode not in allowed_exit_codes:
+        raise RuntimeError(f"analysis tool failed (exit {result.returncode}): {command[0]}")
+    if output is not None and not output.exists():
+        raise RuntimeError(f"analysis tool did not produce its report: {command[0]}")
     return result.returncode
+
+
+def _tool_status(scanner: str, rc: int) -> str:
+    if scanner in {"semgrep-ce", "opengrep-stable", "opengrep-interfile-alpha"}:
+        return "findings" if rc == 1 else "clean"
+    if scanner == "pyrefly":
+        return "diagnostics" if rc == 1 else "clean"
+    if scanner == "pysa":
+        return "diagnostics" if rc == 1 else "clean"
+    return "clean"
 
 
 def _stage_runtime_sources(scope: dict[str, Any], repo_root: Path, destination: Path) -> list[Path]:
@@ -215,10 +241,21 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
             f"sarif:{pyrefly_report}",
             *map(str, staged),
         ]
-        pyrefly_rc = _invoke(pyrefly_command, repo_root, pyrefly_report, output_dir / "pyrefly.log")
+        pyrefly_rc = _invoke(
+            # Exit 1 denotes type diagnostics, not a failed invocation.
+            pyrefly_command, repo_root, pyrefly_report, output_dir / "pyrefly.log",
+            allowed_exit_codes=(0, 1),
+        )
+        (output_dir / "analysis-prerequisites.json").write_text(
+            json.dumps({"pyrefly_exit_code": pyrefly_rc, "type_diagnostics_present": pyrefly_rc == 1}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        if pyrefly_rc:
+            print(f"Pyrefly reported diagnostics; downstream Pysa analysis may be incomplete (exit {pyrefly_rc}).", file=sys.stderr)
         _rebase_report_paths(pyrefly_report, scope, work, repo_root)
         if scanner == "pyrefly":
             return pyrefly_rc
+
 
         pyre_config = {
             "source_directories": [str(work / "src")],
@@ -242,14 +279,22 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
             "--pyrefly-results",
             str(pyrefly_pysa_report),
         ]
-        pysa_rc = _invoke(pysa_command, work, pysa_dir, output_dir / "pysa.log")
+        pysa_rc = _invoke(
+            pysa_command, work, pysa_dir, output_dir / "pysa.log",
+            allowed_exit_codes=(0, 1),
+        )
         _rebase_report_paths(pyrefly_pysa_report, scope, work, repo_root)
         _rebase_report_paths(pysa_dir, scope, work, repo_root)
+        if pyrefly_rc:
+            print(f"Pysa result is incomplete because Pyrefly exited {pyrefly_rc}.", file=sys.stderr)
         return pysa_rc
+
 
 
 def run(scanner: str, repo_root: Path, target: str, variant: str, compile_database: Path | None, output_dir: Path) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "analysis-summary.json").unlink(missing_ok=True)
+    (output_dir / "analysis-prerequisites.json").unlink(missing_ok=True)
     resolver = _load_scope_resolver(repo_root)
     scope = resolver(repo_root, target, variant)
     (output_dir / "runtime-scope.json").write_text(
@@ -359,10 +404,16 @@ def run(scanner: str, repo_root: Path, target: str, variant: str, compile_databa
                         ]
                     )
                 command.extend(map(str, scan_files))
-                scan_rc = _invoke(command, repo_root, sarif, output_dir / f"{scanner}-{scope_name}.log")
+                scan_rc = _invoke(
+                    command, repo_root, sarif, output_dir / f"{scanner}-{scope_name}.log",
+                    allowed_exit_codes=(0, 1),
+                )
                 rc = max(rc, scan_rc)
 
     _write_summary(output_dir / "analysis-summary.json", scanner, target, variant, sources, rc)
+    status = _tool_status(scanner, rc)
+    if status != "clean":
+        print(f"{scanner} completed with {status} (tool exit {rc}); findings and diagnostics are report-only.", file=sys.stderr)
     return 0
 
 
@@ -381,10 +432,10 @@ def main() -> int:
     if compile_database is not None and not compile_database.is_absolute():
         compile_database = repo_root / compile_database
     try:
-        run(args.scanner, repo_root, args.target, args.variant, compile_database, output_dir)
+        return run(args.scanner, repo_root, args.target, args.variant, compile_database, output_dir)
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
-        parser.error(str(exc))
-    return 0
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

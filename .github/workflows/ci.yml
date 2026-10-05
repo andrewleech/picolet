@@ -136,7 +136,7 @@ jobs:
 
       - name: Install build prerequisites
         run: |
-          python3 -m pip install mpremote
+          python3 -m pip install mpremote pytest
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             brew install automake libtool
             if [[ "${{ matrix.variant }}" == "lvgl" ]]; then
@@ -149,6 +149,9 @@ jobs:
               docker pull dockcross/windows-static-x64-posix:latest
             fi
           fi
+
+      - name: Test source scope and analysis status
+        run: python3 -m pytest tests/phase-31/ -q
 
       - name: Install Opengrep stable
         if: env.SAST_SCANNER == 'opengrep-stable'
