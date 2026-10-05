@@ -49,7 +49,7 @@ This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAS
 
 Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack is recorded as a comparison only; it does not replace GitLab Advanced SAST or establish equivalent coverage. Reopen this question only if running the actual analyzer becomes available or the roadmap decision changes.
 
-The source-boundary inventory and JavaScript / TypeScript source map are recorded below, and read-only probes verified manifest resolution for all eight runtime manifests. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands, export the manifest file list with build-identical variables, settle whether `mcp` / `tui` variants outside the CI matrix are included, and finish explicit source ownership/exclusion rules before choosing CI gates.
+The source-boundary inventory and JavaScript / TypeScript source map are recorded below, and read-only probes verified manifest resolution for all eight runtime manifests. All trialled scanners must remain available through run-time selection, a settled requirement recorded below; the selection interface remains to be designed. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands, export the manifest file list with build-identical variables, settle whether `mcp` / `tui` variants outside the CI matrix are included, and finish explicit source ownership/exclusion rules before choosing CI gates.
 
 - Runtime makefiles and variant configurations define native build inputs; a repository-wide source scan is not equivalent.
 - Frozen/runtime Python is manifest-selected and host CLI Python remains a separate package. Examples combine app code with tests and tooling.
@@ -58,6 +58,16 @@ The source-boundary inventory and JavaScript / TypeScript source map are recorde
 
 
 No GitLab rule-pack expansion is part of this work.
+
+### Runtime-selectable scanner execution
+
+**Settled direction, 2026-10-06:** every scanner trialled so far remains supported as an independently selectable execution path. The selected scanner set at invocation time determines which analyzers run; the scanner portfolio must not be hard-wired as one inseparable run. Scanner availability and selection are separate from whether its result is a CI gate.
+
+The trialled scanners are Semgrep CE, Opengrep stable, Opengrep interfile alpha, Ruff `S`, and Pysa. Pyrefly was also trialled as a type checker and is part of the evaluated analysis set, though it has no security rule pack. The public GitLab Semgrep pack was trialled through Opengrep; that does not make GitLab Advanced SAST available or equivalent.
+
+The invocation interface, default selection, per-scanner options, and behaviour when a selected tool is unavailable remain open design details. Resolve those while defining the runner, without changing the requirement that every tried tool is selectable.
+
+
 
 
 
@@ -143,15 +153,16 @@ This pass confirms the scope-authority model and its gaps; it does not implement
 ## Deliverables
 
 - A tool-by-tool decision table with supported language, scope authority, local command, CI location, output format, licensing and gating role.
-- A GitHub Actions workflow or jobs that run the selected tools on pull requests and can be reproduced with documented local commands.
-- Scope generation for compiled C/C++ and manifest-frozen Python that follows the build configuration rather than scanning unrelated checked-out source.
+- A runtime-selectable runner supports the trialled scanner set and executes only the scanner(s) selected for that invocation; local and CI runs use the same selection interface.
+- Scope generation for compiled C/C++ and manifest-frozen Python follows the build configuration rather than scanning unrelated checked-out source.
 - SARIF or another native CI result format where supported, with unowned / vendored findings routed or reported separately from Picolet-authored findings.
 - A reviewed baseline and explicit policy for new findings, suppressions, and failures caused by unavailable or incomplete analysis.
 - Updated documentation with the selected scanner set, versions, coverage gaps and local run instructions.
 
 ## Acceptance
 
-- Every current SAST portfolio tool has an explicit keep / defer / drop / not-applicable decision for Picolet; duplicate coverage and licence or runner constraints are recorded.
+- Every scanner trialled to date remains supported and individually selectable, regardless of whether its results are configured as a CI gate.
+- Portfolio candidates not yet trialled have an explicit keep / defer / not-applicable decision for Picolet; duplicate coverage and licence or runner constraints are recorded.
 - Each selected tool scans the intended source scope, and scope tests show that production source is included while unrelated generated, vendored test or host-only code is handled as documented.
 - A clean checkout can run each selected scanner locally using the same pinned version and configuration as CI.
 - Pull-request CI publishes readable results and applies the agreed finding policy without treating known baseline findings as newly introduced defects.
