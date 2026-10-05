@@ -45,6 +45,19 @@ An unscoped repository-root run with the same rule directories traversed 57,627 
 
 This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAST run. The open GitLab pack detects useful local patterns, but the example scan's findings are largely general lint-like checks rather than cross-file taint paths. For an Advanced SAST comparison, use the actual GitLab Ultimate analyzer on CI or report the unavailable proprietary engine/rules as a coverage gap.
 
+## Current status and next work
+
+Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack is recorded as a comparison only; it does not replace GitLab Advanced SAST or establish equivalent coverage. Reopen this question only if running the actual analyzer becomes available or the roadmap decision changes.
+
+The next PH31 work is the tool and source-scope inventory, before choosing CI gates:
+
+- Picolet-owned native code is under `packages/picolet-runtime/variants/` and `packages/picolet-runtime/user_c_modules/`. Runtime builds also compile the MicroPython integration submodule and the LVGL binding dependency, which need explicit ownership/scope treatment rather than silently being counted as Picolet code.
+- Frozen/runtime Python is under `packages/picolet-runtime/python/`, selected through `packages/picolet-runtime/manifests/`. Host CLI Python is under `packages/picolet/`; the examples contain their own Python and Vue / TypeScript sources.
+- The runtime release workflow builds Linux, Windows, and macOS target/variant matrices, but the listed GitHub workflows contain no SAST or CodeQL job. The release workflow is not a pull-request analysis gate.
+- The C/C++ scope still needs to be derived from the compile commands for each selected CI runtime build. Frozen Python needs manifest-derived scope, separate from host CLI, example and vendored Python.
+
+Do this scope/ownership pass next, then decide which scanners fit each source class. No GitLab rule-pack expansion is part of that work.
+
 
 ## Scope
 
