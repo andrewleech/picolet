@@ -2,7 +2,7 @@
  * picolet_lvgl_png.c — minimal PNG encoder for the LVGL test snapshot API.
  *
  * PH17 (FR-TEST-2).  Encodes an RGB888 framebuffer to a valid PNG stream
- * using zlib (dlopen'd as libz.so.1 at first call) for DEFLATE compression.
+ * using the platform zlib library loaded at first call for DEFLATE compression.
  *
  * PNG format (RFC 2083):
  *   8-byte magic
@@ -14,7 +14,7 @@
  * Simple, minimal code; compression ratio is lower than adaptive but the
  * output is valid.
  *
- * Dynamic dependency: libz.so.1 (zlib, LGPL-2.1+, runtime dlopen).
+ * Dynamic dependency: system zlib (LGPL-2.1+, runtime dlopen).
  * Static link is avoided to satisfy NFR-5.
  *
  * License: MIT (picolet code).
@@ -77,8 +77,12 @@ static pfn_crc32        g_crc32        = NULL;
 
 static int load_zlib(void) {
     if (g_zlib_handle != NULL) { return 0; }
-    /* Try common sonames. */
+    /* Darwin ships libz.dylib; Linux uses the libz.so soname. */
+#if defined(__APPLE__)
+    const char *names[] = { "libz.dylib", NULL };
+#else
     const char *names[] = { "libz.so.1", "libz.so", NULL };
+#endif
     for (int i = 0; names[i]; i++) {
         g_zlib_handle = dlopen(names[i], RTLD_LAZY | RTLD_LOCAL);
         if (g_zlib_handle) break;

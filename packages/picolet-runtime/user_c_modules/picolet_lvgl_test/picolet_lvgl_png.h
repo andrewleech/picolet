@@ -6,8 +6,8 @@
  * AppHarness can assert on.
  *
  * The encoder uses system libz (zlib) for DEFLATE compression.  libz is
- * LGPL-2.1+ and is dynamically linked — dlopen("libz.so.1") at runtime
- * inside the shim.  This satisfies NFR-5 (no static GPL/LGPL linking).
+ * LGPL-2.1+ and is dynamically loaded at runtime (libz.dylib on Darwin,
+ * libz.so.1 on Linux).  This satisfies NFR-5 (no static GPL/LGPL linking).
  *
  * License: MIT (picolet code).
  */

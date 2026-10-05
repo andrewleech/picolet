@@ -63,6 +63,11 @@ int   picolet_wkwv_pick_test_port(void)                                { return 
 #include <string.h>
 #include <stdio.h>
 
+/* Foundation integer types are pointer-sized on Darwin.  Keep the ABI types
+ * available without importing Foundation into this plain C translation unit. */
+typedef intptr_t NSInteger;
+typedef uintptr_t NSUInteger;
+
 /* ObjC runtime — public C API, no .m required. */
 #include <objc/objc.h>
 #include <objc/runtime.h>
@@ -89,22 +94,10 @@ int   picolet_wkwv_pick_test_port(void)                                { return 
 #define PICOLET_API __attribute__((visibility("default")))
 
 /* ----------------------------------------------------------------------- */
-/* objc_msgSend cast helpers                                                 */
-/*                                                                           */
-/* The C standard prohibits calling a function through an incompatible      */
-/* pointer type.  We cast objc_msgSend to the concrete prototype required   */
-/* by each call site.  This is the only correct approach (used by PyObjC,   */
-/* gnustep-make, and apple's own open-source ObjC bridge implementations).  */
-/*                                                                           */
-/* Struct-return calls:                                                      */
-/*   arm64:  CGRect (16 bytes) fits in two x0/x1 registers — use the        */
-/*           standard objc_msgSend signature.                                */
-/*   x86_64: large structs are returned via a hidden first pointer arg —    */
-/*           use objc_msgSend_stret.  CGRect is 32 bytes on x86_64.         */
-/*                                                                           */
-/* We wrap all CGRect-returning calls in picolet_wkwv_make_rect so neither    */
-/* Python nor the pump code calls *_stret directly.                          */
-/* ----------------------------------------------------------------------- */
+/* Cast objc_msgSend to each method's concrete prototype.  The initializers
+ * below return id even though they take CGRect arguments, so use the normal
+ * message ABI on both x86_64 and arm64.  objc_msgSend_stret is for methods
+ * that return a struct, not methods that take one. */
 
 /* CGPoint and CGSize are both { double x; double y } / { double w; double h }. */
 typedef struct { double x; double y; } PICOLET_CGPoint;
@@ -129,9 +122,9 @@ static PICOLET_CGRect picolet_make_rect(double x, double y, double w, double h) 
 /* a pointer-sized value written atomically on all Apple architectures.     */
 /* ----------------------------------------------------------------------- */
 
-#define SEL_CACHED(name) \
+#define SEL_CACHED(name, selector) \
     static SEL _sel_##name = 0; \
-    if (!_sel_##name) _sel_##name = sel_registerName(#name); \
+    if (!_sel_##name) _sel_##name = sel_registerName(selector); \
     SEL _s = _sel_##name; (void)_s
 
 /* Convenience: look up a class and assert it's non-NULL. */
@@ -150,7 +143,7 @@ static Class objc_class(const char *name) {
 /* Create an NSString from a UTF-8 C string. */
 static id nsstring_from_utf8(const char *s) {
     if (!s) return 0;
-    SEL_CACHED(stringWithUTF8String:);
+    SEL_CACHED(stringWithUTF8String, "stringWithUTF8String:");
     id cls = (id)objc_class("NSString");
     return ((id (*)(id, SEL, const char *))objc_msgSend)(cls, _s, s);
 }
@@ -158,7 +151,7 @@ static id nsstring_from_utf8(const char *s) {
 /* Copy an NSString to a malloc'd UTF-8 C string.  Caller must free(). */
 static char *nsstring_to_utf8(id ns) {
     if (!ns) return NULL;
-    SEL_CACHED(UTF8String);
+    SEL_CACHED(UTF8String, "UTF8String");
     const char *cstr = ((const char *(*)(id, SEL))objc_msgSend)(ns, _s);
     if (!cstr) return NULL;
     return strdup(cstr);
@@ -171,13 +164,13 @@ static char *nsstring_to_utf8(id ns) {
 /* Get bytes pointer and length from an NSData object. */
 static const uint8_t *nsdata_bytes(id data) {
     if (!data) return NULL;
-    SEL_CACHED(bytes);
+    SEL_CACHED(bytes, "bytes");
     return ((const uint8_t *(*)(id, SEL))objc_msgSend)(data, _s);
 }
 
 static size_t nsdata_length(id data) {
     if (!data) return 0;
-    SEL_CACHED(length);
+    SEL_CACHED(length, "length");
     return (size_t)((NSUInteger (*)(id, SEL))objc_msgSend)(data, _s);
 }
 
@@ -365,27 +358,11 @@ PICOLET_API void *picolet_wkwv_create_window(const char *title, int w, int h) {
     NSUInteger style = 1 | 2 | 4 | 8;
 
     SEL sel_init = sel_registerName("initWithContentRect:styleMask:backing:defer:");
-    /* backing: NSBackingStoreBuffered = 2; defer: NO = 0 */
-#if defined(__x86_64__)
-    /* On x86_64, initWithContentRect:... takes a struct first argument by
-     * hidden reference (stret ABI) via objc_msgSend_stret.              */
-    PICOLET_CGRect result_ignored;
-    ((void (*)(PICOLET_CGRect *, id, SEL, PICOLET_CGRect, NSUInteger, NSUInteger, BOOL))
-        objc_msgSend_stret)(
-        &result_ignored, win, sel_init,
-        frame, style, (NSUInteger)2, (BOOL)0);
-    /* On x86_64 objc_msgSend_stret with a pointer receiver-as-first arg
-     * mutates `win` in place (the alloc'd object is initialised in-place
-     * and the call returns via the hidden pointer, not via rax).  So win
-     * is still the correct pointer after the call.                      */
-#else
-    /* arm64: CGRect ≤ 16B in registers — standard objc_msgSend.
-     * NSWindow is > 16B but the return is the same `win` pointer here.
-     * Use the id-returning variant; the real return is the same object. */
+    /* initWithContentRect:... returns id on both architectures.  CGRect is
+     * an argument here, not a struct return, so use the normal message ABI. */
     win = ((id (*)(id, SEL, PICOLET_CGRect, NSUInteger, NSUInteger, BOOL))
-               objc_msgSend)(win, sel_init,
-                              frame, style, (NSUInteger)2, (BOOL)0);
-#endif
+               objc_msgSend)(win, sel_init, frame, style,
+                              (NSUInteger)2, (BOOL)0);
     if (!win) return NULL;
 
     /* setTitle: */
@@ -492,18 +469,11 @@ PICOLET_API void *picolet_wkwv_create_webview(void *window, int w, int h) {
 
     PICOLET_CGRect frame = picolet_make_rect(0.0, 0.0, (double)w, (double)h);
 
-#if defined(__x86_64__)
-    PICOLET_CGRect stret_out;
     SEL sel_init_frame = sel_registerName("initWithFrame:configuration:");
-    ((void (*)(PICOLET_CGRect *, id, SEL, PICOLET_CGRect, id))
-        objc_msgSend_stret)(
-        &stret_out, wv, sel_init_frame, frame, cfg);
-    /* wv is the correct pointer even after stret init (same object). */
-#else
-    SEL sel_init_frame = sel_registerName("initWithFrame:configuration:");
+    /* This initializer returns id.  CGRect is an argument, not a struct
+     * return, so objc_msgSend has the correct ABI on x86_64 and arm64. */
     wv = ((id (*)(id, SEL, PICOLET_CGRect, id))objc_msgSend)(
         wv, sel_init_frame, frame, cfg);
-#endif
     if (!wv) return NULL;
     g_webview = wv;
 

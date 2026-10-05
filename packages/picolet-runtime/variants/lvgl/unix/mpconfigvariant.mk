@@ -100,20 +100,25 @@ SRC_C += $(PICOLET_RUNTIME_ROOT)/variants/common/romfs_trailer.c
 INC += -I$(PICOLET_RUNTIME_ROOT)/variants/common
 
 # PH17 — PNG encoder for picolet._test.snapshot() (FR-TEST-2).
-# picolet_lvgl_png.c uses dlopen to load libz.so.1 at runtime; no static
+# picolet_lvgl_png.c loads the platform zlib library at runtime; no static
 # link of zlib is needed (satisfies NFR-5).
 SRC_C += $(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_lvgl_test/picolet_lvgl_png.c
 INC += -I$(PICOLET_RUNTIME_ROOT)/user_c_modules/picolet_lvgl_test
 # Export the picolet_lvgl_png_* symbols so libffi.ffi.open(None) can resolve them.
 # LDFLAGS_EXTRA survives py.mk's LDFLAGS_USERMOD := reset (variant mk is
 # loaded before py.mk's foreach loop which resets LDFLAGS_USERMOD to empty).
+ifeq ($(UNAME_S),Darwin)
+# Mach-O uses -u with a leading underscore to retain these FFI-only symbols.
+# -export_dynamic makes default-visible symbols available to ffi.open(None).
+LDFLAGS_EXTRA += -Wl,-export_dynamic
+LDFLAGS_EXTRA += -Wl,-u,_picolet_lvgl_png_encode
+LDFLAGS_EXTRA += -Wl,-u,_picolet_lvgl_png_free
+else
 LDFLAGS_EXTRA += -Wl,--export-dynamic
-# Force linker to retain picolet_lvgl_png_* despite --gc-sections.
-# These symbols are referenced only by name through the MicroPython FFI
-# string lookup at runtime — the linker sees no C-level call site and
-# would otherwise eliminate the section. --undefined= acts like a
-# synthetic reference, making the section reachable from the GC root.
+# --undefined= acts like a synthetic reference, making the section reachable
+# from the GC root.
 LDFLAGS_EXTRA += -Wl,--undefined=picolet_lvgl_png_encode
 LDFLAGS_EXTRA += -Wl,--undefined=picolet_lvgl_png_free
-# -ldl for dlopen/dlsym used by the PNG encoder.
+# -ldl for dlopen/dlsym used by the PNG encoder on Linux.
 LDFLAGS_EXTRA += -ldl
+endif
