@@ -49,14 +49,69 @@ This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAS
 
 Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack is recorded as a comparison only; it does not replace GitLab Advanced SAST or establish equivalent coverage. Reopen this question only if running the actual analyzer becomes available or the roadmap decision changes.
 
-The next PH31 work is the tool and source-scope inventory, before choosing CI gates:
+The initial source-boundary inventory is recorded below. GitLab rule-source exploration remains parked; the remaining PH31 scope work is to generate and verify build-resolved native and frozen-Python inputs, then finish the JavaScript / TypeScript ownership map before choosing CI gates.
 
-- Picolet-owned native code is under `packages/picolet-runtime/variants/` and `packages/picolet-runtime/user_c_modules/`. Runtime builds also compile the MicroPython integration submodule and the LVGL binding dependency, which need explicit ownership/scope treatment rather than silently being counted as Picolet code.
-- Frozen/runtime Python is under `packages/picolet-runtime/python/`, selected through `packages/picolet-runtime/manifests/`. Host CLI Python is under `packages/picolet/`; the examples contain their own Python and Vue / TypeScript sources.
-- The runtime release workflow builds Linux, Windows, and macOS target/variant matrices, but the listed GitHub workflows contain no SAST or CodeQL job. The release workflow is not a pull-request analysis gate.
-- The C/C++ scope still needs to be derived from the compile commands for each selected CI runtime build. Frozen Python needs manifest-derived scope, separate from host CLI, example and vendored Python.
+- The runtime makefiles and variant configurations define native build inputs; a repository-wide source scan is not equivalent.
+- Frozen/runtime Python is manifest-selected and host CLI Python remains a separate package. Examples combine app code with tests and tooling.
+- The release workflow covers Linux / Windows `cli`, `webview`, and `lvgl` variants plus macOS variants, but is tag/manual only and there is no PR SAST or CodeQL job.
+- The exact effective compile commands and frozen file lists are not currently emitted as analysis inputs.
 
-Do this scope/ownership pass next, then decide which scanners fit each source class. No GitLab rule-pack expansion is part of that work.
+No GitLab rule-pack expansion is part of this work.
+
+
+
+## Tool and source-scope inventory
+
+This inventory records the current source boundaries and their authority. It does not select scanners or turn any source class into a CI gate.
+
+### Native C/C++
+
+`build-runtime.sh` invokes the MicroPython unix or Windows port makefiles with `VARIANT_DIR` set to `packages/picolet-runtime/variants/<variant>/<port>`. The makefiles and variant files assemble the build source lists; scanning the runtime checkout recursively would include sources that are not compiled into the selected artifact.
+
+| Native source class | Current source authority | Ownership and scope note |
+|---|---|---|
+| Picolet runtime glue | `packages/picolet-runtime/variants/`, `variants/common/`, and `user_c_modules/` | Picolet-authored C/C++ sources, selected per variant and port. Includes sources explicitly added by `SRC_C` / `EXTRA_SRC_C` and files picked up through `$(wildcard $(VARIANT_DIR)/*.c)`. |
+| MicroPython runtime | `packages/picolet-runtime/micropython/` submodule | Upstream code plus the composed integration branch and downstream overlay changes. The build uses much of this tree, but that does not make the whole checkout Picolet-owned; preserve upstream / downstream ownership in findings. |
+| LVGL binding and LVGL | `packages/picolet-runtime/lib/lv_binding_micropython/` and its nested submodules | Registered as a C module by the LVGL manifests. It brings generated binding C plus LVGL and driver sources; it is a separate upstream dependency, not Picolet-authored source. |
+| Host build tool | `packages/picolet-runtime/micropython/mpy-cross/` | Built during runtime builds to compile frozen modules, but it is an upstream host executable and not code shipped in the runtime artifact. Do not conflate its compilation with the runtime's native target sources. |
+
+The Unix port adds its base `SRC_C`, its selected variant's `*.c`, and shared sources; variant makefiles can append further Picolet sources. The Windows port sets its own `SRC_C`, adds the variant's `*.c`, then adds `EXTRA_SRC_C` and the shared romfs trailer. In particular, a directory walk cannot model the Windows source list, and the LVGL manifest contributes its C module through MicroPython's `py/manifest.mk`.
+
+The `release.yml` build matrix is `{linux-x64, windows-x64} × {cli, webview, lvgl}` plus `{macos-x64, macos-arm64} × {cli, webview, lvgl}`. This workflow runs for runtime release tags or manual dispatch, not pull requests. Other buildable variants such as `mcp` and `tui` are not in this release matrix, so the eventual analysis target set must say whether those variants are also covered.
+
+No `compile_commands.json` is present at the repository root, and the runtime build commands do not currently emit one. The native analysis input therefore remains to be generated from each selected target/variant build, with a reliable association between each command and its source ownership. The generated C/C++ set should be checked against the actual make invocation, including manifest-added modules, rather than inferred from tracked paths alone.
+
+The Unix MicroPython makefile currently leaves `SRC_CXX` empty. Treat C++ as an analysis input only if a selected build's effective compiler commands include it; native source scope must follow commands actually emitted rather than assuming the language from extensions in the checkout.
+
+
+### Frozen and host-side Python
+
+Frozen Python scope is selected per variant by `FROZEN_MANIFEST` in `variants/*/*/mpconfigvariant.mk`. The current manifests use `freeze("../python", "picolet")`, `freeze("../python", "picolet_ui")`, or `freeze("../python", "picolet_tui")`; `manifest_lvgl*.py` also registers the LVGL C module. The build resolves those declarations through MicroPython's `makemanifest.py` and `mpy-cross`.
+
+The manifests also include `extmod/asyncio` and require selected modules such as `os-path`, `pathlib`, `__future__`, `functools`, and `itertools` from MicroPython / micropython-lib. `add_library()` declares available libraries; it is not by itself an instruction to freeze every file in those libraries. A future frozen-Python scope generator should consume the resolved manifest/build output or otherwise match `makemanifest.py`'s resolution, and retain the origin of each selected file. Scanning all of `packages/picolet-runtime/python/` would include packages not frozen in every variant; scanning all of the MicroPython submodule or micropython-lib would include unrelated upstream code.
+
+Keep these Python classes distinct:
+
+| Python source class | Current source authority | Scope note |
+|---|---|---|
+| Runtime frozen Python | `packages/picolet-runtime/python/` plus each selected manifest's resolved dependencies | Scan only the package files frozen for the analyzed variant. Track Picolet source separately from MicroPython / micropython-lib dependencies. |
+| Host CLI | `packages/picolet/picolet/` | This is the installed `picolet` CLI package, separate from the runtime-side `picolet` package under `packages/picolet-runtime/python/`. The workspace pytest path selects the CLI package globally. |
+| Tests and fixtures | `tests/` and package-local tests | Not part of a runtime artifact; whether selected test helpers are analysed is a separate policy choice. |
+| Examples | `examples/` | Mix of Python application code, Vue / TypeScript sources, build output and test / screenshot tooling. Keep app code distinct from generated bundles, vendored dependencies and test utilities. |
+
+### Web and TypeScript
+
+The JS / TypeScript surface is example-oriented rather than one uniform package scope. `packages/picolet-bridge-js/` and the source directories under `examples/` need to be inventoried against their own package manifests and build scripts before defining analysis inputs. Generated `dist/` output, installed dependencies, test code, and screenshot scripts must not silently become Picolet application source.
+
+### Scope decisions still needed
+
+- Choose which runtime variants and target platforms are part of native analysis, including whether the `mcp` and `tui` variants outside the release matrix are covered.
+- Capture each selected make invocation's effective C/C++ compiler commands, then classify commands and files as Picolet, MicroPython integration/overlay, LVGL binding, LVGL, or other dependency. Decide how shared compilation across targets is deduplicated without losing target-specific flags.
+- Define how resolved frozen Python inputs are exported from the build and how Picolet-owned files are distinguished from library / submodule files. The current checked-in manifests are the selection authority, but their indirect resolution is a build-time result.
+- Map host CLI, examples, bridge JS, generated outputs, tests and screenshot tooling to explicit include/exclude rules.
+- Continue into the per-tool decision table only after these source scopes and ownership boundaries are agreed.
+
+This pass confirms the scope-authority model and its gaps; it does not implement a compile database or frozen-file export.
 
 
 ## Scope
