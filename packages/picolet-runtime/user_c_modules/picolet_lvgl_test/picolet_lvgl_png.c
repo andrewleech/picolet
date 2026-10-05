@@ -1,7 +1,7 @@
 /*
  * picolet_lvgl_png.c — minimal PNG encoder for the LVGL test snapshot API.
  *
- * PH17 (FR-TEST-2).  Encodes an RGB888 framebuffer to a valid PNG stream
+ * PH17 (FR-TEST-2). Encodes a strided LVGL RGB888 (BGR byte order) framebuffer
  * using the platform zlib library loaded at first call for DEFLATE compression.
  *
  * PNG format (RFC 2083):
@@ -165,20 +165,19 @@ static int append_chunk(ByteBuf *out, const char *type,
 /* ----- Public API --------------------------------------------------------- */
 
 /*
- * __attribute__((used)) prevents --gc-sections from stripping these functions.
- * They are referenced only by name via libffi string lookup in frozen Python
- * bytecode (picolet._test.snapshot), so the linker sees no C-level call site
- * and would otherwise eliminate them.  The attribute forces the linker to
- * retain the symbols in the final binary regardless of reference analysis.
+ * These functions are resolved by name through libffi. The used attribute
+ * retains their definitions at compilation; variant linker flags root and
+ * export the symbols for lookup from frozen picolet._test.snapshot.
  */
 __attribute__((used))
-int32_t picolet_lvgl_png_encode(const uint8_t *rgb888,
-                              int32_t width, int32_t height,
+int32_t picolet_lvgl_png_encode(const uint8_t *bgr888,
+                              int32_t width, int32_t height, int32_t stride,
                               uint8_t **out_bytes, size_t *out_size) {
     *out_bytes = NULL;
     *out_size  = 0;
 
-    if (!rgb888 || width <= 0 || height <= 0) return -1;
+    if (!bgr888 || width <= 0 || height <= 0 ||
+        stride <= 0 || (size_t)stride < (size_t)width * 3) return -1;
     if (load_zlib() != 0) return -1;
 
     /* Build the raw scanline data with filter byte 0 (None) prepended to
@@ -191,7 +190,13 @@ int32_t picolet_lvgl_png_encode(const uint8_t *rgb888,
     for (int y = 0; y < height; y++) {
         size_t out_off = (size_t)y * (1 + row_bytes);
         raw[out_off] = 0x00;  /* filter type None */
-        memcpy(raw + out_off + 1, rgb888 + (size_t)y * row_bytes, row_bytes);
+        const uint8_t *src = bgr888 + (size_t)y * stride;
+        uint8_t *dst = raw + out_off + 1;
+        for (int x = 0; x < width; x++) {
+            dst[3 * x] = src[3 * x + 2];
+            dst[3 * x + 1] = src[3 * x + 1];
+            dst[3 * x + 2] = src[3 * x];
+        }
     }
 
     /* DEFLATE the scanline data. */

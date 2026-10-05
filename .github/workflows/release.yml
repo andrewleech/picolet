@@ -335,12 +335,24 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-      - name: Exercise native LVGL PNG encoding
+      - name: Exercise native LVGL display and rendered snapshot
         if: matrix.variant == 'lvgl'
+        env:
+          PICOLET_TEST_MODE: "1"
         run: |
           ARCH=$([ "${{ runner.arch }}" = "X64" ] && echo "x64" || echo "arm64")
           "packages/picolet-runtime/build/picolet-runtime-macos-${ARCH}-lvgl" \
-            -c 'import ffi, struct, uctypes; lib = ffi.open(None); encode = lib.func("i", "picolet_lvgl_png_encode", "piipp"); free = lib.func("v", "picolet_lvgl_png_free", "p"); rgb = bytearray(b"\xff\x00\x00\x00\xff\x00"); out = bytearray(8); size = bytearray(8); assert encode(uctypes.addressof(rgb), 2, 1, uctypes.addressof(out), uctypes.addressof(size)) == 0; ptr = struct.unpack("<Q", out)[0]; png = bytes(uctypes.bytearray_at(ptr, struct.unpack("<Q", size)[0])); free(ptr); assert png[:8] == b"\x89PNG\r\n\x1a\n"; assert struct.unpack(">II", png[16:24]) == (2, 1); print("native PNG smoke: 2x1 RGB")'
+            scripts/lvgl-ui-smoke.py /tmp/mac-lvgl-smoke.png
+          uv run --with pillow python -c 'from PIL import Image; image = Image.open("/tmp/mac-lvgl-smoke.png").convert("RGB"); assert image.size == (320, 240); assert image.getpixel((10, 10)) == (18, 52, 86); assert image.getpixel((60, 80)) == (240, 32, 64); print("native SDL window and rendered PNG colours verified")'
+
+      - name: Upload native LVGL scene evidence
+        if: always() && matrix.variant == 'lvgl'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-lvgl-smoke-${{ runner.arch }}
+          path: /tmp/mac-lvgl-smoke.png
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Compute SHA256 sidecar
         run: |

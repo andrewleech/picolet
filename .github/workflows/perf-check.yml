@@ -194,20 +194,36 @@ jobs:
             --variant webview
       - name: Build example frontends
         run: |
-          npm --prefix examples/pydfu ci
-          npm --prefix examples/pydfu run build
-          npm --prefix examples/notes ci
-          npm --prefix examples/notes run build
-      - name: Build pydfu example
+          for app in pydfu notes config-editor dashboard; do
+            npm --prefix "examples/$app" ci
+            npm --prefix "examples/$app" run build
+          done
+      - name: Build four example binaries
         run: |
-          uv run --project "$GITHUB_WORKSPACE/packages/picolet" --directory "$GITHUB_WORKSPACE/examples/pydfu" \
-            picolet build --target "${{ steps.target.outputs.target }}" \
-            --runtime "$GITHUB_WORKSPACE/packages/picolet-runtime/build/picolet-runtime-${{ steps.target.outputs.target }}-webview"
-      - name: Build notes example
+          for app in pydfu notes config-editor dashboard; do
+            uv run --project "$GITHUB_WORKSPACE/packages/picolet" --directory "$GITHUB_WORKSPACE/examples/$app" \
+              picolet build --target "${{ steps.target.outputs.target }}" \
+              --runtime "$GITHUB_WORKSPACE/packages/picolet-runtime/build/picolet-runtime-${{ steps.target.outputs.target }}-webview"
+          done
+      - name: Exercise native packaged app frontends and IPC
+        env:
+          PICOLET_TEST_MODE: "0"
+          PICOLET_NOTES_DIR: ${{ runner.temp }}/picolet-native-app-storage/notes
+          PICOLET_CONFIG_DIR: ${{ runner.temp }}/picolet-native-app-storage/config-editor
         run: |
-          uv run --project "$GITHUB_WORKSPACE/packages/picolet" --directory "$GITHUB_WORKSPACE/examples/notes" \
-            picolet build --target "${{ steps.target.outputs.target }}" \
-            --runtime "$GITHUB_WORKSPACE/packages/picolet-runtime/build/picolet-runtime-${{ steps.target.outputs.target }}-webview"
+          mkdir -p native-app-snapshots
+          for app in pydfu notes config-editor dashboard; do
+            "examples/$app/target/${{ steps.target.outputs.target }}/$app" \
+              scripts/mac-app-smoke.py "$app" "native-app-snapshots/$app.png"
+          done
+      - name: Upload native app snapshot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-app-snapshots-${{ matrix.os }}
+          path: native-app-snapshots/*.png
+          retention-days: 90
+          if-no-files-found: warn
       - name: Run perf-check
         run: |
           uv run --project packages/picolet --extra testing python scripts/perf-check.py \

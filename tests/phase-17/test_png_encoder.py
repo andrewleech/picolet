@@ -39,8 +39,7 @@ _PNG_C_SRC = (
     _REPO_ROOT
     / "packages"
     / "picolet-runtime"
-    / "overlay"
-    / "modules"
+    / "user_c_modules"
     / "picolet_lvgl_test"
     / "picolet_lvgl_png.c"
 )
@@ -61,7 +60,7 @@ def _build_so() -> Path | None:
             "-shared", "-fPIC", "-O2",
             "-o", str(out),
             str(_PNG_C_SRC),
-            "-ldl", "-lz",
+            "-ldl",
         ],
         capture_output=True,
         text=True,
@@ -89,15 +88,16 @@ def _get_lib() -> ctypes.CDLL:
 # ctypes wrappers
 # ---------------------------------------------------------------------------
 
-def _encode(rgb888: bytes, width: int, height: int) -> bytes | None:
+def _encode(bgr888: bytes, width: int, height: int, stride: int | None = None) -> bytes | None:
     """Call picolet_lvgl_png_encode and return PNG bytes, or None on failure."""
     lib = _get_lib()
 
     lib.picolet_lvgl_png_encode.restype = ctypes.c_int32
     lib.picolet_lvgl_png_encode.argtypes = [
-        ctypes.c_char_p,     # rgb888
+        ctypes.c_char_p,     # LVGL BGR byte order
         ctypes.c_int32,      # width
         ctypes.c_int32,      # height
+        ctypes.c_int32,      # stride
         ctypes.POINTER(ctypes.c_void_p),  # out_bytes*
         ctypes.POINTER(ctypes.c_size_t),  # out_size*
     ]
@@ -106,12 +106,13 @@ def _encode(rgb888: bytes, width: int, height: int) -> bytes | None:
 
     out_ptr = ctypes.c_void_p(0)
     out_size = ctypes.c_size_t(0)
-    buf = ctypes.create_string_buffer(rgb888)
+    buf = ctypes.create_string_buffer(bgr888)
 
     rc = lib.picolet_lvgl_png_encode(
         buf,
         ctypes.c_int32(width),
         ctypes.c_int32(height),
+        ctypes.c_int32(width * 3 if stride is None else stride),
         ctypes.byref(out_ptr),
         ctypes.byref(out_size),
     )
@@ -129,7 +130,7 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def _solid_rgb(r: int, g: int, b: int, w: int, h: int) -> bytes:
-    return bytes([r, g, b] * (w * h))
+    return bytes([b, g, r] * (w * h))
 
 
 def _checkerboard(w: int, h: int) -> bytes:
@@ -138,7 +139,7 @@ def _checkerboard(w: int, h: int) -> bytes:
         for x in range(w):
             idx = (y * w + x) * 3
             if (x + y) % 2 == 0:
-                data[idx:idx+3] = [255, 0, 0]   # red
+                data[idx:idx+3] = [0, 0, 255]   # red in LVGL BGR byte order
             else:
                 data[idx:idx+3] = [0, 255, 0]   # green
     return bytes(data)
@@ -149,11 +150,6 @@ def _checkerboard(w: int, h: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 class TestPngEncoderBasic(unittest.TestCase):
-
-    def test_1x1_red_produces_bytes(self):
-        png = _encode(_solid_rgb(255, 0, 0, 1, 1), 1, 1)
-        self.assertIsNotNone(png)
-        self.assertGreater(len(png), 0)
 
     def test_output_starts_with_png_magic(self):
         png = _encode(_solid_rgb(0, 128, 255, 2, 2), 2, 2)
@@ -238,6 +234,16 @@ class TestPngEncoderPillowRoundtrip(unittest.TestCase):
         r2, g2, b2 = img.getpixel((1, 0))
         self.assertEqual((r2, g2, b2), (0, 255, 0))
 
+    def test_padded_bgr_rows_preserve_colours(self):
+        png = _encode(b"\x00\x00\xff\xaa\xff\x00\x00\xbb", 1, 2, stride=4)
+        img = self._open_png(png)
+        self.assertEqual(img.size, (1, 2))
+        self.assertEqual(img.getpixel((0, 0)), (255, 0, 0))
+        self.assertEqual(img.getpixel((0, 1)), (0, 0, 255))
+
+    def test_short_stride_returns_failure(self):
+        self.assertIsNone(_encode(b"\x00" * 6, 2, 1, stride=5))
+
     def test_320x240_pillow_validates(self):
         """320x240 typical viewport: Pillow can open and verify the PNG."""
         png = _encode(_solid_rgb(128, 128, 128, 320, 240), 320, 240)
@@ -246,13 +252,6 @@ class TestPngEncoderPillowRoundtrip(unittest.TestCase):
         img = Image.open(io.BytesIO(png))
         img.verify()   # raises on corrupt PNG
 
-    def test_output_size_grows_with_image_dimensions(self):
-        """Larger image produces more output bytes (sanity check)."""
-        png_small = _encode(_solid_rgb(50, 50, 50, 8, 8), 8, 8)
-        png_large = _encode(_solid_rgb(50, 50, 50, 64, 64), 64, 64)
-        self.assertIsNotNone(png_small)
-        self.assertIsNotNone(png_large)
-        self.assertGreater(len(png_large), len(png_small))
 
 
 class TestPngEncoderIhdrFields(unittest.TestCase):

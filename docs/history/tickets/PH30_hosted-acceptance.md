@@ -5,6 +5,7 @@ Depends on: successful clean checkout and integration composition, six macOS run
 Written: 2026-10-06 at HEAD 75fe167.
 Revalidated: 2026-10-06 at HEAD 75fe167, current execution ticket.
 Revalidated: 2026-10-06 at HEAD 1968a96, after hosted checkout/build portability repairs.
+Revalidated: 2026-10-06 at HEAD 7a13671, current compiled Linux app startup verified and native ARM64 CLI build/runtime evidence collected.
 
 ## Context
 
@@ -41,6 +42,8 @@ Use Luna for independently bounded fixes and evidence collection, coordinator ow
 ## Unresolved evidence
 
 Hosted macOS runtime results remain pending. Linux/Windows CLI, webview and LVGL builds have passed. The existing WKWebView inspector contract is not established: the runtime selects/announces an unused port but starts no listener, while AppHarness assumes HTTP target discovery and WebSocket transport. Apple documents `WKWebView.isInspectable` for Safari's Develop menu, not a supported localhost HTTP/WebSocket automation endpoint. WebKit's `Page` protocol defines snapshot methods returning `dataURL`, not Chromium's `Page.captureScreenshot` response. FR-WV-MAC-7 and FR-TEST-MAC-2 therefore require a contract/design decision before they can be honestly accepted. The native `takeSnapshotWithConfiguration:completionHandler:` implementation is available, but the harness does not route to it. Do not replace this requirement silently with a different test bridge.
+
+The ARM64 CLI cell in run 37367503586 passed build, runtime FFI/heap checks and artifact upload. Its downloaded 595,472-byte Mach-O declares ARM64, deployment target 11.0 / SDK 14.5 and only libSystem as a dynamic dependency; its SHA256 sidecar verified locally. The other native variant/architecture verdicts are still pending, including actual LVGL scene capture and all four packaged Mac app frontends.
 
 Primary references: [Apple isInspectable API](https://developer.apple.com/documentation/webkit/wkwebview/isinspectable), [WebKit inspection guidance](https://webkit.org/blog/13936/enabling-the-inspection-of-web-content-in-apps/), and [WebKit Page protocol](https://github.com/WebKit/WebKit/blob/main/Source/JavaScriptCore/inspector/protocol/Page.json). The phase-25 script also calls nonexistent `AppHarness.snapshot()` rather than the implemented `screenshot(path)` method, so it is not existing runtime proof.
 

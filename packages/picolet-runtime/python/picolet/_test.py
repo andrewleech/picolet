@@ -203,7 +203,7 @@ def snapshot():
     # closure; if import is cached this is just an attribute lookup).
     try:
         _self = _ffi.open(None)
-        _png_encode = _self.func("i", "picolet_lvgl_png_encode", "piipp")
+        _png_encode = _self.func("i", "picolet_lvgl_png_encode", "piiipp")
         _png_free   = _self.func("v", "picolet_lvgl_png_free",   "p")
     except OSError as e:
         raise RuntimeError(
@@ -245,7 +245,7 @@ def snapshot():
 
         rc = _png_encode(
             data_ptr,       # raw pixel pointer (not copied to Python heap)
-            w, h,
+            w, h, dsc.header.stride,
             uctypes.addressof(out_ptr_buf),
             uctypes.addressof(out_size_buf),
         )
