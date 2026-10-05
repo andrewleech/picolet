@@ -687,22 +687,14 @@ else:
             self._gtk_ffi = _gtk_ffi
             self._closures = []  # keep callback closures alive
 
-            # PH17 — PICOLET_TEST_MODE inspector wiring (FR-TEST-1).
-            # WEBKIT_INSPECTOR_SERVER must be set BEFORE webkit_web_view_new()
-            # because WebKit reads it once at engine-init time (R1).  We do
-            # the env-var setup here, before any view creation.
+            # WebKit reads the inspector address when its first context is
+            # created. Scheme registration and views share the same port.
             self._test_port = None
             import os
             if os.getenv("PICOLET_TEST_MODE") == "1":
                 try:
-                    from ._test_port import pick_test_port
-                    port = pick_test_port()
-                    self._test_port = port
-                    inspector_addr = "127.0.0.1:{}".format(port)
-                    if _gtk_ffi.setenv is not None:
-                        _gtk_ffi.setenv("WEBKIT_INSPECTOR_SERVER", inspector_addr, 1)
-                    else:
-                        os.environ["WEBKIT_INSPECTOR_SERVER"] = inspector_addr
+                    from ._test_port import _prepare_gtk_inspector
+                    self._test_port = _prepare_gtk_inspector(_gtk_ffi)
                 except Exception as exc:
                     sys.stderr.write(
                         "picolet_ui: PICOLET_TEST_MODE: failed to open inspector port: {}\n".format(exc)

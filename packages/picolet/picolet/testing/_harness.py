@@ -205,12 +205,11 @@ class AppHarness:
                 "from picolet_ui._window import Window; "
                 "from picolet_ui._webview import Webview, WebviewTransport; "
                 "from picolet_ui import _loop; "
-                "import asyncio; "
                 "w = Window(title='Test', size=[640, 480], resizable=False); "
                 "t = WebviewTransport(); "
                 "v = Webview(w, root_uri='data:text/html,<html><body>ok</body></html>', transport=t); "
                 "w.show(); "
-                "asyncio.run(_loop._gtk_pump())"
+                "_loop.run(t)"
             )
         return ["-c", code]
 

@@ -113,3 +113,22 @@ def pick_test_port():
     if port == 0:
         raise RuntimeError("picolet_ui._test_port: getsockname returned port 0")
     return port
+
+
+_gtk_inspector_port = None
+
+
+def _prepare_gtk_inspector(gtk_ffi):
+    """Configure one inspector port before creating any WebKit context."""
+    global _gtk_inspector_port
+    if _gtk_inspector_port is None:
+        port = pick_test_port()
+        address = "127.0.0.1:{}".format(port)
+        if gtk_ffi.setenv is not None:
+            if gtk_ffi.setenv("WEBKIT_INSPECTOR_SERVER", address, 1) != 0:
+                raise RuntimeError("picolet_ui: cannot configure WebKit inspector")
+        else:
+            import os
+            os.environ["WEBKIT_INSPECTOR_SERVER"] = address
+        _gtk_inspector_port = port
+    return _gtk_inspector_port

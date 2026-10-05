@@ -397,7 +397,7 @@ async def _measure_ex2_run(
             raise RuntimeError("NFR-EX-2: xdotool and a running child are required")
         await asyncio.to_thread(
             subprocess.run,
-            [xdotool, "search", "--sync", "--onlyvisible",
+            [xdotool, "search", "--sync", "--onlyvisible", "--all",
              "--pid", str(child_pid), ""],
             env=env,
             timeout=5,

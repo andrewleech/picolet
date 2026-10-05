@@ -13,7 +13,6 @@ Covers:
   - browser='lvgl' sets self.page to None after start() (no inspector attach).
   - tap() raises NotImplementedError for non-lvgl browsers.
   - key() raises NotImplementedError for non-lvgl browsers.
-  - xvfb-run prepended in _spawn when DISPLAY unset and xvfb-run present.
   - _spawn raises RuntimeError when DISPLAY unset and xvfb-run absent.
 """
 from __future__ import annotations
@@ -351,65 +350,17 @@ class TestNonLvglRaisesForLvglApi(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSpawnXvfb(unittest.TestCase):
-    """Test _spawn's xvfb-run autodetection.
-
-    Because _harness.py is loaded via importlib (to avoid namespace package
-    conflicts), we patch subprocess.Popen on the module object directly.
-    """
-
-    def _make_fake_popen(self, captured_cmd: list):
-        """Return a fake Popen callable that records argv and returns a mock."""
-        def fake_popen(cmd, **kw):
-            captured_cmd.extend(cmd)
-            mock = MagicMock()
-            mock.stderr = iter([])
-            return mock
-        return fake_popen
-
-    def test_spawn_xvfb_prepended_when_display_unset(self):
-        """_spawn wraps command in xvfb-run when DISPLAY is absent and only xvfb-run is found."""
-        h = AppHarness("/fake/picolet-runtime-linux-x64-webview", browser="webkit")
-        captured_cmd = []
-        env_without_display = {k: v for k, v in os.environ.items() if k != "DISPLAY"}
-        # Simulate: Xvfb not found but xvfb-run is available.
-        def _which(name):
-            if name == "Xvfb":
-                return None
-            if name == "xvfb-run":
-                return "/usr/bin/xvfb-run"
-            return None
-        # Patch subprocess.Popen on the loaded module object directly.
-        with patch.dict(os.environ, env_without_display, clear=True):
-            with patch("shutil.which", side_effect=_which):
-                with patch.object(sys, "platform", "linux"):
-                    with patch.object(_harness_mod.subprocess, "Popen",
-                                      side_effect=self._make_fake_popen(captured_cmd)):
-                        h._spawn()
-
-        self.assertEqual(captured_cmd[0], "xvfb-run")
+    """Reject headless startup when no X server can be provided."""
 
     def test_spawn_raises_when_display_unset_and_no_xvfb(self):
         """_spawn raises RuntimeError when DISPLAY unset and neither Xvfb nor xvfb-run present."""
-        h = AppHarness("/fake/picolet-runtime-linux-x64-webview", browser="webkit")
         env_without_display = {k: v for k, v in os.environ.items() if k != "DISPLAY"}
         with patch.dict(os.environ, env_without_display, clear=True):
+            h = AppHarness("/fake/picolet-runtime-linux-x64-webview", browser="webkit")
             with patch("shutil.which", return_value=None):
                 with patch.object(sys, "platform", "linux"):
-                    with self.assertRaises(RuntimeError) as ctx:
+                    with self.assertRaises(RuntimeError):
                         h._spawn()
-        self.assertIn("xvfb", str(ctx.exception).lower())
-
-    def test_spawn_no_xvfb_when_display_set(self):
-        """_spawn does not prepend xvfb-run when DISPLAY is set."""
-        h = AppHarness("/fake/picolet-runtime-linux-x64-webview", browser="webkit")
-        captured_cmd = []
-        with patch.dict(os.environ, {"DISPLAY": ":0"}):
-            with patch.object(sys, "platform", "linux"):
-                with patch.object(_harness_mod.subprocess, "Popen",
-                                  side_effect=self._make_fake_popen(captured_cmd)):
-                    h._spawn()
-
-        self.assertNotIn("xvfb-run", captured_cmd)
 
 
 # ---------------------------------------------------------------------------

@@ -104,6 +104,10 @@ def _register_picolet_scheme(gtk_ffi):
     global _scheme_callback
     import ffi
 
+    if os.getenv("PICOLET_TEST_MODE") == "1":
+        from ._test_port import _prepare_gtk_inspector
+        _prepare_gtk_inspector(gtk_ffi)
+
     if gtk_ffi.g_memory_input_stream_new_from_data is None:
         sys.stderr.write(
             "picolet_ui: g_memory_input_stream_new_from_data not available; "
