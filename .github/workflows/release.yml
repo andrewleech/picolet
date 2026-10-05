@@ -317,6 +317,24 @@ jobs:
           "packages/picolet-runtime/build/picolet-runtime-macos-${ARCH}-${{ matrix.variant }}" \
             -c 'import sys, gc, ffi; assert sys.platform == "darwin"; assert callable(gc.add_heap); assert ffi.open(None).func("i", "getpid", "")() > 0; print("runtime smoke:", sys.platform)'
 
+      - name: Exercise native WKWebView messaging and snapshot
+        if: matrix.variant == 'webview'
+        run: |
+          ARCH=$([ "${{ runner.arch }}" = "X64" ] && echo "x64" || echo "arm64")
+          "packages/picolet-runtime/build/picolet-runtime-macos-${ARCH}-webview" \
+            scripts/mac-webview-smoke.py /tmp/mac-webview-smoke.png
+          python3 -m pip install Pillow
+          python3 -c 'from PIL import Image; im = Image.open("/tmp/mac-webview-smoke.png").convert("RGB"); w, h = im.size; assert w * 240 == h * 320; assert im.getpixel((w // 2, h // 2)) == (51, 102, 153); print("native WKWebView rendered expected colour:", im.size)'
+
+      - name: Upload native WKWebView snapshot evidence
+        if: always() && matrix.variant == 'webview'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-webview-smoke-${{ runner.arch }}
+          path: /tmp/mac-webview-smoke.png
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Exercise native LVGL PNG encoding
         if: matrix.variant == 'lvgl'
         run: |
