@@ -446,8 +446,8 @@ build_linux_x64() {
         local lvbm_dir="$PKG_ROOT/lib/lv_binding_micropython"
         echo "  ensuring lv_binding_micropython nested submodules"
         if [[ ! -d "$lvbm_dir/lvgl/src" ]] || [[ ! -d "$lvbm_dir/pycparser/pycparser" ]]; then
-            git -C "$REPO_ROOT" submodule update --init --recursive \
-                packages/picolet-runtime/lib/lv_binding_micropython --quiet
+            git -C "$REPO_ROOT" submodule update --init --recursive --quiet \
+                packages/picolet-runtime/lib/lv_binding_micropython
         fi
         if [[ ! -d "$lvbm_dir/lvgl/src" ]]; then
             echo "error: lvgl source tree not present after submodule update" >&2
@@ -648,8 +648,8 @@ build_macos() {
         local lvbm_dir="$PKG_ROOT/lib/lv_binding_micropython"
         echo "  ensuring lv_binding_micropython nested submodules"
         if [[ ! -d "$lvbm_dir/lvgl/src" ]] || [[ ! -d "$lvbm_dir/pycparser/pycparser" ]]; then
-            git -C "$REPO_ROOT" submodule update --init --recursive \
-                packages/picolet-runtime/lib/lv_binding_micropython --quiet
+            git -C "$REPO_ROOT" submodule update --init --recursive --quiet \
+                packages/picolet-runtime/lib/lv_binding_micropython
         fi
         if [[ ! -d "$lvbm_dir/lvgl/src" ]]; then
             echo "error: lvgl source tree not present after submodule update" >&2
@@ -822,8 +822,8 @@ build_windows_x64() {
         local lvbm_dir="$PKG_ROOT/lib/lv_binding_micropython"
         echo "  ensuring lv_binding_micropython nested submodules"
         if [[ ! -d "$lvbm_dir/lvgl/src" ]] || [[ ! -d "$lvbm_dir/pycparser/pycparser" ]]; then
-            git -C "$REPO_ROOT" submodule update --init --recursive \
-                packages/picolet-runtime/lib/lv_binding_micropython --quiet
+            git -C "$REPO_ROOT" submodule update --init --recursive --quiet \
+                packages/picolet-runtime/lib/lv_binding_micropython
         fi
         if [[ ! -d "$lvbm_dir/lvgl/src" ]]; then
             echo "error: lvgl source tree not present after submodule update" >&2
