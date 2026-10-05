@@ -49,12 +49,13 @@ This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAS
 
 Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack is recorded as a comparison only; it does not replace GitLab Advanced SAST or establish equivalent coverage. Reopen this question only if running the actual analyzer becomes available or the roadmap decision changes.
 
-The initial source-boundary inventory is recorded below. GitLab rule-source exploration remains parked; the remaining PH31 scope work is to generate and verify build-resolved native and frozen-Python inputs, then finish the JavaScript / TypeScript ownership map before choosing CI gates.
+The source-boundary inventory is recorded below, and read-only probes verified that MicroPython's manifest resolver can enumerate frozen Python inputs for every checked-in runtime manifest. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands, automate the manifest file list with build-identical variables, and finish the JavaScript / TypeScript ownership map before choosing CI gates.
 
-- The runtime makefiles and variant configurations define native build inputs; a repository-wide source scan is not equivalent.
+- Runtime makefiles and variant configurations define native build inputs; a repository-wide source scan is not equivalent.
 - Frozen/runtime Python is manifest-selected and host CLI Python remains a separate package. Examples combine app code with tests and tooling.
 - The release workflow covers Linux / Windows `cli`, `webview`, and `lvgl` variants plus macOS variants, but is tag/manual only and there is no PR SAST or CodeQL job.
-- The exact effective compile commands and frozen file lists are not currently emitted as analysis inputs.
+- Runtime builds do not currently emit native compile commands or a frozen-source inventory.
+
 
 No GitLab rule-pack expansion is part of this work.
 
@@ -86,9 +87,13 @@ The Unix MicroPython makefile currently leaves `SRC_CXX` empty. Treat C++ as an 
 
 ### Frozen and host-side Python
 
-Frozen Python scope is selected per variant by `FROZEN_MANIFEST` in `variants/*/*/mpconfigvariant.mk`. The current manifests use `freeze("../python", "picolet")`, `freeze("../python", "picolet_ui")`, or `freeze("../python", "picolet_tui")`; `manifest_lvgl*.py` also registers the LVGL C module. The build resolves those declarations through MicroPython's `makemanifest.py` and `mpy-cross`.
+Frozen Python scope is selected per variant by `FROZEN_MANIFEST` in `variants/*/*/mpconfigvariant.mk`. The current manifests use `freeze("../python", "picolet")`, `freeze("../python", "picolet_ui")`, or `freeze("../python", "picolet_tui")`; `manifest_lvgl*.py` also registers the LVGL C module. MicroPython's `makemanifest.py` executes the manifest before compiling the resolved files with `mpy-cross`.
 
-The manifests also include `extmod/asyncio` and require selected modules such as `os-path`, `pathlib`, `__future__`, `functools`, and `itertools` from MicroPython / micropython-lib. `add_library()` declares available libraries; it is not by itself an instruction to freeze every file in those libraries. A future frozen-Python scope generator should consume the resolved manifest/build output or otherwise match `makemanifest.py`'s resolution, and retain the origin of each selected file. Scanning all of `packages/picolet-runtime/python/` would include packages not frozen in every variant; scanning all of the MicroPython submodule or micropython-lib would include unrelated upstream code.
+The manifests also include `extmod/asyncio` and require selected modules such as `os-path`, `pathlib`, `__future__`, `functools`, and `itertools` from MicroPython / micropython-lib. `add_library()` declares available libraries; it is not by itself an instruction to freeze every file in those libraries. Scanning all of `packages/picolet-runtime/python/` would include packages not frozen in every variant; scanning all of the MicroPython submodule or micropython-lib would include unrelated upstream code.
+
+The MicroPython `ManifestFile` resolver exposes the concrete source list through `files()` after executing a manifest with its build variables. Read-only probes resolved all eight checked-in manifests: `cli` and `mcp` select 21 Python files each, `webview` and `lvgl` select 35 each, and `tui` selects 87. The lists include Picolet runtime modules, MicroPython's `extmod/asyncio`, and micropython-lib modules. This is a workable source for a frozen-file exporter, provided it uses the same `MPY_DIR`, `PORT_DIR`, `MPY_LIB_DIR`, manifest and variant variables as the build. These resolver probes do not yet prove that each list matches every target build or resolve native C modules.
+
+`makemanifest.py --list-c-modules` already exposes manifest-added C modules, and `py/manifest.mk` merges those paths into `USER_C_MODULES`. A final C/C++ inventory still needs the effective build commands so it includes MicroPython's base files and each module's recursive build inputs, with command flags preserved by target.
 
 Keep these Python classes distinct:
 
@@ -107,7 +112,7 @@ The JS / TypeScript surface is example-oriented rather than one uniform package 
 
 - Choose which runtime variants and target platforms are part of native analysis, including whether the `mcp` and `tui` variants outside the release matrix are covered.
 - Capture each selected make invocation's effective C/C++ compiler commands, then classify commands and files as Picolet, MicroPython integration/overlay, LVGL binding, LVGL, or other dependency. Decide how shared compilation across targets is deduplicated without losing target-specific flags.
-- Define how resolved frozen Python inputs are exported from the build and how Picolet-owned files are distinguished from library / submodule files. The current checked-in manifests are the selection authority, but their indirect resolution is a build-time result.
+- Turn the proven `ManifestFile.files()` resolution into a checked-in/exported input using exactly the build's manifest variables, and report Picolet-owned files separately from library / submodule files.
 - Map host CLI, examples, bridge JS, generated outputs, tests and screenshot tooling to explicit include/exclude rules.
 - Continue into the per-tool decision table only after these source scopes and ownership boundaries are agreed.
 
