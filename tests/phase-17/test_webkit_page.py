@@ -32,7 +32,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import importlib.util
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_TESTING_ROOT = _REPO_ROOT / "packages" / "picolet-testing" / "picolet" / "testing"
+_TESTING_ROOT = _REPO_ROOT / "packages" / "picolet" / "picolet" / "testing"
 
 
 def _load_module(name: str, path: Path):

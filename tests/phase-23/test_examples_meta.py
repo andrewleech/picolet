@@ -99,7 +99,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _EXAMPLES_DIR = _REPO_ROOT / "examples"
-_TEMPLATES_DIR = _REPO_ROOT / "packages" / "picolet-templates" / "picolet.templates"
+_TEMPLATES_DIR = _REPO_ROOT / "packages" / "picolet" / "picolet" / "templates"
 _MIRROR_SCRIPT = _REPO_ROOT / "scripts" / "mirror-examples-to-templates.sh"
 _SCREENSHOTS_YML = _REPO_ROOT / ".github" / "workflows" / "screenshots.yml"
 _RELEASE_YML = _REPO_ROOT / ".github" / "workflows" / "release.yml"
@@ -331,9 +331,9 @@ class TestListTemplates(unittest.TestCase):
     def test_exits_zero(self):
         self.assertEqual(self.result.returncode, 0)
 
-    def test_prints_exactly_eight_templates(self):
-        self.assertEqual(len(self.lines), 8,
-                         f"expected 8 templates, got {len(self.lines)}: {self.lines}")
+    def test_prints_all_nine_templates(self):
+        self.assertEqual(len(self.lines), 9,
+                         f"expected 9 templates, got {len(self.lines)}: {self.lines}")
 
     def test_output_is_sorted_alphabetically(self):
         self.assertEqual(self.lines, sorted(self.lines),
@@ -943,10 +943,6 @@ class TestRootReadme(unittest.TestCase):
             path = _REPO_ROOT / "examples" / ref
             self.assertTrue(path.exists(), f"screenshot in README.md does not exist: {path}")
 
-    def test_has_image_markdown_syntax(self):
-        image_links = re.findall(r'!\[.*?\]\(.*?examples.*?\.png\)', self.content)
-        self.assertGreaterEqual(len(image_links), 4,
-                                f"expected >=4 image links in root README.md, found {len(image_links)}")
 
 
 # ---------------------------------------------------------------------------

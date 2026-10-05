@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      sast_scanner:
+        description: SAST scanner to run
+        required: true
+        type: choice
+        default: opengrep
+        options:
+          - opengrep
+          - semgrep
+          - ruff-s
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Python lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff
+        run: python -m pip install ruff==0.16.8
+
+      - name: Lint changed Python files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$EVENT_BASE"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            base="$EVENT_BEFORE"
+          else
+            base="$(git rev-parse "$EVENT_HEAD^" 2>/dev/null || true)"
+          fi
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            base="$(git rev-parse "$EVENT_HEAD^" 2>/dev/null || true)"
+          fi
+          if [[ -z "$base" ]]; then
+            echo "No parent commit available for changed-file linting."
+            exit 1
+          fi
+          mapfile -t files < <(git diff --diff-filter=ACMR --name-only "$base" "$EVENT_HEAD" -- '*.py')
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No changed Python files to lint."
+            exit 0
+          fi
+          ruff check --isolated --select E,F --ignore E501,E402,E701,E741,F401,F841 "${files[@]}"
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: 0.12.17
+
+      - name: Install workspace test dependencies
+        run: uv sync --locked --all-packages --all-extras --group dev
+
+      - name: Test host packages
+        run: >-
+          uv run --no-sync pytest
+          tests/phase-05/
+          tests/phase-13/
+          tests/phase-17/
+          tests/phase-19/
+          tests/phase-20/
+          tests/phase-21/
+          tests/phase-23/
+          -q
+
+      - name: Test MicroPython IPC runtime
+        env:
+          PYTHONPATH: packages/picolet-runtime/python
+        run: uv run --no-sync pytest tests/phase-06/ tests/phase-07/ tests/phase-11/ -q
+
+      - name: Test runtime system API
+        run: uv run --no-sync pytest tests/system/ -q
+
+      - name: Test terminal UI
+        run: uv run --no-sync pytest tests/system/tui/ -q
+
+  sast:
+    name: SAST report
+    runs-on: ubuntu-latest
+    env:
+      SAST_SCANNER: ${{ inputs.sast_scanner || 'opengrep' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Opengrep
+        if: env.SAST_SCANNER == 'opengrep'
+        run: |
+          curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_manylinux_x86 -o opengrep
+          echo "35779bdd72e92129c8df2a77f0c55e8c08356801ea92591ef32108d6b28d564c  opengrep" | sha256sum --check
+          chmod +x opengrep
+          sudo install -m 0755 opengrep /usr/local/bin/opengrep
+
+      - name: Install Semgrep CE
+        if: env.SAST_SCANNER == 'semgrep'
+        run: python -m pip install semgrep==1.179.0
+
+      - name: Install Ruff
+        if: env.SAST_SCANNER == 'ruff-s'
+        run: python -m pip install ruff==0.16.8
+
+      - name: Run Opengrep
+        if: env.SAST_SCANNER == 'opengrep'
+        run: |
+          mkdir -p sast-results
+          opengrep scan --config p/security-audit --config p/python \
+            --sarif-output sast-results/opengrep.sarif \
+            packages/picolet/picolet \
+            packages/picolet-runtime/python \
+            examples
+
+      - name: Run Semgrep CE
+        if: env.SAST_SCANNER == 'semgrep'
+        run: |
+          mkdir -p sast-results
+          semgrep scan --config p/security-audit --config p/python \
+            --sarif --output sast-results/semgrep.sarif \
+            packages/picolet/picolet \
+            packages/picolet-runtime/python \
+            examples
+
+      - name: Run Ruff security rules
+        if: env.SAST_SCANNER == 'ruff-s'
+        run: |
+          mkdir -p sast-results
+          ruff check --isolated --select S --exit-zero \
+            --output-format sarif --output-file sast-results/ruff-s.sarif \
+            packages/picolet/picolet \
+            packages/picolet-runtime/python \
+            examples
+
+      - name: Upload SAST reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-${{ env.SAST_SCANNER }}
+          path: sast-results/
+          if-no-files-found: ignore
+          retention-days: 14

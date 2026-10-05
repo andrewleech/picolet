@@ -150,8 +150,8 @@ _UI_SRC = _CE_DIR / "ui" / "src"
 _ASSETS_DIR = _UI_SRC / "assets"
 _VIEWS_DIR = _UI_SRC / "views"
 _SCREENSHOTS_DIR = _CE_DIR / "screenshots"
-_TEMPLATE_DIR = _REPO_ROOT / "packages" / "picolet-templates" / "picolet.templates" / "config-editor"
-_CLI_ROOT = _REPO_ROOT / "packages" / "picolet-cli"
+_TEMPLATE_DIR = _REPO_ROOT / "packages" / "picolet" / "picolet" / "templates" / "config-editor"
+_CLI_ROOT = _REPO_ROOT / "packages" / "picolet"
 
 sys.path.insert(0, str(_CE_SRC))
 sys.path.insert(0, str(_CLI_ROOT))
@@ -747,34 +747,34 @@ class TestUnifiedDiff(unittest.TestCase):
         a = ["line1\n", "line2\n", "line3\n"]
         b = ["line1\n", "changed\n", "line3\n"]
         diff = self._diff(a, b, fromfile="old", tofile="new", lineterm="")
-        plus_lines = [l for l in diff if l.startswith("+") and not l.startswith("+++")]
+        plus_lines = [diff_line for diff_line in diff if diff_line.startswith("+") and not diff_line.startswith("+++")]
         self.assertTrue(len(plus_lines) >= 1, f"no + lines in: {diff}")
 
     def test_three_line_change_has_minus_lines(self):
         a = ["line1\n", "line2\n", "line3\n"]
         b = ["line1\n", "changed\n", "line3\n"]
         diff = self._diff(a, b, fromfile="old", tofile="new", lineterm="")
-        minus_lines = [l for l in diff if l.startswith("-") and not l.startswith("---")]
+        minus_lines = [diff_line for diff_line in diff if diff_line.startswith("-") and not diff_line.startswith("---")]
         self.assertTrue(len(minus_lines) >= 1, f"no - lines in: {diff}")
 
     def test_diff_contains_hunk_header(self):
         a = ["a\n", "b\n"]
         b = ["a\n", "c\n"]
         diff = self._diff(a, b, lineterm="")
-        hunk_lines = [l for l in diff if l.startswith("@@")]
+        hunk_lines = [diff_line for diff_line in diff if diff_line.startswith("@@")]
         self.assertTrue(len(hunk_lines) >= 1, f"no @@ hunk in: {diff}")
 
     def test_diff_has_from_file_header(self):
         a = ["x\n"]
         b = ["y\n"]
         diff = self._diff(a, b, fromfile="original", tofile="new", lineterm="")
-        self.assertTrue(any(l.startswith("---") for l in diff))
+        self.assertTrue(any(diff_line.startswith("---") for diff_line in diff))
 
     def test_diff_has_to_file_header(self):
         a = ["x\n"]
         b = ["y\n"]
         diff = self._diff(a, b, fromfile="original", tofile="new", lineterm="")
-        self.assertTrue(any(l.startswith("+++") for l in diff))
+        self.assertTrue(any(diff_line.startswith("+++") for diff_line in diff))
 
     def test_no_ansi_escape_sequences(self):
         a = ["foo\n", "bar\n"]
@@ -787,7 +787,7 @@ class TestUnifiedDiff(unittest.TestCase):
         a = ["ctx\n", "changed\n", "ctx\n"]
         b = ["ctx\n", "new\n", "ctx\n"]
         diff = self._diff(a, b, lineterm="")
-        context = [l for l in diff if l.startswith(" ")]
+        context = [diff_line for diff_line in diff if diff_line.startswith(" ")]
         self.assertTrue(len(context) >= 1, f"no context lines in: {diff}")
 
     def test_diff_lines_are_individual_lines(self):

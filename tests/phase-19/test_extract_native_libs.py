@@ -11,6 +11,7 @@ Tests:
 from __future__ import annotations
 
 import ast
+import importlib.util
 import sys
 import unittest
 from pathlib import Path
@@ -126,8 +127,10 @@ class TestPydfuUsesSharedExtract(unittest.TestCase):
         if sys.platform == "win32":
             self.skipTest("non-Windows only")
 
-        # romfs_extract checks sys.platform at call time, not at import time.
-        import picolet.romfs_extract as rext
+        module_path = _PICOLET_PYTHON / "picolet" / "romfs_extract.py"
+        spec = importlib.util.spec_from_file_location("runtime_romfs_extract", module_path)
+        rext = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rext)
         result = rext.extract_dir("/rom/src/_usb", subdir="picolet_pydfu")
         self.assertEqual(
             result,

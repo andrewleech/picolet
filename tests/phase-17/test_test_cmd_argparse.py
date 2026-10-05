@@ -31,12 +31,12 @@ from unittest.mock import MagicMock, patch
 
 # Ensure picolet-cli is importable from the workspace root.
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_CLI_PKG = _REPO_ROOT / "packages" / "picolet-cli"
+_CLI_PKG = _REPO_ROOT / "packages" / "picolet"
 if str(_CLI_PKG) not in sys.path:
     sys.path.insert(0, str(_CLI_PKG))
 
 from picolet.cli import test_cmd
-from picolet.cli.__main__ import _build_parser
+from picolet.__main__ import _build_parser
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +306,7 @@ class TestWaitForPort(unittest.TestCase):
     def _make_proc(self, lines: list[str]) -> MagicMock:
         """Return a mock Popen whose stderr yields the given byte lines."""
         proc = MagicMock(spec=subprocess.Popen)
-        byte_lines = [l.encode() + b"\n" for l in lines]
+        byte_lines = [line.encode() + b"\n" for line in lines]
         proc.stderr = iter(byte_lines)
         return proc
 

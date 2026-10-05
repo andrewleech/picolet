@@ -31,7 +31,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import importlib.util
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_TESTING_ROOT = _REPO_ROOT / "packages" / "picolet-testing" / "picolet" / "testing"
+_TESTING_ROOT = _REPO_ROOT / "packages" / "picolet" / "picolet" / "testing"
 
 
 def _load_module(name: str, path: Path):
@@ -152,7 +152,7 @@ class TestWaitForPort(unittest.TestCase):
 
     def _make_harness_with_stderr(self, lines: list[str]) -> AppHarness:
         mock_proc = MagicMock(spec=subprocess.Popen)
-        byte_lines = [l.encode() + b"\n" for l in lines]
+        byte_lines = [line.encode() + b"\n" for line in lines]
         mock_proc.stderr = iter(byte_lines)
         h = AppHarness(
             "/fake/picolet-runtime-linux-x64-webview",
@@ -225,7 +225,6 @@ class TestHarnessStart(unittest.TestCase):
         With a mock process that has stdin/stdout mocked, the ping times out
         quickly (non-fatal) and page remains None.
         """
-        import io
         mock_proc = MagicMock(spec=subprocess.Popen)
         # Provide stub stdin/stdout so _lvgl_wait_ready doesn't hit AttributeError.
         mock_proc.stdin = MagicMock()

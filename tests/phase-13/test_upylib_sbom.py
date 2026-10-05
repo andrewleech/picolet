@@ -20,7 +20,7 @@ import sys
 import pytest
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(_REPO_ROOT / "packages" / "picolet-cli"))
+sys.path.insert(0, str(_REPO_ROOT / "packages" / "picolet"))
 
 from picolet.cli.sbom_gen import (
     emit_app_sbom,

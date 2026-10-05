@@ -1,14 +1,84 @@
 # pydfu
 
-DFU firmware flasher example app built with Picolet.
+A DFU (Device Firmware Update) flasher with both GUI and CLI modes. Enumerates
+USB DFU devices, parses `.dfu` files, and flashes firmware with progress
+reporting. Speaks the DFU 1.1 protocol directly over libusb-1.0.
 
-## USB backend
+The industrial-control-panel aesthetic example — dense data grid, prominent
+progress indicators, audible-style alerts.
+
+## Screenshots
+
+| Empty device list | Device detected | Flash in progress |
+|---|---|---|
+| ![](screenshots/device-list-empty.png) | ![](screenshots/device-list-populated.png) | ![](screenshots/flash-mid-progress.png) |
+
+| Flash complete | Flash error |
+|---|---|
+| ![](screenshots/flash-complete.png) | ![](screenshots/flash-error.png) |
+
+## Picolet features exercised
+
+- Five `@picolet.command` IPC handlers + three push-event streams
+  (`dfu:progress`, `dfu:done`, `dfu:error`).
+- `picolet.romfs_extract.extract_dir` — pre-import-time DLL extraction from
+  romfs to a writable temp dir on Windows (LoadLibrary can't read the romfs
+  VFS).
+- Native FFI via the `ffi` module — opens libusb-1.0 by name and calls into
+  it directly. Pure Python USB stack (no native module).
+- Dual-mode: same binary works as a CLI tool (`pydfu list`, `pydfu flash …`)
+  or as a windowed app (default).
+- Vendored third-party library: `libusb-1.0.dll` v1.0.26 (LGPL-2.1+) bundled
+  in romfs for Windows. SBOM declares it dynamically linked.
+- Mock backend (`PICOLET_PYDFU_MOCK=1`) for screenshot generation + CI
+  smoke tests without real USB hardware.
+
+## Built binary size
+
+| Target | Size |
+|---|---|
+| `linux-x64` | **1.21 MiB** |
+
+## Build
+
+```bash
+cd examples/pydfu
+npm install
+picolet build                        # linux-x64 (host auto-detected)
+picolet build --target windows-x64   # cross-compile via dockcross
+```
+
+The binary is written to `target/<target>/pydfu` (or `.exe` on Windows).
+
+## Run
+
+GUI mode:
+
+```bash
+./target/linux-x64/pydfu
+```
+
+CLI subcommands:
+
+```bash
+./target/linux-x64/pydfu list
+./target/linux-x64/pydfu read firmware.dfu
+./target/linux-x64/pydfu flash 1:1 firmware.dfu
+```
+
+Mock mode (no real device, deterministic — useful for screenshots / CI):
+
+```bash
+PICOLET_PYDFU_MOCK=1 ./target/linux-x64/pydfu
+```
+
+## USB backend per platform
 
 ### Linux
 
-The app uses the system libusb-1.0 library (`libusb-1.0-0`). Install it with:
+Uses the system libusb-1.0 (`libusb-1.0-0`):
 
-```
+```bash
 sudo apt install libusb-1.0-0
 ```
 
@@ -16,94 +86,56 @@ The `ffi` module opens `libusb-1.0.so.0` at runtime.
 
 ### Windows
 
-A vendored `libusb-1.0.dll` (x64, LGPL-2.1-or-later, v1.0.26) is bundled in the
-app romfs at `/rom/src/_usb/libusb-1.0.dll`. No separate installation is needed.
+A vendored `libusb-1.0.dll` (x64, LGPL-2.1+, v1.0.26) ships in the app romfs
+at `/rom/src/_usb/libusb-1.0.dll`. No separate install is needed.
 
-On first run, `main.py` extracts the DLL from romfs to `%TEMP%\picolet_pydfu\libusb-1.0.dll`
-before any USB import occurs. Windows `LoadLibrary` requires a real filesystem path and
-cannot load from the MicroPython romfs VFS, so the extraction step is mandatory.
-The extracted file is reused on subsequent runs (idempotent). Delete
-`%TEMP%\picolet_pydfu\` to force re-extraction.
-
-The same libusb API is used on both platforms — the DFU protocol implementation
-is identical. No WinUSB driver is required; libusb handles driver selection.
+On first run, `main.py` extracts the DLL to `%TEMP%\picolet_pydfu\` before any
+USB import occurs (Windows `LoadLibrary` can't read from the MicroPython romfs
+VFS). The extracted copy is reused on subsequent runs.
 
 ### macOS
 
-The app uses libusb-1.0 installed via Homebrew. Install it with:
+Install libusb via Homebrew:
 
-```
+```bash
 brew install libusb
 ```
 
-The `ffi` module searches for the dylib in the following order at runtime:
-1. `/opt/homebrew/lib/libusb-1.0.dylib` — Apple Silicon (arm64) Homebrew prefix
-2. `/usr/local/lib/libusb-1.0.dylib` — Intel (x64) Homebrew prefix
-3. Bare name `libusb-1.0.dylib` — resolved via `DYLD_LIBRARY_PATH`
+The `ffi` module searches `/opt/homebrew/lib/`, `/usr/local/lib/`, and the
+bare name (resolved via `DYLD_LIBRARY_PATH`).
 
-No DLL extraction step is needed on macOS; dyld resolves the dylib path directly
-from the filesystem. If libusb is not found, the app exits with an error message
-indicating `brew install libusb`.
-
-## Mock mode
-
-Set `PICOLET_PYDFU_MOCK=1` to replace the USB backend with a deterministic software
-mock. The mock simulates one STM32 DFU device (VID 0x0483, PID 0xDF11) and a
-synthetic flash operation. All tests and screenshot generation use the mock.
+## Layout
 
 ```
-PICOLET_PYDFU_MOCK=1 ./target/linux-x64/pydfu          # Linux
-PICOLET_PYDFU_MOCK=1 ./target/windows-x64/pydfu.exe    # Windows (or WSL interop)
+pydfu/
+├── picolet.toml
+├── package.json
+├── src/
+│   ├── main.py             # IPC + CLI argparse; pre-import DLL extract
+│   ├── pydfu_adapter.py    # real-USB or mock-USB dispatch
+│   ├── pydfu_mock.py       # deterministic mock backend
+│   ├── _crc32.py           # pure-Python CRC32
+│   ├── _usb/               # pyusb-compatible shim over libusb-1.0 ffi
+│   │   ├── core.py         # Device / Configuration / Interface / find()
+│   │   └── libusb-1.0.dll  # vendored Windows binary (LGPL-2.1+)
+│   └── _pydfu/             # DFU protocol implementation
+│       └── pydfu.py        # enumerate, init, write_elements, exit_dfu
+└── ui/src/                 # Vue 3 frontend
 ```
 
-Set `PICOLET_PYDFU_MOCK_EMPTY=1` (with `PICOLET_PYDFU_MOCK=1`) to simulate no devices
-connected (tests the empty-state UI).
-
-## Source layout
-
-```
-src/
-  main.py            — @picolet.command handlers; wires IPC to adapter
-  pydfu_adapter.py   — USB adapter: real-USB or mock depending on env
-  pydfu_mock.py      — mock USB implementation
-  _crc32.py          — pure-Python CRC32 fallback
-  _usb/              — pyusb-compatible shim over libusb-1.0 (MicroPython ffi)
-      __init__.py
-      core.py        — Device/Configuration/Interface classes + find()
-      control.py     — get_descriptor helper
-      util.py        — claim_interface, get_string, dispose_resources
-      libusb-1.0.dll — vendored Windows x64 DLL (LGPL-2.1-or-later, v1.0.26)
-  _pydfu/            — DFU protocol implementation
-      __init__.py
-      pydfu.py       — enumerate, init, write_elements, exit_dfu
-```
-
-The `_usb/` and `_pydfu/` directories are app-internal (underscore prefix). They
-are ported from the pydfu-win submodule (`micropython/tools/pydfu_app/lib/`) and
-carry the OpenMV MIT licence. See the copyright header at the top of each file.
-
-## Building
-
-```
-cd examples/pydfu
-npm install
-picolet build                        # linux-x64 (host auto-detected)
-picolet build --target windows-x64   # cross-compile via dockcross
-```
-
-The binary is written to `target/<target>/pydfu` (Linux) or
-`target/windows-x64/pydfu.exe` (Windows).
+The `_usb/` and `_pydfu/` directories are app-internal (underscore prefix),
+ported from the OpenMV pydfu tool and carry the MIT licence.
 
 ## Tests
 
 Unit tests (pure Python, no device required):
 
-```
+```bash
 pytest tests/phase-19/
 ```
 
-Integration smoke tests (requires the built binary):
+End-to-end smoke (uses the mock backend; requires the built binary):
 
-```
-bash tests/phase-19/run.sh --skip-slow
+```bash
+PICOLET_PYDFU_MOCK=1 ./target/linux-x64/pydfu list
 ```

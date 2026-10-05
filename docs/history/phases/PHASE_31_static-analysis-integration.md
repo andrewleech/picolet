@@ -49,12 +49,20 @@ This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAS
 
 Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack is recorded as a comparison only; it does not replace GitLab Advanced SAST or establish equivalent coverage. Reopen this question only if running the actual analyzer becomes available or the roadmap decision changes.
 
-The source-boundary inventory and JavaScript / TypeScript source map are recorded below, and read-only probes verified manifest resolution for all eight runtime manifests. All trialled scanners must remain available through run-time selection, and static-analysis scope now explicitly includes every runtime variant supported by the build script. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands for all supported target/variant pairs, export the manifest file list with build-identical variables, finish explicit source ownership/exclusion rules, and then choose CI gates.
+The source-boundary inventory and JavaScript / TypeScript source map are recorded below, and read-only probes verified manifest resolution for all eight runtime manifests. All trialled scanners must remain available through run-time selection, and static-analysis scope includes every runtime variant supported by the build script. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands for all supported target/variant pairs, export the manifest file list with build-identical variables, finish explicit source ownership/exclusion rules, and decide how every trialled scanner is selected in CI.
 
 - Runtime makefiles and variant configurations define native build inputs; a repository-wide source scan is not equivalent.
 - Frozen/runtime Python is manifest-selected and host CLI Python remains a separate package. Examples combine app code with tests and tooling.
-- The release workflow covers Linux / Windows `cli`, `webview`, and `lvgl` variants plus macOS variants, but is tag/manual only and there is no PR SAST or CodeQL job.
+- The release workflow covers Linux / Windows `cli`, `webview`, and `lvgl` variants plus macOS variants, but is tag/manual only. The new CI workflow runs on pushes and pull requests.
 - Runtime builds do not currently emit native compile commands or a frozen-source inventory.
+
+### Per-commit quality checks
+
+`.github/workflows/ci.yml` runs changed-file Python lint, maintained unit-test groups, and a SAST report on every push and pull request. The unit suites run in separate invocations where the host and runtime `picolet` packages need different import paths.
+
+Opengrep stable 1.30.0 is the default per-commit scanner. Manual workflow dispatch can select Opengrep, Semgrep CE 1.179.0, or Ruff `S`. The SAST job uploads SARIF reports and is report-only: findings have not been triaged into a reviewed baseline, and the current Opengrep scan reports existing findings and partial-parse warnings. A green CI result is not a clean security result.
+
+The current job scans the host package, runtime Python, and examples. It does not scan native variant sources, derive C/C++ inputs from effective build commands across all 15 target/variant combinations, or export the exact manifest-frozen Python inputs. The interfile alpha, Pysa, and Pyrefly paths also remain outside the workflow's selectable scanner set, so this is a per-commit starting point rather than completion of PH31's scanner and source-scope requirements.
 
 
 No GitLab rule-pack expansion is part of this work.

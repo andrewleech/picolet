@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Ensure picolet.cli package is importable without installation.
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_PKG_PARENT = _REPO_ROOT / "packages" / "picolet-cli"
+_PKG_PARENT = _REPO_ROOT / "packages" / "picolet"
 if str(_PKG_PARENT) not in sys.path:
     sys.path.insert(0, str(_PKG_PARENT))
 
@@ -695,7 +695,6 @@ class TestUnverifiedCacheRefusal(unittest.TestCase):
 
     def test_cache_hit_without_sha256_refuses_by_default(self) -> None:
         """Cache hit + no sidecar + no opt-in → RuntimeIntegrityError."""
-        from picolet.cli.runtime_resolver import RuntimeIntegrityError
 
         self._stage_unverified_cache_entry()
         # Point at a non-existent source so the resolver cannot re-download
@@ -730,7 +729,6 @@ class TestUnverifiedCacheRefusal(unittest.TestCase):
 
     def test_download_without_sha256_refuses_by_default(self) -> None:
         """Download succeeds but source has no .sha256 → RuntimeIntegrityError."""
-        from picolet.cli.runtime_resolver import RuntimeIntegrityError
 
         release_dir = self.tmp / "no-sha-release"
         _make_fake_release(release_dir, tag=self.tag, include_sha256=False)

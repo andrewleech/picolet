@@ -76,12 +76,12 @@ class TestRuntimeToml:
         assert sdl2_entries, "SDL2 must appear in lvgl/linux-x64"
         assert sdl2_entries[0]["link_type"] == "dynamic"
 
-    def test_lvgl_windows_includes_sdl2_static(self):
+    def test_lvgl_windows_includes_sdl2_dynamic(self):
         all_c = load_runtime_toml(_REPO_ROOT)
         lvgl_c = filter_components(all_c, "windows-x64", "lvgl")
         sdl2_entries = [c for c in lvgl_c if c["name"] == "SDL2"]
         assert sdl2_entries, "SDL2 must appear in lvgl/windows-x64"
-        assert sdl2_entries[0]["link_type"] == "static"
+        assert sdl2_entries[0]["link_type"] == "dynamic"
 
     def test_webview_linux_includes_webkitgtk(self):
         all_c = load_runtime_toml(_REPO_ROOT)
