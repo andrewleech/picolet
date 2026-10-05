@@ -35,6 +35,17 @@ Treat all zero counts as inconclusive until each selected scanner has realistic 
 
 The interfile scan is too slow and broad for an unqualified per-PR gate on this evidence. The Pysa result does not establish clean taint coverage. Neither should be promoted based on a zero-result run alone.
 
+## GitLab rule trial, 2026-10-06
+
+GitLab documents 108 Advanced SAST Python rules, but its Advanced SAST ruleset is proprietary and is not the same ruleset as its Semgrep analyzer. The documented rule list is not runnable rule source, so this trial cannot reproduce Advanced SAST's cross-file and cross-function taint engine or claim equivalent coverage. Running that analyzer itself requires GitLab Ultimate.
+
+The public GitLab-managed `security-products/sast-rules` repository provides the Semgrep rules used by GitLab's standard analyzer. At ruleset tag `v2.10.1` / commit `53bf5cf6df3c51b6c02110f5a638b5e6213666cd`, Opengrep 1.30.0 scanned `examples` with the repository's `python/`, `rules/gitlab/python/`, and `rules/lgpl-cc/python/` rules. It ran 80 rules across 45 tracked Python files and reported 55 findings: 34 weak-random-number matches and 21 `assert` matches. Four directories matching the repo's `.semgrepignore` patterns were skipped, and the run emitted one warning because Opengrep does not support a `metavariable-regex` field in one rule. A separate `pickle.loads()` fixture triggered GitLab's `python_deserialization_rule-pickle` rule.
+
+An unscoped repository-root run with the same rule directories traversed 57,627 files, applied the rules to 2,764 Python files, and reported 1,816 findings; 93 ignored directories were skipped and four files were only partially analyzed. This includes vendored and test code and is too broad to treat as a Picolet-owned findings baseline.
+
+This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAST run. The open GitLab pack detects useful local patterns, but the example scan's findings are largely general lint-like checks rather than cross-file taint paths. For an Advanced SAST comparison, use the actual GitLab Ultimate analyzer on CI or report the unavailable proprietary engine/rules as a coverage gap.
+
+
 ## Scope
 
 - Inventory the current SAST portfolio and the Picolet languages / source classes each tool can analyse, including licence and CI-platform constraints.
