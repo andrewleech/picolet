@@ -166,7 +166,7 @@ case "${TARGET}/${VARIANT}" in
         # linker flags when uname -s == Darwin.
         ;;
     macos-x64/lvgl)
-        # PH27: SDL2/LVGL variant — not yet implemented.
+        # PH27: SDL2/LVGL variant, built by build_macos() on Darwin.
         ;;
     macos-arm64/cli)
         # PH24: native macOS arm64 cli variant.  Builds on macos-14 CI runner.
@@ -177,7 +177,7 @@ case "${TARGET}/${VARIANT}" in
         # linker flags when uname -s == Darwin.
         ;;
     macos-arm64/lvgl)
-        # PH27: SDL2/LVGL variant — not yet implemented.
+        # PH27: SDL2/LVGL variant, built by build_macos() on Darwin.
         ;;
     *)
         echo "error: unsupported target/variant combination: $TARGET/$VARIANT" >&2

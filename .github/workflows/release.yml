@@ -306,6 +306,12 @@ jobs:
             --target "macos-${ARCH}" \
             --variant "${{ matrix.variant }}"
 
+      - name: Exercise runtime FFI and heap API
+        run: |
+          ARCH=$([ "${{ runner.arch }}" = "X64" ] && echo "x64" || echo "arm64")
+          packages/picolet-runtime/build/picolet-runtime-macos-${ARCH}-${{ matrix.variant }} \
+            -c 'import sys, gc, ffi; assert sys.platform == "darwin"; assert callable(gc.add_heap); assert ffi.open(None).func("i", "getpid", "")() > 0; print("runtime smoke:", sys.platform)'
+
       - name: Compute SHA256 sidecar
         run: |
           cd packages/picolet-runtime/build
