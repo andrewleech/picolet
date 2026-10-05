@@ -695,15 +695,15 @@ build_macos() {
         # Homebrew: brew install automake libtool).  The CI setup step
         # installs these before invoking this script.
         echo "  libffi: cold cache and no configure — running autogen on host"
-        if command -v libtoolize >/dev/null 2>&1; then
-            autogen_log="$(cd "$libffi_src" && ./autogen.sh 2>&1)" || {
+        if command -v glibtoolize >/dev/null 2>&1 || command -v libtoolize >/dev/null 2>&1; then
+            autogen_log="$(cd "$libffi_src" && LIBTOOLIZE="$(command -v glibtoolize || command -v libtoolize)" ./autogen.sh 2>&1)" || {
                 echo "  libffi: autogen.sh failed; ensure automake + libtool are installed" >&2
                 echo "  Hint: brew install automake libtool" >&2
                 echo "$autogen_log" | sed 's/^/    /' >&2
                 exit 1
             }
         else
-            echo "  libffi: no libtoolize; install via: brew install automake libtool" >&2
+            echo "  libffi: no glibtoolize/libtoolize; install via: brew install automake libtool" >&2
             exit 1
         fi
     fi
