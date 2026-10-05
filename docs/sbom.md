@@ -21,10 +21,7 @@ A Picolet user receives a single executable. That executable can contain:
 | App Python sources | user's choice | static (frozen `.mpy`) |
 | Frontend assets | user's choice | static (romfs) |
 
-LGPL-linked components carry relinking obligations. Apple frameworks
-carry redistribution-only allowances. Static MIT components must
-propagate their copyright notices. None of this is optional for an
-open-source framework that ships pre-built binaries.
+LGPL-linked components carry relinking obligations. macOS WebKit, Cocoa / AppKit and Foundation are linked from the operating system, not redistributed with the app. Static MIT components must propagate their copyright notices.
 
 ## Format
 
@@ -83,14 +80,12 @@ allowlist:
 ```toml
 [sbom]
 allow_licences = ["MIT", "BSD-3-Clause", "Apache-2.0", "0BSD"]
-allow_dynamic = ["LGPL-2.1-or-later", "proprietary"]   # dynamic only
+allow_dynamic = ["LGPL-2.1-or-later", "LicenseRef-MS-WebView2-Fixed", "LicenseRef-Apple-System-Framework"]
 warn_unknown = true
 fail_unknown = false
 ```
 
-Defaults are conservative (warn rather than fail) so projects can
-iterate. CI in the Picolet release pipeline runs with `fail_unknown =
-true` against the runtime's own SBOM.
+The default dynamic allowlist permits LGPL-2.1-or-later, Microsoft's fixed-terms WebView2 licence and the Apple system-framework reference above. The Apple reference is not allowed for static inclusion. An explicit `allow_dynamic` list replaces this default, so an app can reject those dependencies. Unknown licences warn by default, known disallowed licences fail.
 
 ## LGPL relinking
 

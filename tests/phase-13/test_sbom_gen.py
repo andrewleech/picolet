@@ -381,6 +381,41 @@ class TestEmitAppSbom:
         assert not fail_v, \
             f"Default allowlist should permit WebKitGTK (LGPL-2.1-or-later): {fail_v}"
 
+    def test_mac_system_frameworks_are_dynamic_only(self):
+        app_data = {"app": {"name": "myapp", "version": "0.1.0"}}
+        _, violations = self._emit_app(
+            app_data, target="macos-arm64", variant="webview"
+        )
+        assert not [v for v in violations if v.severity == "fail"]
+
+        app_data["dependencies"] = {"embedded-framework": "1.0"}
+        app_data["dependency_meta"] = {
+            "embedded-framework": {
+                "licence": "LicenseRef-Apple-System-Framework",
+                "link_type": "static",
+            }
+        }
+        _, violations = self._emit_app(
+            app_data, target="macos-arm64", variant="webview"
+        )
+        assert [v.component for v in violations if v.severity == "fail"] == [
+            "embedded-framework"
+        ]
+
+    def test_explicit_policy_can_reject_mac_system_frameworks(self):
+        app_data = {
+            "app": {"name": "myapp", "version": "0.1.0"},
+            "sbom": {"allow_dynamic": ["LGPL-2.1-or-later"]},
+        }
+        _, violations = self._emit_app(
+            app_data, target="macos-x64", variant="webview"
+        )
+        assert {v.component for v in violations if v.severity == "fail"} == {
+            "WebKit.framework (Apple system framework)",
+            "Cocoa / AppKit (Apple system framework)",
+            "Foundation (Apple system framework)",
+        }
+
     # ------ SBOM is always written even on violation -----------------------
 
     def test_sbom_written_on_violation(self):

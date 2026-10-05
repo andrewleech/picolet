@@ -90,6 +90,7 @@ _DEFAULT_ALLOW_LICENCES: list[str] = [
 _DEFAULT_ALLOW_DYNAMIC: list[str] = [
     "LGPL-2.1-or-later",
     "LicenseRef-MS-WebView2-Fixed",
+    "LicenseRef-Apple-System-Framework",
 ]
 
 
