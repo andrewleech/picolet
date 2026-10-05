@@ -19,3 +19,11 @@ Contents:
 Contributors interested in why a particular design decision was made, or in the
 sequence of events that produced the current codebase, will find the detail here
 and in the `dev` branch git log (see `CLAUDE.md` for the log-via-commit convention).
+
+## Continuing autonomous execution
+
+Read `autonomous-execution.md`, then `v1.2-spec.md` / `v1.2-plan.md`, the current phase record and `tickets/PH30_hosted-acceptance.md`. The execution ledger distinguishes implemented source from observed build/runtime results; pending evidence never counts as acceptance.
+
+Update the roadmap and ledger in place. New tickets carry a date and HEAD SHA in an immutable `Written:` stamp and append-only `Revalidated:` entries. Before executing a ticket, inspect `git log <ticket SHA>..HEAD` and `git diff <ticket SHA>..HEAD -- <anchored files>`, resolve moved anchors, read later ledger/decision records, update the ticket and append the current date/SHA. If drift changes its scope, update the roadmap too. Only current-HEAD revalidated tickets feed execution.
+
+Use the existing hosted-acceptance ticket as the template: context, scope/constraints, anchors/approach, observable acceptance checks, execution model and unresolved evidence. Luna handles bounded independent work under the current user direction; the coordinator owns integration and exercised verification. Completed phases write progress/evidence back here. Unresolved decisions remain explicit rather than becoming assumed requirements.

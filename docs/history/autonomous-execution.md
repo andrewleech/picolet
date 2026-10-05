@@ -36,3 +36,7 @@ No release tags, public releases, PyPI publishing or signing identities are crea
 - The integration script's `mapfile` use was replaced with a Bash 3-compatible read loop for the macOS system shell.
 
 The remaining acceptance work depends on successful hosted checkout/build/runtime execution. Queued or cancelled runs are not pass evidence. Superseded queued CI/release runs were cancelled after pushing the verified fixes.
+
+The exact branch-read loop resolved all 12 configured branches under Bash 3.2.57. A fresh remote clone successfully checked out the replacement gitlink. Full clean integration composition is still being exercised, including transitive dependency downloads.
+
+Remaining phase entry and acceptance checks are captured in [tickets/PH30_hosted-acceptance.md](tickets/PH30_hosted-acceptance.md); [README.md](README.md) explains revalidation and execution conventions.
