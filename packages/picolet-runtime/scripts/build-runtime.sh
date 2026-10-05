@@ -312,7 +312,7 @@ build_romfs_image() {
     fi
 
     # Relative path from port_dir to romfs image (used by Make's ROMFS_IMG variable).
-    ROMFS_IMG_REL="$(realpath --relative-to="$port_dir" "$ROMFS_IMG_SAFE")"
+    ROMFS_IMG_REL="$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$ROMFS_IMG_SAFE" "$port_dir")"
     echo "  romfs image: $ROMFS_IMG_SAFE ($(wc -c < "$ROMFS_IMG_SAFE") bytes, relative: $ROMFS_IMG_REL)"
 }
 
