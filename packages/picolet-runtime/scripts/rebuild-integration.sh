@@ -54,7 +54,7 @@ if [ -d "$RERERE_SRC" ] && [ -n "$(ls -A "$RERERE_SRC" 2>/dev/null | grep -v '^R
         [ -d "$entry" ] || continue
         hash="$(basename "$entry")"
         if [ ! -d "$SUBMODULE_GITDIR/rr-cache/$hash" ]; then
-            cp -r "$entry" "$SUBMODULE_GITDIR/rr-cache/"
+            cp -R "${entry%/}" "$SUBMODULE_GITDIR/rr-cache/$hash"
             echo "    seeded rr-cache/$hash"
         fi
     done
@@ -189,6 +189,5 @@ git -C "$SUBMODULE" submodule update --init --recursive
 
 echo
 echo "Integration rebuilt at $(git -C "$SUBMODULE" rev-parse --short integration)"
-echo "Update parent submodule pointer with:"
-echo "  git add packages/picolet-runtime/micropython && \\"
-echo "    git commit -s -m 'picolet-runtime: Rebuild integration.'"
+echo "Keep the parent submodule pointer on a remotely reachable feature tip."
+echo "This integration composition is local build state, not a published gitlink."
