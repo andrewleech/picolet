@@ -236,7 +236,7 @@ class AppHarness:
         self._xvfb_proc: subprocess.Popen | None = None
 
         # Start Xvfb manually if no display is available (Linux headless).
-        if sys.platform == "linux" and not os.environ.get("DISPLAY") and self._browser != "lvgl":
+        if sys.platform == "linux" and not self._env.get("DISPLAY") and self._browser != "lvgl":
             xvfb_bin = shutil.which("Xvfb")
             if xvfb_bin:
                 # Find a free display number.

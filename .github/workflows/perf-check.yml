@@ -128,24 +128,24 @@ jobs:
       # 8. Build example binaries (embed romfs onto the runtime).
       - name: Build notes example binary
         run: |
-          uv run -p picolet picolet build --no-build-runtime \
-            --target linux-x64 \
-            --source examples/notes
+          uv run --project "$GITHUB_WORKSPACE/packages/picolet" --directory "$GITHUB_WORKSPACE/examples/notes" \
+            picolet build --target linux-x64 \
+            --runtime "$GITHUB_WORKSPACE/packages/picolet-runtime/build/picolet-runtime-linux-x64-webview"
 
       - name: Build pydfu example binary
         run: |
-          uv run -p picolet picolet build --no-build-runtime \
-            --target linux-x64 \
-            --source examples/pydfu
+          uv run --project "$GITHUB_WORKSPACE/packages/picolet" --directory "$GITHUB_WORKSPACE/examples/pydfu" \
+            picolet build --target linux-x64 \
+            --runtime "$GITHUB_WORKSPACE/packages/picolet-runtime/build/picolet-runtime-linux-x64-webview"
 
       # 9. Run perf-check measurements.
       #    The script starts its own Xvfb when $DISPLAY is unset.
       #    Results land in perf-results.json for the artifact step.
       - name: Run perf-check
         run: |
-          uv run --no-project scripts/perf-check.py \
-            --binary \
-              packages/picolet-runtime/build/picolet-runtime-linux-x64-webview \
+          uv run --project packages/picolet --extra testing python scripts/perf-check.py \
+            --binary examples/notes/target/linux-x64/notes \
+            --binary examples/pydfu/target/linux-x64/pydfu \
             --example examples/notes \
             --example examples/pydfu \
             --runs 5 \

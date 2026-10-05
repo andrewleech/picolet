@@ -131,6 +131,7 @@ async def _measure_test1_run(
 
     harness = AppHarness(
         binary,
+        args=("-c", "import main"),
         browser="webkit",
         env=env,
         timeout=10.0,
@@ -156,7 +157,10 @@ async def _measure_macos_test1_run(
     """Measure native macOS spawn → the port line observed by AppHarness."""
     from picolet.testing._harness import AppHarness
 
-    harness = AppHarness(binary, browser="webkit", env=env, timeout=10.0, _cwd=app_dir)
+    harness = AppHarness(
+        binary, args=("-c", "import main"), browser="webkit",
+        env=env, timeout=10.0, _cwd=app_dir,
+    )
     try:
         harness._proc = harness._spawn()
         port = await harness._wait_for_port()
@@ -271,7 +275,9 @@ async def _measure_macos_ex2_run(
     """Measure through native window visibility and a captured WKWebView frame."""
     from picolet.testing._harness import AppHarness
 
-    harness = AppHarness(binary, browser="webkit", env=env, timeout=10.0)
+    harness = AppHarness(
+        binary, args=("-c", "import main"), browser="webkit", env=env, timeout=10.0,
+    )
     try:
         await harness.start(cwd=str(app_dir))
         if harness.spawn_ms is None or harness._proc is None:
@@ -363,12 +369,9 @@ async def _measure_ex2_run(
     """
     Single timed run for NFR-EX-2.
 
-    Uses AppHarness.start() to spawn the binary and wait for the port
-    announcement (daemon thread drains stderr — no blocking read loop).
-    spawn_ms is set by AppHarness._spawn() just before Popen() returns.
-    After start() returns (port seen, child running), calls xdotool with
-    --pid to filter by the child's PID, confirming the window is visible
-    in the Xvfb framebuffer.
+    Spawn the embedded app and use xdotool's PID-filtered visible-window
+    search on the assigned Xvfb display. Inspector readiness is measured
+    independently by NFR-TEST-1, it is not a prerequisite for visibility.
 
     Returns elapsed milliseconds from spawn_ms to xdotool return.
     """
@@ -376,20 +379,18 @@ async def _measure_ex2_run(
 
     harness = AppHarness(
         binary,
+        args=("-c", "import main"),
         browser="webkit",
         env=env,
         timeout=10.0,
         _xvfb_display=xvfb_display,
+        _cwd=app_dir,
     )
-    await harness.start(cwd=str(app_dir))
-
-    if harness.spawn_ms is None:
-        await harness.stop()
-        raise RuntimeError(
-            f"NFR-EX-2: AppHarness did not set spawn_ms for {app_dir}"
-        )
 
     try:
+        harness._proc = harness._spawn()
+        if harness.spawn_ms is None:
+            raise RuntimeError(f"NFR-EX-2: no spawn timestamp for {app_dir}")
         child_pid = harness._proc.pid if harness._proc is not None else None
         xdotool = shutil.which("xdotool")
         if not xdotool or child_pid is None:
