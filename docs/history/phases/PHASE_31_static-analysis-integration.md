@@ -49,20 +49,17 @@ This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAS
 
 Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack is recorded as a comparison only; it does not replace GitLab Advanced SAST or establish equivalent coverage. Reopen this question only if running the actual analyzer becomes available or the roadmap decision changes.
 
-The source-boundary inventory and JavaScript / TypeScript source map are recorded below, and read-only probes verified manifest resolution for all eight runtime manifests. All trialled scanners must remain available through run-time selection, and static-analysis scope includes every runtime variant supported by the build script. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands for all supported target/variant pairs, export the manifest file list with build-identical variables, finish explicit source ownership/exclusion rules, and decide how every trialled scanner is selected in CI.
+The implementation resolves frozen Python from each variant manifest for all 15 accepted target/variant combinations, records actual native compiler commands during builds, and preserves source ownership in the exported scope and compile database. A Linux x64 `cli` build captured and normalized 226 compiler commands across 226 source files. The SAST runner applies explicit source boundaries for runtime Python, host CLI Python, bridge TypeScript, example application sources, and compiler-derived native files.
 
-- Runtime makefiles and variant configurations define native build inputs; a repository-wide source scan is not equivalent.
-- Frozen/runtime Python is manifest-selected and host CLI Python remains a separate package. Examples combine app code with tests and tooling.
-- The release workflow covers Linux / Windows `cli`, `webview`, and `lvgl` variants plus macOS variants, but is tag/manual only. The new CI workflow runs on pushes and pull requests.
-- Runtime builds do not currently emit native compile commands or a frozen-source inventory.
+The CI SAST matrix is configured for all 15 runtime combinations on their supported runners. Only the Linux x64 `cli` build has been exercised locally; these workflow changes have not yet run on GitHub Actions, so cross-runner build and report behaviour remains unverified here.
 
 ### Per-commit quality checks
 
 `.github/workflows/ci.yml` runs changed-file Python lint, maintained unit-test groups, and a SAST report on every push and pull request. The unit suites run in separate invocations where the host and runtime `picolet` packages need different import paths.
 
-Opengrep stable 1.30.0 is the default per-commit scanner. Manual workflow dispatch can select Opengrep, Semgrep CE 1.179.0, or Ruff `S`. The SAST job uploads SARIF reports and is report-only: findings have not been triaged into a reviewed baseline, and the current Opengrep scan reports existing findings and partial-parse warnings. A green CI result is not a clean security result.
+Opengrep stable 1.30.0 is the default report-only scanner. Manual workflow dispatch selects one analyzer from Opengrep stable, Opengrep interfile alpha, Semgrep CE 1.179.0, Ruff `S` 0.16.8, Pyrefly 1.3.2, or Pysa 0.10.0. Each scanner has a positive and negative fixture check and produces SARIF or its native JSON output. Findings remain report-only because the existing findings have not been triaged into a reviewed baseline.
 
-The current job scans the host package, runtime Python, and examples. It does not scan native variant sources, derive C/C++ inputs from effective build commands across all 15 target/variant combinations, or export the exact manifest-frozen Python inputs. The interfile alpha, Pysa, and Pyrefly paths also remain outside the workflow's selectable scanner set, so this is a per-commit starting point rather than completion of PH31's scanner and source-scope requirements.
+The SAST matrix captures actual C/C++ compiler calls while building all 15 accepted target/variant combinations. The manifest exporter uses the same MicroPython `ManifestFile` resolver inputs as runtime builds; scope JSON preserves each frozen file's repository path, frozen target path and owner. The interfile alpha runs on Linux cells only because its tested binary is Linux x86 and its previous trial was slow and noisy.
 
 
 No GitLab rule-pack expansion is part of this work.
@@ -73,7 +70,7 @@ No GitLab rule-pack expansion is part of this work.
 
 The trialled scanners are Semgrep CE, Opengrep stable, Opengrep interfile alpha, Ruff `S`, and Pysa. Pyrefly was also trialled as a type checker and is part of the evaluated analysis set, though it has no security rule pack. The public GitLab Semgrep pack was trialled through Opengrep; that does not make GitLab Advanced SAST available or equivalent.
 
-The invocation interface, default selection, per-scanner options, and behaviour when a selected tool is unavailable remain open design details. Resolve those while defining the runner, without changing the requirement that every tried tool is selectable.
+`scripts/run_sast.py --scanner <name> --target <target> --variant <variant>` runs exactly one selected analyzer. CI uses the same selection names through the `sast_scanner` workflow-dispatch input; pushes and pull requests default to Opengrep stable. The interfile alpha is Linux-only. Tool installation is pinned in the workflow and in the local commands below.
 
 
 
@@ -96,11 +93,11 @@ This inventory records the current source boundaries and their authority. It doe
 
 The Unix port adds its base `SRC_C`, its selected variant's `*.c`, and shared sources; variant makefiles can append further Picolet sources. The Windows port sets its own `SRC_C`, adds the variant's `*.c`, then adds `EXTRA_SRC_C` and the shared romfs trailer. In particular, a directory walk cannot model the Windows source list, and the LVGL manifest contributes its C module through MicroPython's `py/manifest.mk`.
 
-The `release.yml` build matrix is `{linux-x64, windows-x64} × {cli, webview, lvgl}` plus `{macos-x64, macos-arm64} × {cli, webview, lvgl}`. This workflow runs for runtime release tags or manual dispatch, not pull requests. Other buildable variants such as `mcp` and `tui` are not in this release matrix, so the eventual analysis target set must say whether those variants are also covered.
+The `release.yml` build matrix is `{linux-x64, windows-x64} × {cli, webview, lvgl}` plus `{macos-x64, macos-arm64} × {cli, webview, lvgl}`. This workflow runs for runtime release tags or manual dispatch, not pull requests. PH31 also covers Linux `mcp` and Linux / Windows `tui`, which are outside the current release matrix.
 
-No `compile_commands.json` is present at the repository root, and the runtime build commands do not currently emit one. The native analysis input therefore remains to be generated from each selected target/variant build, with a reliable association between each command and its source ownership. The generated C/C++ set should be checked against the actual make invocation, including manifest-added modules, rather than inferred from tracked paths alone.
+There is no checked-in `compile_commands.json`. The runtime build can now record compiler and assembler invocations from the selected build and normalize them into a target-specific compile database with source ownership. A Linux x64 `cli` build produced 226 entries across 226 source files; the other target/variant builds have not been exercised locally.
 
-The Unix MicroPython makefile currently leaves `SRC_CXX` empty. Treat C++ as an analysis input only if a selected build's effective compiler commands include it; native source scope must follow commands actually emitted rather than assuming the language from extensions in the checkout.
+The Unix MicroPython makefile currently leaves `SRC_CXX` empty. The compile database records commands actually emitted, so C++ is included only if a selected build invokes a C++ compiler.
 
 
 ### Frozen and host-side Python
@@ -109,9 +106,9 @@ Frozen Python scope is selected per variant by `FROZEN_MANIFEST` in `variants/*/
 
 The manifests also include `extmod/asyncio` and require selected modules such as `os-path`, `pathlib`, `__future__`, `functools`, and `itertools` from MicroPython / micropython-lib. `add_library()` declares available libraries; it is not by itself an instruction to freeze every file in those libraries. Scanning all of `packages/picolet-runtime/python/` would include packages not frozen in every variant; scanning all of the MicroPython submodule or micropython-lib would include unrelated upstream code.
 
-The MicroPython `ManifestFile` resolver exposes the concrete source list through `files()` after executing a manifest with its build variables. Read-only probes resolved all eight checked-in manifests: `cli` and `mcp` select 21 Python files each, `webview` and `lvgl` select 35 each, and `tui` selects 87. The lists include Picolet runtime modules, MicroPython's `extmod/asyncio`, and micropython-lib modules. This is a workable source for a frozen-file exporter, provided it uses the same `MPY_DIR`, `PORT_DIR`, `MPY_LIB_DIR`, manifest and variant variables as the build. These resolver probes do not yet prove that each list matches every target build or resolve native C modules.
+The MicroPython `ManifestFile` resolver exposes the concrete source list through `files()` after executing each manifest with its build variables. `scripts/static_analysis_scope.py` now resolves frozen Python across all 15 accepted target/variant combinations and records repository path, frozen target path and owner. The manifest tests cover those combinations; actual runtime build / compile capture has so far been exercised only for Linux x64 `cli`.
 
-`makemanifest.py --list-c-modules` already exposes manifest-added C modules, and `py/manifest.mk` merges those paths into `USER_C_MODULES`. A final C/C++ inventory still needs the effective build commands so it includes MicroPython's base files and each module's recursive build inputs, with command flags preserved by target.
+`makemanifest.py --list-c-modules` exposes manifest-added C modules, and `py/manifest.mk` merges those paths into `USER_C_MODULES`. The captured native compiler commands include the selected build's effective source list, including manifest-added modules; each compile database stays target-specific because compiler flags differ between cells.
 
 Keep these Python classes distinct:
 
@@ -138,14 +135,58 @@ The runtime release workflow defines 12 target/variant cells: `linux-x64`, `wind
 
 The build script accepts 15 target/variant combinations: `cli`, `webview`, and `lvgl` on Linux x64, Windows x64, macOS x64 and macOS arm64; `mcp` on Linux x64 only; and `tui` on Linux x64 and Windows x64. PH31 scope is all five runtime variants across all 15 accepted combinations. This adds Linux `mcp` and Linux / Windows `tui` beyond the current 12-cell release matrix.
 
-### Scope decisions still needed
+### Tool portfolio and scope decisions
 
-- Capture each supported make invocation's effective C/C++ compiler commands, then classify commands and files as Picolet, MicroPython integration/overlay, LVGL binding, LVGL, or other dependency. Decide how shared compilation across targets is deduplicated without losing target-specific flags.
-- Turn the proven `ManifestFile.files()` resolution into a checked-in/exported input using exactly the build's manifest variables, and report Picolet-owned files separately from library / submodule files.
-- Decide whether the committed bridge bundle needs analysis in addition to its TypeScript source, and map host CLI / examples / tests / screenshot tooling to explicit include/exclude rules.
-- Continue into the per-tool decision table only after these source scopes and ownership boundaries are agreed.
+The TypeScript bridge source is authoritative; generated `dist/` bundles are excluded. Example application sources are selected under app `src/` and Vue `ui/src/` directories. Example tests, screenshot scripts, generated bundles, installed dependencies, the host package's `_vendor/`, and MicroPython `mpy-cross` are excluded. `analysis-scope.json` records included paths, ownership and the exclusion rules for each run.
 
-This pass confirms the scope-authority model and its gaps; it does not implement a compile database or frozen-file export.
+| Candidate | Decision and role | Scope, output and constraint |
+|---|---|---|
+| Opengrep stable 1.30.0 | Selected default; report-only | `p/security-audit` for Python / web app sources and `p/c` for build-derived C/C++; SARIF. Linux and macOS release assets are checksum-pinned. |
+| Opengrep interfile alpha | Selected optional; report-only, Linux only | Same project rules with `--taint-interfile`; SARIF and raw log. Release is marked for testing only; prior trial took about 193 seconds and emitted warnings. |
+| Semgrep CE 1.179.0 | Selected optional; report-only | Same split rule scopes as Opengrep; SARIF. It does not imply availability of Semgrep's paid managed products. |
+| Ruff `S` 0.16.8 | Selected optional security-lint pass; report-only | Runtime, host and example Python; SARIF. Complements rather than replaces taint analysis. |
+| Pyrefly 1.3.2 | Selected optional type analysis; report-only | Manifest-resolved runtime Python only; SARIF diagnostics plus the JSON handoff used by Pysa. It is not a SAST tool. |
+| Pysa 0.10.0 with Pyrefly 1.3.2 | Selected optional taint analysis; report-only | Manifest-resolved runtime Python only; JSON. Models `input()` to `eval()` as a fixture-backed starting point, not broad library coverage. |
+| CodeQL | Deferred | Not trialled against this 15-cell native build matrix. Database setup, runner cost and code-scanning availability were not evaluated; no claim is made about its coverage or licensing for this repository. |
+| GitLab SAST / Advanced SAST | Not selected for CI | The project CI runs on GitHub. Advanced SAST requires GitLab Ultimate and is not equivalent to the public Semgrep rule repository trialled above. |
+| cppcheck | Deferred | Not trialled against the generated compile databases; retain as a native-analysis candidate rather than assuming coverage. |
+| GCC `-fanalyzer` | Deferred | Not trialled as a separate report and compiler support differs across the Linux, Windows-cross and macOS builds. |
+| CodeChecker / Clang Static Analyzer | Deferred | Not trialled with the target compilers and generated source set; separate cross-toolchain configuration remains unproven. |
+| Coverity | Deferred | Not trialled; requires a separately provisioned commercial analysis service and licence decision. |
+| Bandit | Not selected as a separate job | Ruff `S` provides overlapping Bandit-derived rules; no separate signal was demonstrated. |
+
+CI findings and type diagnostics are report-only until owners triage the existing findings and establish a reviewed baseline. Scanner startup failures or a missing result file fail the job; findings themselves do not. Raw logs accompany the reports so parser errors, warnings, partial scans and unresolved Pyrefly diagnostics remain visible.
+
+The build captures compiler invocations, not a guessed directory walk. Each JSON compile entry retains the actual arguments, build directory and owner, while the frozen-Python scope records source path, manifest target path and owner. The target-specific compile database remains separate because compiler flags differ between cells.
+Pyrefly and Pysa stage the manifest-selected files in a temporary tree for analysis, then map report file paths back to repository sources before the artifacts are retained.
+
+
+### Local runs
+
+Run the runtime build from a recursive checkout with the MicroPython integration branch available. The compile log must live under the repository because Linux and Windows builds write it from containers:
+
+```sh
+bash packages/picolet-runtime/scripts/build-runtime.sh \
+  --target linux-x64 --variant cli \
+  --compile-db-log "$PWD/packages/picolet-runtime/build/native-compile.jsonl"
+python3 scripts/normalise_compile_database.py \
+  --repo-root "$PWD" \
+  --input packages/picolet-runtime/build/native-compile.jsonl \
+  --output packages/picolet-runtime/build/compile_commands.json
+```
+
+Install the selected pinned tool first: `semgrep==1.179.0`, `ruff==0.16.8`, `pyrefly==1.3.2`, and `pyre-check==0.10.0` are Python packages; Opengrep stable and its Linux-only interfile alpha use the checksum-pinned release binaries in `.github/workflows/ci.yml`.
+
+```sh
+python3 scripts/check_sast_fixtures.py --scanner opengrep-stable
+python3 scripts/run_sast.py \
+  --scanner opengrep-stable \
+  --target linux-x64 --variant cli \
+  --compile-database packages/picolet-runtime/build/compile_commands.json \
+  --output-dir packages/picolet-runtime/build/sast-results
+```
+
+The runner writes SARIF or native JSON reports, an analysis summary, exact source-scope JSON and captured tool logs. It runs only the selected analyzer.
 
 
 ## Scope

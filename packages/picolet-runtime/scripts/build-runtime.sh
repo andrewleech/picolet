@@ -74,6 +74,7 @@ VARIANT=""
 CLEAN=0
 FROM_SOURCE=0
 TEST_ROMFS=""   # empty by default; pass --test-romfs <fixture> to embed a test romfs
+COMPILE_DB_LOG=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -87,10 +88,11 @@ while [[ $# -gt 0 ]]; do
             FROM_SOURCE=1; shift ;;
         --test-romfs)
             TEST_ROMFS="$2"; shift 2 ;;
+        --compile-db-log)
+            COMPILE_DB_LOG="$2"; shift 2 ;;
         *)
             echo "error: unknown argument: $1" >&2
-            echo "usage: $0 --target <target> --variant <variant> [--clean] [--from-source] [--test-romfs <fixture>]" >&2
-            exit 1 ;;
+            echo "usage: $0 --target <target> --variant <variant> [--clean] [--from-source] [--test-romfs <fixture>] [--compile-db-log <jsonl>]" >&2
     esac
 done
 
@@ -249,6 +251,18 @@ docker_windows() {
         --user "$(id -u):$(id -g)" \
         "$DOCKCROSS_IMAGE" \
         "$@"
+}
+
+CAPTURE_MAKE_ARGS=()
+
+prepare_compile_capture() {
+    local compiler="$1"
+    local assembler="$2"
+    CAPTURE_MAKE_ARGS=()
+    [[ -z "$COMPILE_DB_LOG" ]] && return
+    local recorder="$REPO_ROOT/scripts/record_compile_command.py"
+    CAPTURE_MAKE_ARGS+=("CC=python3 '$recorder' --kind cc --compiler '$compiler' --repo-root '$REPO_ROOT' --log '$COMPILE_DB_LOG' --")
+    CAPTURE_MAKE_ARGS+=("AS=python3 '$recorder' --kind as --compiler '$assembler' --repo-root '$REPO_ROOT' --log '$COMPILE_DB_LOG' --")
 }
 
 # ---------------------------------------------------------------------------
@@ -515,13 +529,15 @@ build_linux_x64() {
             PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
             deplibs
     fi
+    prepare_compile_capture gcc as
     docker_linux "$UNIX_PORT" make \
         MPY_LIB_DIR="$MPY_LIB_DIR" \
         -j \
         VARIANT_DIR="$VARIANT_DIR_UNIX" \
         BUILD="build-${VARIANT_NAME}" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
-        PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME"
+        PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
+        "${CAPTURE_MAKE_ARGS[@]}"
 
     echo "[7/8] Stripping and installing artifact"
     local built_binary="$variant_build/micropython"
@@ -717,6 +733,7 @@ build_macos() {
             "${EXTRA_MAKE_VARS[@]}" \
             deplibs
     fi
+    prepare_compile_capture clang as
     make -C "$UNIX_PORT" \
         MPY_LIB_DIR="$MPY_LIB_DIR" \
         -j \
@@ -724,6 +741,7 @@ build_macos() {
         BUILD="build-${VARIANT_NAME}" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
         PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
+        "${CAPTURE_MAKE_ARGS[@]}" \
         "${EXTRA_MAKE_VARS[@]}"
 
     echo "[7/8] Stripping and installing artifact"
@@ -949,6 +967,7 @@ build_windows_x64() {
             deplibs
     fi
 
+    prepare_compile_capture "${CROSS}gcc" "${CROSS}as"
     echo "[6b/8] Building windows port variant=${VARIANT_NAME} inside dockcross"
     docker_windows "$windows_port" make \
         MPY_LIB_DIR="$MPY_LIB_DIR" \
@@ -958,6 +977,7 @@ build_windows_x64() {
         CROSS_COMPILE="$CROSS" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
         PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
+        "${CAPTURE_MAKE_ARGS[@]}" \
         "${EXTRA_MAKE_VARS[@]}"
 
     echo "[7/8] Stripping and installing artifact"
@@ -1007,6 +1027,18 @@ build_windows_x64() {
 # ---------------------------------------------------------------------------
 # Main dispatch
 # ---------------------------------------------------------------------------
+
+if [[ -n "$COMPILE_DB_LOG" ]]; then
+    case "$COMPILE_DB_LOG" in
+        "$REPO_ROOT"/*) ;;
+        *)
+            echo "error: --compile-db-log must be inside the repository mounted by build containers" >&2
+            exit 1
+            ;;
+    esac
+    mkdir -p "$(dirname "$COMPILE_DB_LOG")"
+    : > "$COMPILE_DB_LOG"
+fi
 
 echo "=== build-runtime.sh: target=$TARGET variant=$VARIANT ==="
 

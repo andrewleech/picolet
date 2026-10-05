@@ -9,11 +9,14 @@ on:
         description: SAST scanner to run
         required: true
         type: choice
-        default: opengrep
+        default: opengrep-stable
         options:
-          - opengrep
-          - semgrep
+          - opengrep-stable
+          - opengrep-interfile-alpha
+          - semgrep-ce
           - ruff-s
+          - pyrefly
+          - pysa
 
 permissions:
   contents: read
@@ -103,68 +106,135 @@ jobs:
         run: uv run --no-sync pytest tests/system/tui/ -q
 
   sast:
-    name: SAST report
-    runs-on: ubuntu-latest
+    name: "SAST ${{ matrix.target }} / ${{ matrix.variant }}"
+    if: ${{ (inputs.sast_scanner || 'opengrep-stable') != 'opengrep-interfile-alpha' || matrix.runner == 'ubuntu-latest' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64, variant: cli, runner: ubuntu-latest }
+          - { target: linux-x64, variant: webview, runner: ubuntu-latest }
+          - { target: linux-x64, variant: lvgl, runner: ubuntu-latest }
+          - { target: linux-x64, variant: mcp, runner: ubuntu-latest }
+          - { target: linux-x64, variant: tui, runner: ubuntu-latest }
+          - { target: windows-x64, variant: cli, runner: ubuntu-latest }
+          - { target: windows-x64, variant: webview, runner: ubuntu-latest }
+          - { target: windows-x64, variant: lvgl, runner: ubuntu-latest }
+          - { target: windows-x64, variant: tui, runner: ubuntu-latest }
+          - { target: macos-x64, variant: cli, runner: macos-13 }
+          - { target: macos-x64, variant: webview, runner: macos-13 }
+          - { target: macos-x64, variant: lvgl, runner: macos-13 }
+          - { target: macos-arm64, variant: cli, runner: macos-14 }
+          - { target: macos-arm64, variant: webview, runner: macos-14 }
+          - { target: macos-arm64, variant: lvgl, runner: macos-14 }
     env:
-      SAST_SCANNER: ${{ inputs.sast_scanner || 'opengrep' }}
+      SAST_SCANNER: ${{ inputs.sast_scanner || 'opengrep-stable' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install Opengrep
-        if: env.SAST_SCANNER == 'opengrep'
+      - name: Compose MicroPython integration
+        run: bash packages/picolet-runtime/scripts/rebuild-integration.sh
+
+      - name: Install build prerequisites
         run: |
-          curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_manylinux_x86 -o opengrep
-          echo "35779bdd72e92129c8df2a77f0c55e8c08356801ea92591ef32108d6b28d564c  opengrep" | sha256sum --check
+          python3 -m pip install mpremote
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            brew install automake libtool
+            if [[ "${{ matrix.variant }}" == "lvgl" ]]; then
+              brew install sdl2
+            fi
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends libtool automake autoconf
+            if [[ "${{ matrix.target }}" == "windows-x64" ]]; then
+              docker pull dockcross/windows-static-x64-posix:latest
+            fi
+          fi
+
+      - name: Install Opengrep stable
+        if: env.SAST_SCANNER == 'opengrep-stable'
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_manylinux_x86 -o opengrep
+            echo "35779bdd72e92129c8df2a77f0c55e8c08356801ea92591ef32108d6b28d564c  opengrep" | sha256sum --check
+          elif [[ "$(uname -m)" == "arm64" ]]; then
+            curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep-core_osx_aarch64.tar.gz -o opengrep.tar.gz
+            echo "c5666ba7cec84ed60e101b84f9d489ba3d4320e35f258ec9a078ebc3ef3152b3  opengrep.tar.gz" | shasum -a 256 --check
+            tar -xzf opengrep.tar.gz
+          else
+            curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep-core_osx_x86.tar.gz -o opengrep.tar.gz
+            echo "9c382b3f7979963edf05e085e943b3c850470bd5ca114b67e3f40514c99b56b8  opengrep.tar.gz" | shasum -a 256 --check
+            tar -xzf opengrep.tar.gz
+          fi
+          chmod +x opengrep
+          sudo install -m 0755 opengrep /usr/local/bin/opengrep
+
+      - name: Install Opengrep interfile alpha
+        if: env.SAST_SCANNER == 'opengrep-interfile-alpha'
+        run: |
+          curl -fsSL https://github.com/opengrep/opengrep/releases/download/v2.0.0-nopython-interfile.alpha.3/opengrep_linux_x86 -o opengrep
+          echo "c974a8d6918a49ae340fad22913b131d0e20d8cd6682e4890ef057f4e29d6184  opengrep" | sha256sum --check
           chmod +x opengrep
           sudo install -m 0755 opengrep /usr/local/bin/opengrep
 
       - name: Install Semgrep CE
-        if: env.SAST_SCANNER == 'semgrep'
-        run: python -m pip install semgrep==1.179.0
+        if: env.SAST_SCANNER == 'semgrep-ce'
+        run: python3 -m pip install semgrep==1.179.0
 
-      - name: Install Ruff
+      - name: Install Ruff security rules
         if: env.SAST_SCANNER == 'ruff-s'
-        run: python -m pip install ruff==0.16.8
+        run: python3 -m pip install ruff==0.16.8
 
-      - name: Run Opengrep
-        if: env.SAST_SCANNER == 'opengrep'
+      - name: Install Pyrefly
+        if: env.SAST_SCANNER == 'pyrefly' || env.SAST_SCANNER == 'pysa'
+        run: python3 -m pip install pyrefly==1.3.2
+
+      - name: Install Pysa
+        if: env.SAST_SCANNER == 'pysa'
+        run: python3 -m pip install pyre-check==0.10.0
+
+      - name: Build native runtime and record compiler inputs
+        run: |
+          compile_log="$PWD/packages/picolet-runtime/build/native-compile.jsonl"
+          bash packages/picolet-runtime/scripts/build-runtime.sh \
+            --target "${{ matrix.target }}" \
+            --variant "${{ matrix.variant }}" \
+            --compile-db-log "$compile_log"
+          echo "compile_log=$compile_log" >> "$GITHUB_ENV"
+
+      - name: Normalise native compile database
         run: |
           mkdir -p sast-results
-          opengrep scan --config p/security-audit --config p/python \
-            --sarif-output sast-results/opengrep.sarif \
-            packages/picolet/picolet \
-            packages/picolet-runtime/python \
-            examples
+          python3 scripts/normalise_compile_database.py \
+            --repo-root "$PWD" \
+            --input "$compile_log" \
+            --output sast-results/compile_commands.json
 
-      - name: Run Semgrep CE
-        if: env.SAST_SCANNER == 'semgrep'
+      - name: Check positive and negative fixtures
+        run: python3 scripts/check_sast_fixtures.py --scanner "$SAST_SCANNER"
+
+      - name: Run selected static analysis
         run: |
-          mkdir -p sast-results
-          semgrep scan --config p/security-audit --config p/python \
-            --sarif --output sast-results/semgrep.sarif \
-            packages/picolet/picolet \
-            packages/picolet-runtime/python \
-            examples
+          python3 scripts/run_sast.py \
+            --scanner "$SAST_SCANNER" \
+            --target "${{ matrix.target }}" \
+            --variant "${{ matrix.variant }}" \
+            --compile-database sast-results/compile_commands.json \
+            --output-dir sast-results
 
-      - name: Run Ruff security rules
-        if: env.SAST_SCANNER == 'ruff-s'
-        run: |
-          mkdir -p sast-results
-          ruff check --isolated --select S --exit-zero \
-            --output-format sarif --output-file sast-results/ruff-s.sarif \
-            packages/picolet/picolet \
-            packages/picolet-runtime/python \
-            examples
-
-      - name: Upload SAST reports
+      - name: Upload analysis reports and inputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sast-${{ env.SAST_SCANNER }}
+          name: sast-${{ matrix.target }}-${{ matrix.variant }}-${{ env.SAST_SCANNER }}
           path: sast-results/
           if-no-files-found: ignore
           retention-days: 14
