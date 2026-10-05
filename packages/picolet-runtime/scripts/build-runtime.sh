@@ -93,6 +93,7 @@ while [[ $# -gt 0 ]]; do
         *)
             echo "error: unknown argument: $1" >&2
             echo "usage: $0 --target <target> --variant <variant> [--clean] [--from-source] [--test-romfs <fixture>] [--compile-db-log <jsonl>]" >&2
+            exit 2 ;;
     esac
 done
 
