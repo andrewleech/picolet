@@ -9,8 +9,8 @@
 #
 # Run from anywhere; resolves repo root from the script location.
 #
-# After running, commit the submodule pointer in the parent repo:
-#   git -C "$(git rev-parse --show-toplevel)" add packages/picolet-runtime/micropython && git commit -s
+# The parent gitlink records a remotely reachable feature tip. Integration
+# is composed locally for each build and is not published as a gitlink.
 
 set -euo pipefail
 
@@ -87,7 +87,10 @@ fi
 # left over from an earlier run or an unrelated local checkout must never be
 # allowed to silently shadow origin's current content.
 echo "[0/2] Syncing local branches to origin for the branches listed in mbm.toml"
-mapfile -t ALL_BRANCHES < <(grep -E '^name = "' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
+ALL_BRANCHES=()
+while IFS= read -r pr_branch; do
+    ALL_BRANCHES+=("$pr_branch")
+done < <(grep -E '^name = "' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
 for pr_branch in "${ALL_BRANCHES[@]}"; do
     git -C "$SUBMODULE" fetch origin --quiet "$pr_branch" 2>/dev/null || true
     if git -C "$SUBMODULE" show-ref --quiet "refs/remotes/origin/$pr_branch"; then
@@ -155,7 +158,7 @@ git -C "$SUBMODULE" checkout -B integration_update upstream/master
 # Branches like `select-event-source` and `unix-sleep-process-pending`
 # don't fit the `pr/...` convention but still need to be merged into
 # integration.
-mapfile -t PR_BRANCHES < <(grep -E '^name = "' "$PKG_ROOT/mbm.toml" | sed 's/^name = "//;s/"$//')
+PR_BRANCHES=("${ALL_BRANCHES[@]}")
 
 for branch in "${PR_BRANCHES[@]}"; do
     msg="Merge branch '$branch'"
