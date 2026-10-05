@@ -92,6 +92,13 @@ jobs:
           tests/phase-20/
           tests/phase-21/
           tests/phase-23/
+          tests/phase-24/
+          tests/phase-25/
+          tests/phase-26/
+          tests/phase-27/
+          tests/phase-28/
+          tests/phase-29/
+          tests/phase-31/
           -q
 
       - name: Test MicroPython IPC runtime
@@ -160,13 +167,11 @@ jobs:
             curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_manylinux_x86 -o opengrep
             echo "35779bdd72e92129c8df2a77f0c55e8c08356801ea92591ef32108d6b28d564c  opengrep" | sha256sum --check
           elif [[ "$(uname -m)" == "arm64" ]]; then
-            curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep-core_osx_aarch64.tar.gz -o opengrep.tar.gz
-            echo "c5666ba7cec84ed60e101b84f9d489ba3d4320e35f258ec9a078ebc3ef3152b3  opengrep.tar.gz" | shasum -a 256 --check
-            tar -xzf opengrep.tar.gz
+            curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_osx_arm64 -o opengrep
+            echo "0f5bc3dec09d995c61331a4017b856ede508f90d95b018d95f1dc6166be89fdd  opengrep" | shasum -a 256 --check
           else
-            curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep-core_osx_x86.tar.gz -o opengrep.tar.gz
-            echo "9c382b3f7979963edf05e085e943b3c850470bd5ca114b67e3f40514c99b56b8  opengrep.tar.gz" | shasum -a 256 --check
-            tar -xzf opengrep.tar.gz
+            curl -fsSL https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_osx_x86 -o opengrep
+            echo "650772a849a2986880982b7dea0371f96a75d354de95f94e8c1a2e6f8f6262d1  opengrep" | shasum -a 256 --check
           fi
           chmod +x opengrep
           sudo install -m 0755 opengrep /usr/local/bin/opengrep
