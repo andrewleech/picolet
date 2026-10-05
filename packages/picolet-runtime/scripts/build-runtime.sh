@@ -730,7 +730,7 @@ build_macos() {
             BUILD="build-${VARIANT_NAME}" \
             MICROPY_STANDALONE=1 \
             PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
-            "${EXTRA_MAKE_VARS[@]}" \
+            ${EXTRA_MAKE_VARS[@]+"${EXTRA_MAKE_VARS[@]}"} \
             deplibs
     fi
     prepare_compile_capture clang as
@@ -741,8 +741,8 @@ build_macos() {
         BUILD="build-${VARIANT_NAME}" \
         ROMFS_IMG="$ROMFS_IMG_REL" \
         PICOLET_RUNTIME_ROOT="$PICOLET_RUNTIME" \
-        "${CAPTURE_MAKE_ARGS[@]}" \
-        "${EXTRA_MAKE_VARS[@]}"
+        ${CAPTURE_MAKE_ARGS[@]+"${CAPTURE_MAKE_ARGS[@]}"} \
+        ${EXTRA_MAKE_VARS[@]+"${EXTRA_MAKE_VARS[@]}"}
 
     echo "[7/8] Stripping and installing artifact"
     local built_binary="$variant_build/micropython"
