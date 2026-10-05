@@ -49,7 +49,7 @@ This is a wider GitLab-maintained Semgrep rules trial, not a GitLab Advanced SAS
 
 Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack is recorded as a comparison only; it does not replace GitLab Advanced SAST or establish equivalent coverage. Reopen this question only if running the actual analyzer becomes available or the roadmap decision changes.
 
-The source-boundary inventory is recorded below, and read-only probes verified that MicroPython's manifest resolver can enumerate frozen Python inputs for every checked-in runtime manifest. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands, automate the manifest file list with build-identical variables, and finish the JavaScript / TypeScript ownership map before choosing CI gates.
+The source-boundary inventory and JavaScript / TypeScript source map are recorded below, and read-only probes verified manifest resolution for all eight runtime manifests. GitLab rule-source exploration remains parked; remaining PH31 scope work is to capture build-resolved native commands, export the manifest file list with build-identical variables, settle whether `mcp` / `tui` variants outside the CI matrix are included, and finish explicit source ownership/exclusion rules before choosing CI gates.
 
 - Runtime makefiles and variant configurations define native build inputs; a repository-wide source scan is not equivalent.
 - Frozen/runtime Python is manifest-selected and host CLI Python remains a separate package. Examples combine app code with tests and tooling.
@@ -104,16 +104,28 @@ Keep these Python classes distinct:
 | Tests and fixtures | `tests/` and package-local tests | Not part of a runtime artifact; whether selected test helpers are analysed is a separate policy choice. |
 | Examples | `examples/` | Mix of Python application code, Vue / TypeScript sources, build output and test / screenshot tooling. Keep app code distinct from generated bundles, vendored dependencies and test utilities. |
 
-### Web and TypeScript
+### Web, TypeScript and example tooling
 
-The JS / TypeScript surface is example-oriented rather than one uniform package scope. `packages/picolet-bridge-js/` and the source directories under `examples/` need to be inventoried against their own package manifests and build scripts before defining analysis inputs. Generated `dist/` output, installed dependencies, test code, and screenshot scripts must not silently become Picolet application source.
+The Picolet bridge package has TypeScript source in `packages/picolet-bridge-js/src/` (`index.ts` and `picolet.d.ts`), a `build.mjs` esbuild entry point, and a committed `dist/picolet-bridge.js` bundle copied into webview app romfs images. The bundle is a shipped artifact generated from `src/index.ts`; whether it needs separate analysis from its source remains a policy choice.
+
+Five examples have Vue frontends: `notes`, `pydfu`, `config-editor`, `dashboard`, and `with-vue`. Their application source is under `ui/src/`, with `.vue` components and TypeScript modules / declarations. Each Vite project writes generated output to its app-level `dist/`; Vue app build scripts run `vue-tsc --noEmit` before `vite build`. `vite.config.ts`, `tsconfig*.json`, `package.json` and lockfiles are build/dependency inputs rather than frontend application modules.
+
+The PR screenshot workflow installs dependencies and builds four frontends (`notes`, `pydfu`, `config-editor`, `dashboard`), then runs their Python Playwright screenshot scripts. `with-vue` is not part of those screenshot build steps. Example `tests/` are Python tests; `scripts/` include Python screenshot tooling. Keep these separate from the Vue/TypeScript application scope, and do not scan installed `node_modules` as project source.
+
+The other example, `tui-pydfu`, is currently Python-only based on its checked-in source layout. Its presence does not expand the Vue / TypeScript source set.
+
+### Current build targets
+
+The runtime release workflow defines 12 target/variant cells: `linux-x64`, `windows-x64`, `macos-x64`, and `macos-arm64`, each with `cli`, `webview`, and `lvgl`. The perf workflow also builds Linux `webview` and macOS `webview` on x64 / arm64, all combinations already present in the release matrix. Release builds run only on runtime tags or manual dispatch. The runtime build script also supports `mcp` and `tui` combinations that do not appear in these workflow matrices.
+
+For source inventory, keep the CI-declared cells as a distinct set from every variant the build script can produce. Whether PH31 also generates build-resolved inputs for `mcp` / `tui` must be decided explicitly rather than inferred from the release matrix.
 
 ### Scope decisions still needed
 
 - Choose which runtime variants and target platforms are part of native analysis, including whether the `mcp` and `tui` variants outside the release matrix are covered.
 - Capture each selected make invocation's effective C/C++ compiler commands, then classify commands and files as Picolet, MicroPython integration/overlay, LVGL binding, LVGL, or other dependency. Decide how shared compilation across targets is deduplicated without losing target-specific flags.
 - Turn the proven `ManifestFile.files()` resolution into a checked-in/exported input using exactly the build's manifest variables, and report Picolet-owned files separately from library / submodule files.
-- Map host CLI, examples, bridge JS, generated outputs, tests and screenshot tooling to explicit include/exclude rules.
+- Decide whether the committed bridge bundle needs analysis in addition to its TypeScript source, and map host CLI / examples / tests / screenshot tooling to explicit include/exclude rules.
 - Continue into the per-tool decision table only after these source scopes and ownership boundaries are agreed.
 
 This pass confirms the scope-authority model and its gaps; it does not implement a compile database or frozen-file export.
