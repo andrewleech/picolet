@@ -131,20 +131,12 @@ def _snapshot(webview, path):
         free(pointer)
 
 
-def main():
+def install(app, output_path):
     if sys.platform != "darwin":
         raise RuntimeError("This probe requires the native Darwin webview runtime")
-    if len(sys.argv) != 3 or sys.argv[1] not in _APP_CHECKS:
-        raise RuntimeError("Usage: mac-app-smoke.py <notes|pydfu|config-editor|dashboard> <output.png>")
-
-    app = sys.argv[1]
-    output_path = sys.argv[2]
     selector, command, ready_flag = _APP_CHECKS[app]
     if app == "pydfu":
         os.putenv("PICOLET_PYDFU_MOCK", "1")
-
-    # The packaged example receives no application arguments.
-    sys.argv[:] = [sys.argv[0]]
 
     from picolet_ui import _loop
     original_run = _loop.run
@@ -194,11 +186,3 @@ def main():
         return original_run(transport, main=observe_main, pump=pump)
 
     _loop.run = run_with_observer
-    import main as example_main
-
-    # Importing the packaged example starts its normal application entry point.
-    if not hasattr(example_main, "main"):
-        raise RuntimeError("Packaged example main module has no main entry point")
-
-
-main()
