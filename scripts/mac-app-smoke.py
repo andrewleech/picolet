@@ -79,7 +79,14 @@ def _script(app, selector, command, ready_flag):
           return;
         }
         window.picolet.invoke(%s, %s).then(function(result) {
-          document.fonts.ready.then(function() {
+          return document.fonts.ready.then(function() {
+            // Finish entrance animations without stopping perpetual indicators.
+            return Promise.all(document.getAnimations().filter(function(animation) {
+              return Number.isFinite(animation.effect.getComputedTiming().endTime);
+            }).map(function(animation) {
+              return animation.finished;
+            }));
+          }).then(function() {
             // Animation callbacks precede paint; the second frame crosses a paint boundary.
             window.requestAnimationFrame(function() {
               window.requestAnimationFrame(function() {
@@ -91,7 +98,7 @@ def _script(app, selector, command, ready_flag):
               });
             });
           });
-        }, function(error) {
+        }).catch(function(error) {
           window.webkit.messageHandlers.picolet.postMessage(JSON.stringify({
             event: 'mac-app-smoke', data: {
               app: %s, command: %s, ready: true,
