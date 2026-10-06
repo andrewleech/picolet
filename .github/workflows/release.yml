@@ -343,7 +343,8 @@ jobs:
           ARCH=$([ "${{ runner.arch }}" = "X64" ] && echo "x64" || echo "arm64")
           "packages/picolet-runtime/build/picolet-runtime-macos-${ARCH}-lvgl" \
             scripts/lvgl-ui-smoke.py /tmp/mac-lvgl-smoke.png
-          uv run --with pillow python -c 'from PIL import Image; image = Image.open("/tmp/mac-lvgl-smoke.png").convert("RGB"); assert image.size == (320, 240); assert image.getpixel((10, 10)) == (18, 52, 86); assert image.getpixel((60, 80)) == (240, 32, 64); print("native SDL window and rendered PNG colours verified")'
+          python3 -m pip install Pillow
+          python3 -c 'from PIL import Image; image = Image.open("/tmp/mac-lvgl-smoke.png").convert("RGB"); assert image.size == (320, 240); assert image.getpixel((10, 10)) == (18, 52, 86); assert image.getpixel((60, 80)) == (240, 32, 64); print("native SDL window and rendered PNG colours verified")'
 
       - name: Upload native LVGL scene evidence
         if: always() && matrix.variant == 'lvgl'
