@@ -34,19 +34,19 @@ import config_validator
 
 def _schemas_dir() -> Path:
     """Return the schemas directory path, creating it if absent."""
-    override = os.environ.get("PICOLET_CONFIG_DIR")
+    override = os.getenv("PICOLET_CONFIG_DIR")
     if override:
         p = Path(override) / "schemas"
     elif sys.platform == "win32":
-        base_env = os.environ.get("APPDATA")
+        base_env = os.getenv("APPDATA")
         if not base_env:
             raise RuntimeError("APPDATA not set on Windows")
         p = Path(base_env) / "config-editor" / "schemas"
     elif sys.platform == "darwin":
-        p = Path.home() / "Library" / "Application Support" / "config-editor" / "schemas"
+        p = Path("~").expanduser() / "Library" / "Application Support" / "config-editor" / "schemas"
     else:
-        xdg = os.environ.get("XDG_CONFIG_HOME")
-        base = Path(xdg) if xdg else Path.home() / ".config"
+        xdg = os.getenv("XDG_CONFIG_HOME")
+        base = Path(xdg) if xdg else Path("~").expanduser() / ".config"
         p = base / "config-editor" / "schemas"
     p.mkdir(parents=True, exist_ok=True)
     return p

@@ -45,6 +45,8 @@ picolet build
 ./target/linux-x64/config-editor
 ```
 
+Schemas live under `$XDG_CONFIG_HOME/config-editor/schemas/` or `~/.config/config-editor/schemas/` on Linux, `%APPDATA%\config-editor\schemas\` on Windows and `~/Library/Application Support/config-editor/schemas/` on macOS. `PICOLET_CONFIG_DIR` overrides the base directory, with schemas stored in its `schemas/` child. Path resolution uses the frozen MicroPython `os.getenv` / `pathlib` APIs.
+
 ## Layout
 
 ```
