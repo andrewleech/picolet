@@ -27,15 +27,16 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
 
     # The observer is test-only. Production binaries and application sources stay unchanged.
-    with tempfile.TemporaryDirectory(prefix="picolet-native-app-") as temporary:
-        fixture = Path(temporary) / args.app
+    with tempfile.TemporaryDirectory(prefix=f".picolet-native-{args.app}-", dir=app_root.parent) as temporary:
+        fixture = Path(temporary)
         shutil.copytree(
             app_root, fixture,
             ignore=shutil.ignore_patterns("node_modules", "target", "__pycache__"),
+            dirs_exist_ok=True,
         )
-        node_modules = app_root / "ui" / "node_modules"
+        node_modules = app_root / "node_modules"
         if node_modules.is_dir():
-            (fixture / "ui" / "node_modules").symlink_to(node_modules, target_is_directory=True)
+            (fixture / "node_modules").symlink_to(node_modules, target_is_directory=True)
         with (fixture / "picolet.toml").open("rb") as stream:
             config = tomllib.load(stream)
         entry = fixture / config["app"]["entry"]
