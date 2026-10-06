@@ -22,21 +22,21 @@ def _notes_dir() -> Path:
 
     Test isolation: set PICOLET_NOTES_DIR env var to override.
     """
-    override = os.environ.get("PICOLET_NOTES_DIR")
+    override = os.getenv("PICOLET_NOTES_DIR")
     if override:
         p = Path(override)
         p.mkdir(parents=True, exist_ok=True)
         return p
     if sys.platform == "win32":
-        base = os.environ.get("APPDATA")
+        base = os.getenv("APPDATA")
         if not base:
             raise RuntimeError("APPDATA not set on Windows")
         p = Path(base) / "{{name}}"
     elif sys.platform == "darwin":
-        p = Path.home() / "Library" / "Application Support" / "{{name}}"
+        p = Path("~").expanduser() / "Library" / "Application Support" / "{{name}}"
     else:
-        xdg = os.environ.get("XDG_CONFIG_HOME")
-        base = Path(xdg) if xdg else Path.home() / ".config"
+        xdg = os.getenv("XDG_CONFIG_HOME")
+        base = Path(xdg) if xdg else Path("~").expanduser() / ".config"
         p = base / "{{name}}"
     p.mkdir(parents=True, exist_ok=True)
     return p

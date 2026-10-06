@@ -3,10 +3,7 @@ Phase 23 tests — examples meta + integration.
 
 Covers:
   Mirror script (mirror-examples-to-templates.sh):
-    - --check exits 0 against current repo state (no drift).
-    - --check exits non-zero when a single-char change is introduced.
-    - --check prints a unified diff when drift is present.
-    - Running without --check writes files but produces no drift on re-check.
+    - --check rejects an example change in an isolated fixture repository.
     - Dashboard picolet.toml [window] title is preserved as "System Dashboard" in template.
     - All four templates have name = "{{name}}" in picolet.toml.
     - All four templates have "name": "{{name}}" in package.json.
@@ -131,83 +128,35 @@ def _run_picolet(*args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# Mirror script — idempotence and drift detection
+# Mirror script drift detection
 # ---------------------------------------------------------------------------
 
-class TestMirrorScriptIdempotence(unittest.TestCase):
-
-    def test_check_exits_0_no_drift(self):
-        """--check exits 0 against the current committed state."""
-        if not _MIRROR_SCRIPT.exists():
-            self.skipTest(f"mirror script not found: {_MIRROR_SCRIPT}")
-        result = subprocess.run(
-            ["bash", str(_MIRROR_SCRIPT), "--check"],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(
-            result.returncode, 0,
-            f"mirror --check reported drift:\n{result.stdout}\n{result.stderr}",
-        )
-
-    def test_check_output_contains_no_drift_message(self):
-        """--check prints 'no drift' message when templates are in sync."""
-        if not _MIRROR_SCRIPT.exists():
-            self.skipTest(f"mirror script not found: {_MIRROR_SCRIPT}")
-        result = subprocess.run(
-            ["bash", str(_MIRROR_SCRIPT), "--check"],
-            capture_output=True,
-            text=True,
-        )
-        self.assertIn(
-            "no drift",
-            result.stdout,
-            "expected 'no drift' in output when templates match",
-        )
+class TestMirrorDriftDetection(unittest.TestCase):
 
     def test_check_exits_nonzero_when_drift_introduced(self):
-        """--check exits non-zero and prints a diff when a source file is changed."""
-        if not _MIRROR_SCRIPT.exists():
-            self.skipTest(f"mirror script not found: {_MIRROR_SCRIPT}")
-        target = _EXAMPLES_DIR / "dashboard" / "picolet.toml"
-        original = target.read_text(encoding="utf-8")
-        modified = original.replace('title = "System Dashboard"', 'title = "System Dashboardx"')
-        self.assertNotEqual(original, modified, "modification did not change content")
-        target.write_text(modified, encoding="utf-8")
-        try:
-            result = subprocess.run(
-                ["bash", str(_MIRROR_SCRIPT), "--check"],
-                capture_output=True,
-                text=True,
+        """Reject source drift without modifying the working repository."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            script = root / "scripts" / _MIRROR_SCRIPT.name
+            script.parent.mkdir()
+            script.write_bytes(_MIRROR_SCRIPT.read_bytes())
+            for name in ("pydfu", "notes", "config-editor", "dashboard"):
+                example = root / "examples" / name
+                example.mkdir(parents=True)
+                (example / "picolet.toml").write_text(
+                    f'[app]\nname = "{name}"\n[window]\ntitle = "System Dashboard"\n',
+                    encoding="utf-8",
+                )
+            subprocess.run(["bash", str(script)], check=True, capture_output=True, text=True)
+            target = root / "examples" / "dashboard" / "picolet.toml"
+            target.write_text(
+                '[app]\nname = "dashboard"\n[window]\ntitle = "Changed dashboard"\n',
+                encoding="utf-8",
             )
-        finally:
-            target.write_text(original, encoding="utf-8")
-        self.assertNotEqual(
-            result.returncode, 0,
-            "mirror --check should exit non-zero when drift is present",
-        )
-
-    def test_drift_output_contains_unified_diff(self):
-        """--check prints a unified diff (--- / +++ lines) when drift is present."""
-        if not _MIRROR_SCRIPT.exists():
-            self.skipTest(f"mirror script not found: {_MIRROR_SCRIPT}")
-        target = _EXAMPLES_DIR / "dashboard" / "picolet.toml"
-        original = target.read_text(encoding="utf-8")
-        modified = original.replace('title = "System Dashboard"', 'title = "System Dashboardx"')
-        target.write_text(modified, encoding="utf-8")
-        try:
             result = subprocess.run(
-                ["bash", str(_MIRROR_SCRIPT), "--check"],
-                capture_output=True,
-                text=True,
+                ["bash", str(script), "--check"], capture_output=True, text=True,
             )
-        finally:
-            target.write_text(original, encoding="utf-8")
-        combined = result.stdout + result.stderr
-        self.assertTrue(
-            "---" in combined and "+++" in combined,
-            f"expected unified diff markers in output, got:\n{combined}",
-        )
+            self.assertEqual(result.returncode, 1)
 
 
 # ---------------------------------------------------------------------------

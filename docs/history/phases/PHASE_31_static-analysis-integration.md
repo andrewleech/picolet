@@ -71,6 +71,8 @@ Alpha scans use a temporary workspace containing every selected runtime / host /
 
 The unbounded-checkout diagnosis passed all 179 project inputs and the complete 225-rule `p/security-audit` policy to the pinned alpha binary, inside a 4 GiB / 256-PID container. It parsed out-of-scope MicroPython / SDK files and was OOM-killed after 469.86 seconds (tool exit 137, cgroup `oom_kill: 1`). The complete scoped project finished in 19.39 seconds with the same 179 inputs / policy and six findings. The repaired full CLI completed project plus 245 locally available compiler-derived native files in 26.38 seconds, retaining six / one findings and one / 42 parser warnings, with no cgroup OOM events. Finding locations resolve to selected repository paths. These diagnostics used complete registry policy bodies downloaded through the host reader because direct container configuration retrieval failed; hosted nine-cell revalidation is still required.
 
+Hosted revalidation [37407543981](https://github.com/andrewleech/picolet/actions/runs/37407543981) at `6f34af2` passed all nine alpha build / fixture / full-analysis / upload cells. Every downloaded summary reports tool exit zero; finding locations resolve to declared repository scope. Project reports retain six findings and five / six notifications, including the default interfile-depth limit. Native reports retain one Linux / zero Windows findings and 32–59 notifications. The separate host-unit failure concerns stale derived example templates, not the alpha matrix. A genuine pinned Pyrefly run also exercised the shared staging helper and retained its 115 diagnostics as incomplete coverage.
+
 
 No GitLab rule-pack expansion is part of this work.
 

@@ -3,9 +3,7 @@
 A markdown notes app — list, create, edit, rename, delete, search. Around
 130 lines of Python plus a Vue 3 frontend with `marked` for rendering.
 
-The simplest example that resembles a real application. Persists to the
-platform config dir (`~/.config/picolet/notes/` on Linux,
-`%APPDATA%\picolet\notes\` on Windows) so notes survive restarts.
+Persists to `$XDG_CONFIG_HOME/notes/` or `~/.config/notes/` on Linux, `%APPDATA%\notes\` on Windows and `~/Library/Application Support/notes/` on macOS. Set `PICOLET_NOTES_DIR` to override the location, including for isolated runtime checks. Storage path resolution uses `os.getenv` and the frozen MicroPython `pathlib` API.
 
 ## Screenshots
 
