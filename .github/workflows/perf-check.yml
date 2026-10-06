@@ -167,6 +167,7 @@ jobs:
   perf-macos:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-15-intel, macos-14]
     runs-on: ${{ matrix.os }}

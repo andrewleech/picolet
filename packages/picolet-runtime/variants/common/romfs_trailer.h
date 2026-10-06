@@ -42,11 +42,11 @@
 //   bytes 20..23  pad          u32 = 0  (reserved)
 //
 // The romfs payload immediately precedes the trailer in the file:
-//   [ELF/PE runtime bytes][romfs payload N bytes][trailer 24 bytes]
+//   [ELF/PE/Mach-O runtime bytes][romfs payload N bytes][trailer 24 bytes]
 //
-// Detection: open the running binary (Linux: /proc/self/exe;
-// Windows: GetModuleFileNameW(NULL,...) + _wfopen()), seek to
-// file_size-24, read trailer.
+// Detection: open the running binary using /proc/self/exe on Linux,
+// _NSGetExecutablePath on Darwin or GetModuleFileNameW + _wfopen on Windows,
+// then seek to file_size-24 and read the trailer.
 // Magic mismatch -> silent fallback to linked empty romfs.
 // CRC mismatch   -> loud fallback (stderr warning).
 
@@ -55,7 +55,7 @@
 #define PICOLET_TRAILER_SIZE      24
 
 // Packed trailer struct (little-endian on all supported targets).
-// Compiler packs this correctly on all gcc/clang x86-64 targets.
+// Compiler packing preserves this layout on x86-64 and ARM64 targets.
 typedef struct __attribute__((packed)) {
     uint8_t  magic[4];         // "PYLT"
     uint16_t version;          // must be 1
@@ -66,7 +66,7 @@ typedef struct __attribute__((packed)) {
 } picolet_trailer_t;
 
 // Attempt to load a romfs image from the trailer appended to the running
-// binary (/proc/self/exe on Linux; GetModuleFileNameW(NULL,...) on Windows).
+// binary, resolved through the platform's executable-path API.
 //
 // On success: *buf_out and *size_out are set to the malloced payload buffer
 //             and its size; returns true. Caller owns the buffer.

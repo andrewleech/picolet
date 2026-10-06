@@ -33,6 +33,7 @@
 // Five fallback modes (in priority order):
 //   1. Cannot open the running binary            — silent fallback.
 //      Linux: /proc/self/exe    Windows: GetModuleFileNameW(NULL, ...)
+//      Darwin: _NSGetExecutablePath
 //   2. File < 24 bytes                          — silent fallback.
 //   3. Magic mismatch                           — silent fallback.
 //      (This is the normal path for a stock runtime run directly.)
@@ -41,16 +42,19 @@
 //
 // See romfs_trailer.h for the trailer format and FR-BP-5 reference.
 //
-// Build plumbing: this file lives at overlay/shared/romfs_trailer.c and
-// is copied to shared/romfs_trailer.c in the micropython tree by the
-// overlay copy step in rebuild-integration.sh.  Each variant .mk adds
-// shared/romfs_trailer.c to SRC_C and -I$(TOP)/shared to INC so the
-// header resolves without a full path prefix.
+// Build plumbing: rebuild-integration.sh copies variants/common into the
+// MicroPython shared directory. Variant makefiles compile this source and
+// add that directory to the include path.
 
 #include "romfs_trailer.h"
 
 #ifdef _WIN32
 #include <windows.h>
+#endif
+
+#ifdef __APPLE__
+#include <limits.h>
+#include <mach-o/dyld.h>
 #endif
 
 #include <stdio.h>
@@ -222,6 +226,8 @@ bool picolet_load_romfs_trailer(const uint8_t **buf_out, size_t *size_out) {
     // 1. Open the running binary.
     //    Linux: /proc/self/exe resolves to the running binary regardless of
     //    how it was invoked.
+    //    Darwin: dyld returns the executable path, including when invoked
+    //    through a relative path or symlink. Long paths use a sized buffer.
     //    Windows: GetModuleFileNameW(NULL,...) returns the full exe path as
     //    UTF-16, which is then opened via _wfopen().  Using the wide-char API
     //    ensures the trailer load works for exe paths containing non-ANSI
@@ -239,6 +245,24 @@ bool picolet_load_romfs_trailer(const uint8_t **buf_out, size_t *size_out) {
         return false;
     }
     FILE *f = _wfopen(exe_path, L"rb");
+#elif defined(__APPLE__)
+    char stack_path[PATH_MAX];
+    char *exe_path = stack_path;
+    uint32_t length = sizeof(stack_path);
+    if (_NSGetExecutablePath(exe_path, &length) != 0) {
+        exe_path = malloc(length);
+        if (exe_path == NULL) {
+            return false;
+        }
+        if (_NSGetExecutablePath(exe_path, &length) != 0) {
+            free(exe_path);
+            return false;
+        }
+    }
+    FILE *f = fopen(exe_path, "rb");
+    if (exe_path != stack_path) {
+        free(exe_path);
+    }
 #else
     FILE *f = fopen("/proc/self/exe", "rb");
 #endif
