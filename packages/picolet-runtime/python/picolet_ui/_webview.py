@@ -403,6 +403,26 @@ elif sys.platform == "darwin":
                     "picolet_ui: picolet_wkwv_register_scheme_handler failed\n"
                 )
 
+            # Install the bridge as a document-start user script before the
+            # WKWebView configuration is created.
+            bridge_path = "/rom/picolet/picolet-bridge.js"
+            try:
+                with open(bridge_path, "r") as fh:
+                    bridge_src = fh.read()
+            except OSError:
+                raise RuntimeError(
+                    "picolet_ui: required bridge script is unavailable at {}".format(
+                        bridge_path
+                    )
+                )
+            rc = _mac_ffi.picolet_wkwv_register_bridge_script(
+                bridge_src.encode("utf-8")
+            )
+            if rc != 0:
+                raise RuntimeError(
+                    "picolet_ui: picolet_wkwv_register_bridge_script failed"
+                )
+
             # Create the WKWebView (attaches to window's content view).
             wv = _mac_ffi.picolet_wkwv_create_webview(
                 window.handle, window.width, window.height
@@ -413,19 +433,6 @@ elif sys.platform == "darwin":
                 )
             self._webview = wv
 
-            # Inject the picolet-bridge.js bundle.  WKWebView has no direct
-            # "user script at document-start" equivalent exposed in the flat
-            # C API in v1.2; we evaluate it immediately after load instead,
-            # which is close enough for the v1.2 IPC bridge use-case.
-            # (A proper inject-at-document-start via WKUserScript is a v1.3
-            # enhancement tracked under FR-WV-MAC-4.)
-            _BRIDGE_PATH = "/rom/picolet/picolet-bridge.js"
-            self._bridge_src = ""
-            try:
-                with open(_BRIDGE_PATH, "r") as fh:
-                    self._bridge_src = fh.read()
-            except OSError:
-                pass  # graceful degradation outside a full romfs build
 
             # Bind transport.
             self.transport = (
@@ -456,12 +463,6 @@ elif sys.platform == "darwin":
             )
             if rc != 0:
                 sys.stderr.write("picolet_ui: picolet_wkwv_load_html failed\n")
-            # Inject bridge JS after load.  On WKWebView the load is async;
-            # we schedule the injection via evaluate_js.  The bridge IIFE is
-            # idempotent so re-injection on reload is safe.
-            if self._bridge_src:
-                self.eval_js(self._bridge_src)
-
         def load_url(self, url):
             """Navigate the WKWebView to a URL."""
             rc = self._mac_ffi.picolet_wkwv_load_url(

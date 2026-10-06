@@ -33,6 +33,7 @@ void *picolet_wkwv_create_window(const char *t, int w, int h)           { (void)
 int   picolet_wkwv_show_window(void *win, int v)                        { (void)win; (void)v; return -1; }
 int   picolet_wkwv_destroy_window(void *win)                            { (void)win; return -1; }
 void *picolet_wkwv_create_webview(void *win, int w, int h)              { (void)win; (void)w; (void)h; return 0; }
+int   picolet_wkwv_register_bridge_script(const char *s)               { (void)s; return -1; }
 int   picolet_wkwv_load_html(void *wv, const char *h, const char *b)   { (void)wv; (void)h; (void)b; return -1; }
 int   picolet_wkwv_load_url(void *wv, const char *u)                   { (void)wv; (void)u; return -1; }
 int   picolet_wkwv_evaluate_js(void *wv, const char *js)               { (void)wv; (void)js; return -1; }
@@ -258,6 +259,10 @@ static int g_message_handler_registered = 0;
 /* WKUserContentController* cached so create_webview can attach the handler. */
 static id g_user_content_controller = 0;
 /* PicoletScriptMessageHandler instance — one global, lifetime = process. */
+
+/* WKUserScript prepared before the webview's configuration is created. */
+static id g_bridge_user_script = 0;
+
 static id g_script_message_handler_obj = 0;
 
 /* ----------------------------------------------------------------------- */
@@ -426,6 +431,17 @@ PICOLET_API void *picolet_wkwv_create_webview(void *window, int w, int h) {
     g_user_content_controller = ucc;
 
     SEL sel_set_ucc = sel_registerName("setUserContentController:");
+
+    /* Install the bridge before any page can begin loading. */
+    if (g_bridge_user_script) {
+        SEL sel_add_script = sel_registerName("addUserScript:");
+        ((void (*)(id, SEL, id))objc_msgSend)(
+            ucc, sel_add_script, g_bridge_user_script);
+        ((void (*)(id, SEL))objc_msgSend)(
+            g_bridge_user_script, sel_registerName("release"));
+        g_bridge_user_script = 0;
+    }
+
     ((void (*)(id, SEL, id))objc_msgSend)(cfg, sel_set_ucc, ucc);
 
     /* Register the "picolet" script message handler if requested. */
@@ -541,6 +557,26 @@ PICOLET_API int picolet_wkwv_evaluate_js(void *webview, const char *js) {
     return 0;
 }
 
+
+PICOLET_API int picolet_wkwv_register_bridge_script(const char *source) {
+    if (!source || g_bridge_user_script || g_webview) return -1;
+
+    Class cls_script = objc_class("WKUserScript");
+    if (!cls_script) return -1;
+    id source_ns = nsstring_from_utf8(source);
+    if (!source_ns) return -1;
+
+    SEL sel_alloc = sel_registerName("alloc");
+    id script = ((id (*)(id, SEL))objc_msgSend)((id)cls_script, sel_alloc);
+    SEL sel_init = sel_registerName(
+        "initWithSource:injectionTime:forMainFrameOnly:");
+    script = ((id (*)(id, SEL, id, NSInteger, BOOL))objc_msgSend)(
+        script, sel_init, source_ns, (NSInteger)0, (BOOL)0);
+    if (!script) return -1;
+
+    g_bridge_user_script = script;
+    return 0;
+}
 PICOLET_API int picolet_wkwv_register_message_handler(void) {
     if (g_message_handler_registered) return 0;
 

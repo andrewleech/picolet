@@ -79,17 +79,29 @@ int picolet_wkwv_destroy_window(void *window);
  * Returns an opaque WKWebView* handle, or NULL on failure.
  *
  * Note: this function also creates the WKWebViewConfiguration and
- * WKUserContentController used by register_scheme_handler and
- * register_message_handler.  Both handlers must therefore be registered
- * before calling this function if they are to be active from page load.
+ * WKUserContentController used by register_bridge_script,
+ * register_scheme_handler and register_message_handler.  These must be
+ * registered before calling this function to be active from page load.
  */
 void *picolet_wkwv_create_webview(void *window, int w, int h);
+
+/*
+ * picolet_wkwv_register_bridge_script: install the JS bridge at document start.
+ *
+ * source  UTF-8 JavaScript source.
+ *
+ * Must be called before picolet_wkwv_create_webview.  The script is installed
+ * in the WKUserContentController before any page navigation.
+ *
+ * Returns 0 on success, -1 on failure.
+ */
+int picolet_wkwv_register_bridge_script(const char *source);
 
 /*
  * picolet_wkwv_load_html — load an HTML string into the webview.
  *
  * html      UTF-8 HTML source.
- * base_url  Base URL string (e.g. "picolet://ui/") or NULL.
+ * base_url  Base URL string (e.g. "picolet:///ui/") or NULL.
  *
  * Returns 0 on success, -1 on failure.
  */

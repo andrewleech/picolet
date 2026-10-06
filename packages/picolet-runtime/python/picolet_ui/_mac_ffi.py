@@ -20,6 +20,7 @@
 #   int  picolet_wkwv_show_window(void *window, int visible)
 #   int  picolet_wkwv_destroy_window(void *window)
 #   void *picolet_wkwv_create_webview(void *window, int w, int h)
+#   int  picolet_wkwv_register_bridge_script(const char *source)
 #   int  picolet_wkwv_load_html(void *webview, const char *html, const char *base_url)
 #   int  picolet_wkwv_load_url(void *webview, const char *url)
 #   int  picolet_wkwv_evaluate_js(void *webview, const char *js)
@@ -75,6 +76,12 @@ picolet_wkwv_destroy_window = self_bin.func("i", "picolet_wkwv_destroy_window", 
 
 # void *picolet_wkwv_create_webview(void *window, int w, int h)
 picolet_wkwv_create_webview = self_bin.func("p", "picolet_wkwv_create_webview", "pii")
+
+# int picolet_wkwv_register_bridge_script(const char *source)
+picolet_wkwv_register_bridge_script = self_bin.func(
+    "i", "picolet_wkwv_register_bridge_script", "s"
+)
+
 
 # int picolet_wkwv_load_html(void *webview, const char *html, const char *base_url)
 # base_url may be NULL (pass 0 or None).
