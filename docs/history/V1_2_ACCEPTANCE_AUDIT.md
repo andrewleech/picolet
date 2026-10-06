@@ -4,6 +4,8 @@ Auditor: scrum-po (sonnet)
 Branch: dev
 HEAD: df59c7a
 
+This is a historical source-only spot-check, not the current binary/runtime acceptance verdict. Follow the [current status](v1.2-status.md#current-acceptance-position) and [PH30 acceptance ticket](tickets/PH30_hosted-acceptance.md) for hosted receipts and unresolved gates. Native Mac builds, FFI/heap and direct GUI captures have since been exercised, but AppHarness inspector / first-paint interoperability and SDK dependency/licence acceptance remain open. A declared macOS 11 deployment target does not prove execution on that OS.
+
 ## Verdict: APPROVED PENDING CI VERIFICATION
 
 The v1.2 source-side deliverables (PH24–PH29) are complete and structurally

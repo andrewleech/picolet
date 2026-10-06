@@ -53,6 +53,8 @@ The implementation resolves frozen Python from each variant manifest for all 15 
 
 The CI SAST matrix covers all 15 runtime combinations on their supported runners. Hosted run [37398322821](https://github.com/andrewleech/picolet/actions/runs/37398322821) passed every stable-scanner cell; all 15 downloaded report sets retain findings, parser warnings and captured source scope. Successful execution does not establish full parser coverage or a clean security verdict.
 
+Current revalidation [37412333684](https://github.com/andrewleech/picolet/actions/runs/37412333684) at `f4a9b22` passes all 17 jobs: lint, the repaired host-unit invocation and 15 supported stable cells. All 15 report sets were downloaded and checked: summary counts match retained source groups, scanner exits are zero / report-only and every actual finding location resolves to selected scope. Each project report retains six findings / one notification; native reports retain one Linux/macOS or zero Windows findings and 32–59 notifications. This is execution and scope evidence, not a clean security verdict.
+
 ### Per-commit quality checks
 
 `.github/workflows/ci.yml` runs changed-file Python lint, maintained unit-test groups, and a SAST report on every push and pull request. The unit suites run in separate invocations where the host and runtime `picolet` packages need different import paths.
