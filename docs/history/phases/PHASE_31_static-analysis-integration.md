@@ -67,6 +67,10 @@ The SAST matrix captures actual C/C++ compiler calls while building all 15 accep
 
 Experimental alpha run [37400223017](https://github.com/andrewleech/picolet/actions/runs/37400223017) passed native build, scope capture and positive/negative fixtures in all nine cells, but every full analysis failed. The Linux WebView log records the runner receiving a shutdown signal, followed by exit 143; artifact upload did not run. The shutdown cause is unresolved, this is not an accepted alpha analysis receipt. A contained local CLI run exercised failure-summary retention with a genuine configuration-download failure (tool exit 2 / command exit 1), not a reproduction of the hosted shutdown.
 
+Alpha scans use a temporary workspace containing every selected runtime / host / frontend / native input at its repository-relative path. Companion discovery therefore stays within the declared analysis scope instead of traversing unshipped MicroPython tests and nested SDK tooling. Source ownership and compiler-input selection are unchanged; report locations are rebased to repository paths before the workspace is removed.
+
+The unbounded-checkout diagnosis passed all 179 project inputs and the complete 225-rule `p/security-audit` policy to the pinned alpha binary, inside a 4 GiB / 256-PID container. It parsed out-of-scope MicroPython / SDK files and was OOM-killed after 469.86 seconds (tool exit 137, cgroup `oom_kill: 1`). The complete scoped project finished in 19.39 seconds with the same 179 inputs / policy and six findings. The repaired full CLI completed project plus 245 locally available compiler-derived native files in 26.38 seconds, retaining six / one findings and one / 42 parser warnings, with no cgroup OOM events. Finding locations resolve to selected repository paths. These diagnostics used complete registry policy bodies downloaded through the host reader because direct container configuration retrieval failed; hosted nine-cell revalidation is still required.
+
 
 No GitLab rule-pack expansion is part of this work.
 

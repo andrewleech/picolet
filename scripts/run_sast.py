@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -168,21 +169,20 @@ def _tool_status(scanner: str, rc: int) -> str:
     return "clean"
 
 
-def _stage_runtime_sources(scope: dict[str, Any], repo_root: Path, destination: Path) -> list[Path]:
-    staged = []
-    for item in scope["python_files"]:
-        source = repo_root / item["path"]
-        target = destination / item["target_path"]
+def _stage_sources(paths: dict[str, str], repo_root: Path, destination: Path) -> dict[str, str]:
+    staged = {}
+    for source_path, target_path in paths.items():
+        target = destination / target_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
-        staged.append(target)
+        shutil.copyfile(repo_root / source_path, target)
+        staged[str(target)] = source_path
     return staged
 
 
-def _rebase_report_paths(path: Path, scope: dict[str, Any], work: Path, repo_root: Path) -> None:
+def _rebase_report_paths(path: Path, replacements: dict[str, str], work: Path, repo_root: Path) -> None:
     if path.is_dir():
         for report_path in path.rglob("*.json"):
-            _rebase_report_paths(report_path, scope, work, repo_root)
+            _rebase_report_paths(report_path, replacements, work, repo_root)
         return
     if not path.is_file():
         return
@@ -196,13 +196,9 @@ def _rebase_report_paths(path: Path, scope: dict[str, Any], work: Path, repo_roo
         except json.JSONDecodeError:
             return
         json_lines = True
-    replacements = {
-        str(work / "src" / item["target_path"]): item["path"]
-        for item in scope["python_files"]
-    }
     relative_replacements = {
-        f"src/{item['target_path']}": item["path"]
-        for item in scope["python_files"]
+        Path(staged).relative_to(work).as_posix(): source
+        for staged, source in replacements.items()
     }
     work_prefix = str(work)
 
@@ -234,7 +230,10 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
     pyrefly_report = output_dir / "pyrefly.sarif"
     with tempfile.TemporaryDirectory(prefix="picolet-sast-") as temp_dir:
         work = Path(temp_dir)
-        staged = _stage_runtime_sources(scope, repo_root, work / "src")
+        staged = _stage_sources(
+            {item["path"]: item["target_path"] for item in scope["python_files"]},
+            repo_root, work / "src",
+        )
         pyrefly_config = work / "pyrefly.toml"
         pyrefly_config.write_text(
             'project-includes = ["src/**/*.py"]\nsearch-path = ["src"]\n',
@@ -269,7 +268,7 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
         )
         if pyrefly_rc:
             print(f"Pyrefly reported diagnostics; downstream Pysa analysis may be incomplete (exit {pyrefly_rc}).", file=sys.stderr)
-        _rebase_report_paths(pyrefly_report, scope, work, repo_root)
+        _rebase_report_paths(pyrefly_report, staged, work, repo_root)
         if scanner == "pyrefly":
             return pyrefly_rc
 
@@ -300,8 +299,8 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
             pysa_command, work, pysa_dir, output_dir / "pysa.log",
             allowed_exit_codes=(0, 1),
         )
-        _rebase_report_paths(pyrefly_pysa_report, scope, work, repo_root)
-        _rebase_report_paths(pysa_dir, scope, work, repo_root)
+        _rebase_report_paths(pyrefly_pysa_report, staged, work, repo_root)
+        _rebase_report_paths(pysa_dir, staged, work, repo_root)
         if pyrefly_rc:
             print(f"Pysa result is incomplete because Pyrefly exited {pyrefly_rc}.", file=sys.stderr)
         return pysa_rc
@@ -309,6 +308,8 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
 
 
 def run(scanner: str, repo_root: Path, target: str, variant: str, compile_database: Path | None, output_dir: Path) -> int:
+    repo_root = repo_root.resolve()
+    output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "analysis-summary.json").unlink(missing_ok=True)
     (output_dir / "analysis-prerequisites.json").unlink(missing_ok=True)
@@ -399,41 +400,59 @@ def run(scanner: str, repo_root: Path, target: str, variant: str, compile_databa
                 ("project", "p/security-audit", project_files),
                 ("native-c", "p/c", native_c_files),
             )
-            for scope_name, config, scan_files in scans:
-                if not scan_files:
-                    continue
-                sarif = output_dir / f"{scanner}-{scope_name}.sarif"
-                command = [binary, "scan", "--config", config]
-                if scanner in {"opengrep-stable", "opengrep-interfile-alpha"}:
-                    if scanner == "opengrep-interfile-alpha":
-                        command.append("--taint-interfile")
-                    command.extend(
-                        ["--no-git-ignore", "--x-ignore-semgrepignore-files", "--jobs=4", "--sarif-output", str(sarif)]
-                    )
-                else:
-                    command.extend(
-                        [
-                            "--no-git-ignore",
-                            "--x-ignore-semgrepignore-files",
-                            "--no-error",
-                            "--sarif-output",
-                            str(sarif),
-                        ]
-                    )
-                command.extend(map(str, scan_files))
-                try:
-                    scan_rc = _invoke(
-                        command, repo_root, sarif, output_dir / f"{scanner}-{scope_name}.log",
-                        allowed_exit_codes=(0, 1),
-                    )
-                except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
-                    _write_summary(
-                        output_dir / "analysis-summary.json", scanner, target, variant, sources,
-                        getattr(exc, "returncode", None), str(exc),
-                    )
-                    print(str(exc), file=sys.stderr)
-                    return 1
-                rc = max(rc, scan_rc)
+            context = tempfile.TemporaryDirectory(prefix="picolet-sast-") if scanner == "opengrep-interfile-alpha" else nullcontext(None)
+            with context as temp_dir:
+                work = Path(temp_dir) if temp_dir is not None else None
+                scan_root = repo_root
+                staged = {}
+                if work is not None:
+                    # Companion discovery must see only the complete selected analysis scope.
+                    scan_root = work / "src"
+                    paths = {}
+                    for files in sources.values():
+                        for path in files:
+                            relative = path.relative_to(repo_root).as_posix()
+                            paths[relative] = relative
+                    staged = _stage_sources(paths, repo_root, scan_root)
+                for scope_name, config, scan_files in scans:
+                    if not scan_files:
+                        continue
+                    sarif = output_dir / f"{scanner}-{scope_name}.sarif"
+                    command = [binary, "scan", "--config", config]
+                    if scanner in {"opengrep-stable", "opengrep-interfile-alpha"}:
+                        if scanner == "opengrep-interfile-alpha":
+                            command.append("--taint-interfile")
+                        command.extend(
+                            ["--no-git-ignore", "--x-ignore-semgrepignore-files", "--jobs=4", "--sarif-output", str(sarif)]
+                        )
+                    else:
+                        command.extend(
+                            [
+                                "--no-git-ignore",
+                                "--x-ignore-semgrepignore-files",
+                                "--no-error",
+                                "--sarif-output",
+                                str(sarif),
+                            ]
+                        )
+                    command.extend(str(scan_root / path.relative_to(repo_root)) for path in scan_files)
+                    try:
+                        try:
+                            scan_rc = _invoke(
+                                command, scan_root, sarif, output_dir / f"{scanner}-{scope_name}.log",
+                                allowed_exit_codes=(0, 1),
+                            )
+                        finally:
+                            if work is not None:
+                                _rebase_report_paths(sarif, staged, work, repo_root)
+                    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
+                        _write_summary(
+                            output_dir / "analysis-summary.json", scanner, target, variant, sources,
+                            getattr(exc, "returncode", None), str(exc),
+                        )
+                        print(str(exc), file=sys.stderr)
+                        return 1
+                    rc = max(rc, scan_rc)
 
     _write_summary(output_dir / "analysis-summary.json", scanner, target, variant, sources, rc)
     status = _tool_status(scanner, rc)
