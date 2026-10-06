@@ -79,11 +79,18 @@ def _script(app, selector, command, ready_flag):
           return;
         }
         window.picolet.invoke(%s, %s).then(function(result) {
-          window.webkit.messageHandlers.picolet.postMessage(JSON.stringify({
-            event: 'mac-app-smoke', data: {
-              app: %s, command: %s, ready: true, result: result
-            }
-          }));
+          document.fonts.ready.then(function() {
+            // Animation callbacks precede paint; the second frame crosses a paint boundary.
+            window.requestAnimationFrame(function() {
+              window.requestAnimationFrame(function() {
+                window.webkit.messageHandlers.picolet.postMessage(JSON.stringify({
+                  event: 'mac-app-smoke', data: {
+                    app: %s, command: %s, ready: true, result: result
+                  }
+                }));
+              });
+            });
+          });
         }, function(error) {
           window.webkit.messageHandlers.picolet.postMessage(JSON.stringify({
             event: 'mac-app-smoke', data: {
