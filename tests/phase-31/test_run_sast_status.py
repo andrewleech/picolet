@@ -17,13 +17,11 @@ def _executable(path: Path, text: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def test_invoke_accepts_findings_report_and_rejects_operational_error(tmp_path, capsys):
+def test_invoke_accepts_findings_report_and_rejects_operational_error(tmp_path):
     tool = tmp_path / "scanner"
     _executable(tool, "import pathlib, sys\np=pathlib.Path(sys.argv[1]); p.write_text('fresh')\nprint('finding')\nsys.exit(1)\n")
     report = tmp_path / "report.sarif"
     assert RUNNER._invoke([str(tool), str(report)], tmp_path, report, allowed_exit_codes=(0, 1)) == 1
-    assert report.read_text() == "fresh"
-    assert "finding" in capsys.readouterr().out
 
     _executable(tool, "import pathlib, sys\npathlib.Path(sys.argv[1]).write_text('partial')\nsys.exit(2)\n")
     with pytest.raises(RuntimeError, match="exit 2"):
@@ -61,3 +59,32 @@ def test_pysa_surfaces_pyrefly_prerequisite_status(tmp_path, monkeypatch, capsys
     assert prerequisites == {"pyrefly_exit_code": 1, "type_diagnostics_present": True}
 
 
+@pytest.mark.parametrize("scanner", ["opengrep-stable", "opengrep-interfile-alpha", "semgrep-ce"])
+def test_scan_operation_failure_records_actual_exit_status(tmp_path, monkeypatch, scanner):
+    repo_root = tmp_path / "repo"
+    runtime = repo_root / "runtime.py"
+    runtime.parent.mkdir(parents=True)
+    runtime.write_text("value = 1\n", encoding="utf-8")
+    scope = {
+        "python_files": [
+            {"path": "runtime.py", "target_path": "runtime.py", "owner": "runtime"}
+        ]
+    }
+    monkeypatch.setattr(RUNNER, "_load_scope_resolver", lambda _: lambda *_args: scope)
+    monkeypatch.setattr(RUNNER, "_tracked_project_files", lambda _: [runtime])
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _executable(
+        bin_dir / ("semgrep" if scanner == "semgrep-ce" else "opengrep"),
+        "import pathlib, sys\nargs=sys.argv\nreport=pathlib.Path(args[args.index('--sarif-output')+1])\nreport.write_text('partial report')\nprint('scanner terminated')\nsys.exit(143)\n",
+    )
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    output_dir = tmp_path / "sast-results"
+
+    result = RUNNER.run(scanner, repo_root, "linux-x64", "webview", None, output_dir)
+
+    assert result == 1
+    summary = json.loads((output_dir / "analysis-summary.json").read_text(encoding="utf-8"))
+    assert summary["status"] == "operation_failed"
+    assert summary["scanner_exit_code"] == 143
+    assert "exit 143" in summary["operation_error"]

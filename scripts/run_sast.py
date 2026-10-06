@@ -31,6 +31,12 @@ PROJECT_PREFIXES = (
 EXCLUDED_PARTS = {"tests", "scripts", "screenshots", "node_modules", "dist", "public", "_vendor", "vendor", "third_party", "__pycache__"}
 
 
+class _AnalysisToolError(RuntimeError):
+    def __init__(self, message: str, returncode: int) -> None:
+        super().__init__(message)
+        self.returncode = returncode
+
+
 def _load_scope_resolver(repo_root: Path):
     path = repo_root / "scripts/static_analysis_scope.py"
     spec = importlib.util.spec_from_file_location("picolet_static_analysis_scope", path)
@@ -90,7 +96,15 @@ def _runtime_files(scope: dict[str, Any], repo_root: Path) -> list[Path]:
     return [repo_root / item["path"] for item in scope["python_files"]]
 
 
-def _write_summary(path: Path, scanner: str, target: str, variant: str, sources: dict[str, list[Path]], rc: int) -> None:
+def _write_summary(
+    path: Path,
+    scanner: str,
+    target: str,
+    variant: str,
+    sources: dict[str, list[Path]],
+    rc: int | None,
+    operation_error: str | None = None,
+) -> None:
     scope_report = json.loads(path.parent.joinpath("analysis-scope.json").read_text(encoding="utf-8"))
     owners = {
         entry["owner"]
@@ -107,6 +121,9 @@ def _write_summary(path: Path, scanner: str, target: str, variant: str, sources:
         "source_counts": {name: len(files) for name, files in sources.items()},
         "source_owners": sorted(owners),
     }
+    if operation_error is not None:
+        payload["status"] = "operation_failed"
+        payload["operation_error"] = operation_error
     if scanner in {"pyrefly", "pysa"}:
         prerequisites = json.loads(path.parent.joinpath("analysis-prerequisites.json").read_text(encoding="utf-8"))
         payload["prerequisites"] = prerequisites
@@ -135,9 +152,9 @@ def _invoke(
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
     if result.returncode not in allowed_exit_codes:
-        raise RuntimeError(f"analysis tool failed (exit {result.returncode}): {command[0]}")
+        raise _AnalysisToolError(f"analysis tool failed (exit {result.returncode}): {command[0]}", result.returncode)
     if output is not None and not output.exists():
-        raise RuntimeError(f"analysis tool did not produce its report: {command[0]}")
+        raise _AnalysisToolError(f"analysis tool did not produce its report: {command[0]}", result.returncode)
     return result.returncode
 
 
@@ -404,10 +421,18 @@ def run(scanner: str, repo_root: Path, target: str, variant: str, compile_databa
                         ]
                     )
                 command.extend(map(str, scan_files))
-                scan_rc = _invoke(
-                    command, repo_root, sarif, output_dir / f"{scanner}-{scope_name}.log",
-                    allowed_exit_codes=(0, 1),
-                )
+                try:
+                    scan_rc = _invoke(
+                        command, repo_root, sarif, output_dir / f"{scanner}-{scope_name}.log",
+                        allowed_exit_codes=(0, 1),
+                    )
+                except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
+                    _write_summary(
+                        output_dir / "analysis-summary.json", scanner, target, variant, sources,
+                        getattr(exc, "returncode", None), str(exc),
+                    )
+                    print(str(exc), file=sys.stderr)
+                    return 1
                 rc = max(rc, scan_rc)
 
     _write_summary(output_dir / "analysis-summary.json", scanner, target, variant, sources, rc)

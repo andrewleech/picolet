@@ -51,7 +51,7 @@ Further GitLab rule-source exploration is parked. The public GitLab Semgrep pack
 
 The implementation resolves frozen Python from each variant manifest for all 15 accepted target/variant combinations, records actual native compiler commands during builds, and preserves source ownership in the exported scope and compile database. A Linux x64 `cli` build captured and normalized 226 compiler commands across 226 source files. The SAST runner applies explicit source boundaries for runtime Python, host CLI Python, bridge TypeScript, example application sources, and compiler-derived native files.
 
-The CI SAST matrix is configured for all 15 runtime combinations on their supported runners. Only the Linux x64 `cli` build has been exercised locally; these workflow changes have not yet run on GitHub Actions, so cross-runner build and report behaviour remains unverified here.
+The CI SAST matrix covers all 15 runtime combinations on their supported runners. Hosted run [37398322821](https://github.com/andrewleech/picolet/actions/runs/37398322821) passed every stable-scanner cell; all 15 downloaded report sets retain findings, parser warnings and captured source scope. Successful execution does not establish full parser coverage or a clean security verdict.
 
 ### Per-commit quality checks
 
@@ -59,11 +59,13 @@ The CI SAST matrix is configured for all 15 runtime combinations on their suppor
 
 Opengrep stable 1.30.0 is the default report-only scanner. Manual workflow dispatch selects one analyzer from Opengrep stable, Opengrep interfile alpha, Semgrep CE 1.179.0, Ruff `S` 0.16.8, Pyrefly 1.3.2, or Pysa 0.10.0. Each scanner has a positive and negative fixture check and produces SARIF or its native JSON output. Findings remain report-only because the existing findings have not been triaged into a reviewed baseline.
 
-Report-only applies to findings/type diagnostics, not scanner startup or operational errors. Each invocation removes its previous report before execution and requires a new report; unexpected tool exit codes fail the command. Pyrefly diagnostics remain non-gating but are recorded in `analysis-prerequisites.json` and the summary; Pysa summaries mark coverage incomplete when that prerequisite has diagnostics. This does not establish complete coverage when diagnostics are absent. Source-scope and execution-status regression tests run in the SAST matrix.
+Report-only applies to findings/type diagnostics, not scanner startup or operational errors. Each invocation removes its previous report before execution and requires a new report; unexpected tool exit codes fail the command. Opengrep / Semgrep operation failures retain `analysis-summary.json` with `status: operation_failed`, the actual tool exit code where available and the error, alongside captured scope / logs / any partial reports. This cannot preserve artifacts if the runner itself terminates before upload. Pyrefly diagnostics remain non-gating but are recorded in `analysis-prerequisites.json` and the summary; Pysa summaries mark coverage incomplete when that prerequisite has diagnostics. This does not establish complete coverage when diagnostics are absent. Source-scope and execution-status regression tests run in the SAST matrix.
 
 The initial Linux CLI findings dispositions are recorded in [PH31_findings-review.md](PH31_findings-review.md). They do not introduce suppressions or a gating baseline.
 
 The SAST matrix captures actual C/C++ compiler calls while building all 15 accepted target/variant combinations. The manifest exporter uses the same MicroPython `ManifestFile` resolver inputs as runtime builds; scope JSON preserves each frozen file's repository path, frozen target path and owner. The interfile alpha runs on Linux-hosted cells, including Windows cross-builds, because its tested binary is Linux x86 and its previous trial was slow and noisy. Its matrix is selected before job expansion rather than through an invalid job-level matrix condition.
+
+Experimental alpha run [37400223017](https://github.com/andrewleech/picolet/actions/runs/37400223017) passed native build, scope capture and positive/negative fixtures in all nine cells, but every full analysis failed. The Linux WebView log records the runner receiving a shutdown signal, followed by exit 143; artifact upload did not run. The shutdown cause is unresolved, this is not an accepted alpha analysis receipt. A contained local CLI run exercised failure-summary retention with a genuine configuration-download failure (tool exit 2 / command exit 1), not a reproduction of the hosted shutdown.
 
 
 No GitLab rule-pack expansion is part of this work.
