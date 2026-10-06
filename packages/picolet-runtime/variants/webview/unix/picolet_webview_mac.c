@@ -795,28 +795,27 @@ PICOLET_API int picolet_wkwv_take_snapshot(void *webview,
         return -1;
     }
 
-    /* Convert NSImage → PNG bytes via NSBitmapImageRep.
-     * [NSBitmapImageRep representationOfImageRepsInArray:
-     *                   usingType:NSBitmapImageFileTypePNG
-     *                   properties:nil]
-     *
-     * Simpler path: use CIImage → CGImage → NSBitmapImageRep.
-     * Simplest for pure C: call -[NSImage TIFFRepresentation] and
-     * convert, or use -[NSImage representationUsingType:properties:].
-     * The latter is deprecated; use NSBitmapImageRep class method.   */
-
-    /* Get the array of image representations. */
-    SEL sel_reps = sel_registerName("representations");
-    id reps = ((id (*)(id, SEL))objc_msgSend)(ctx.image, sel_reps);
-
-    /* NSBitmapImageFileTypePNG = 4 */
-    Class cls_bmpir = objc_class("NSBitmapImageRep");
-    SEL sel_png = sel_registerName(
-        "representationOfImageRepsInArray:usingType:properties:");
-
-    /* properties = nil (pass 0 as NSDictionary*) */
-    id png_data = ((id (*)(id, SEL, id, NSUInteger, id))objc_msgSend)(
-        (id)cls_bmpir, sel_png, reps, (NSUInteger)4, (id)0);
+    /* Encode a bitmap of the snapshot's CGImage, not its representation array. */
+    void *cg_image = ((void *(*)(id, SEL, void *, id, id))objc_msgSend)(
+        ctx.image, sel_registerName("CGImageForProposedRect:context:hints:"),
+        NULL, (id)0, (id)0);
+    id png_data = (id)0;
+    if (cg_image) {
+        Class cls_bmpir = objc_class("NSBitmapImageRep");
+        id bitmap = ((id (*)(id, SEL))objc_msgSend)(
+            (id)cls_bmpir, sel_registerName("alloc"));
+        bitmap = ((id (*)(id, SEL, void *))objc_msgSend)(
+            bitmap, sel_registerName("initWithCGImage:"), cg_image);
+        if (bitmap) {
+            id properties = ((id (*)(id, SEL))objc_msgSend)(
+                (id)objc_class("NSDictionary"), sel_registerName("dictionary"));
+            /* NSBitmapImageFileTypePNG = 4. */
+            png_data = ((id (*)(id, SEL, NSUInteger, id))objc_msgSend)(
+                bitmap, sel_registerName("representationUsingType:properties:"),
+                (NSUInteger)4, properties);
+            ((void (*)(id, SEL))objc_msgSend)(bitmap, sel_registerName("release"));
+        }
+    }
     ((void (*)(id, SEL))objc_msgSend)(ctx.image, sel_registerName("release"));
 
     if (!png_data) return -1;

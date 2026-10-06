@@ -26,9 +26,10 @@ display = LvglDisplay("Picolet LVGL UI smoke", WIDTH, HEIGHT)
 if display.display is None:
     raise RuntimeError("LvglDisplay did not create an SDL display")
 
-# This fresh process creates one SDL window, whose initial window ID is 1.
+# Borrow the native renderer address, SDL window IDs are backend-assigned.
 sdl = ffi.open(None)
-window = sdl.func("p", "SDL_GetWindowFromID", "I")(1)
+renderer = lv.sdl_window_get_renderer(display.display).__dereference__(1)
+window = sdl.func("p", "SDL_RenderGetWindow", "p")(renderer)
 flags = sdl.func("I", "SDL_GetWindowFlags", "p")(window)
 title = sdl.func("s", "SDL_GetWindowTitle", "p")(window)
 if title != "Picolet LVGL UI smoke" or not flags & 0x04 or flags & 0x48:
