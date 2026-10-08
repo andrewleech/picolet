@@ -195,6 +195,16 @@ python3 scripts/normalise_compile_database.py \
 
 Install the selected pinned tool first: `semgrep==1.179.0`, `ruff==0.16.8`, `pyrefly==1.3.2`, and `pyre-check==0.10.0` are Python packages; Opengrep stable and its Linux-only interfile alpha use the checksum-pinned release binaries in `.github/workflows/ci.yml`.
 
+Keep the analysers installed locally for fixture checks and runner verification. Isolated tool environments avoid mixing their dependencies with the application environment:
+
+```sh
+uv tool install semgrep==1.179.0
+uv tool install pyrefly==1.3.2
+uv tool install pyre-check==0.10.0
+```
+
+Ensure `~/.local/bin` is on `PATH`; these installs expose `semgrep`, `pyrefly`, `pyre` and `pyre.bin`. Pysa uses the `pyre` entry point.
+
 ```sh
 python3 scripts/check_sast_fixtures.py --scanner opengrep-stable
 python3 scripts/run_sast.py \
