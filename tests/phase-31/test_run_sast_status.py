@@ -88,3 +88,41 @@ def test_scan_operation_failure_records_actual_exit_status(tmp_path, monkeypatch
     assert summary["status"] == "operation_failed"
     assert summary["scanner_exit_code"] == 143
     assert "exit 143" in summary["operation_error"]
+
+
+@pytest.mark.parametrize("scanner", RUNNER.SCANNERS)
+def test_missing_executable_records_failure_for_every_scanner(tmp_path, monkeypatch, scanner):
+    runtime = tmp_path / "runtime.py"
+    runtime.write_text("value = 1\n")
+    scope = {"python_files": [{"path": "runtime.py", "target_path": "runtime.py", "owner": "runtime"}]}
+    monkeypatch.setattr(RUNNER, "_load_scope_resolver", lambda _: lambda *_: scope)
+    monkeypatch.setattr(RUNNER, "_tracked_project_files", lambda _: [])
+    monkeypatch.setenv("PATH", "")
+    output = tmp_path / "out"
+    assert RUNNER.run(scanner, tmp_path, "linux-x64", "cli", None, output) == 1
+    summary = json.loads((output / "analysis-summary.json").read_text())
+    assert summary["status"] == "operation_failed"
+    assert summary["scanner_exit_code"] is None
+    assert summary["source_counts"]["runtime_python"] == 1
+
+
+def test_scope_failure_clears_owned_reports_and_preserves_other_outputs(tmp_path, monkeypatch):
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / "opengrep-stable-project.sarif").write_text("stale")
+    (output / "analysis-scope.json").write_text("stale")
+    (output / "compile_commands.json").write_text("compiler inputs")
+    (output / "user-notes.txt").write_text("keep")
+
+    def fail_scope(*_):
+        raise ValueError("manifest unavailable")
+
+    monkeypatch.setattr(RUNNER, "_load_scope_resolver", lambda _: fail_scope)
+    assert RUNNER.run("ruff-s", tmp_path, "linux-x64", "cli", None, output) == 1
+    summary = json.loads((output / "analysis-summary.json").read_text())
+    assert summary["operation_error"] == "manifest unavailable"
+    assert summary["source_counts"] == {}
+    assert not (output / "opengrep-stable-project.sarif").exists()
+    assert not (output / "analysis-scope.json").exists()
+    assert (output / "compile_commands.json").read_text() == "compiler inputs"
+    assert (output / "user-notes.txt").read_text() == "keep"

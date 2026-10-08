@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from run_sast import POLICY_DIR
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests/phase-31/fixtures/sast"
 PICKLE_RULE = "python.lang.security.deserialization.pickle.avoid-pickle"
@@ -32,7 +33,11 @@ def _sarif_findings(path: Path) -> list[tuple[str, str]]:
 def _check_sast(scanner: str, repo_root: Path, temp: Path) -> None:
     report = temp / "sast.sarif"
     binary = "semgrep" if scanner == "semgrep-ce" else "opengrep"
-    command = [binary, "scan", "--config", "p/security-audit"]
+    command = [binary, "scan"]
+    policy = json.loads((POLICY_DIR / "scanners.json").read_text(encoding="utf-8"))
+    for config in policy["project"]:
+        config_path = POLICY_DIR / config
+        command.extend(["--config", str(config_path) if config_path.exists() else config])
     if scanner == "semgrep-ce":
         command.extend(["--no-error", "--sarif-output", str(report)])
     else:
@@ -57,7 +62,7 @@ def _check_ruff(repo_root: Path, temp: Path) -> None:
     report = temp / "ruff.json"
     _run(
         [
-            "ruff", "check", "--isolated", "--select", "S", "--exit-zero", "--output-format", "json",
+            "ruff", "check", "--config", str(POLICY_DIR / "ruff.toml"), "--exit-zero", "--output-format", "json",
             "--output-file", str(report), str(FIXTURES / "shell_positive.py"),
             str(FIXTURES / "shell_negative.py"),
         ],

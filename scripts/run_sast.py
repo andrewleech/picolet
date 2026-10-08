@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one pinned SAST or type-analysis tool against a selected runtime scope."""
+"""Run one report-only SAST or type-analysis tool against a selected runtime scope."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ SCANNERS = (
     "pysa",
     "pyrefly",
 )
+POLICY_DIR = Path(__file__).resolve().parent / "sast"
 PYTHON_SUFFIXES = {".py", ".pyi"}
 NATIVE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".S", ".s"}
 PROJECT_PREFIXES = (
@@ -106,7 +107,8 @@ def _write_summary(
     rc: int | None,
     operation_error: str | None = None,
 ) -> None:
-    scope_report = json.loads(path.parent.joinpath("analysis-scope.json").read_text(encoding="utf-8"))
+    scope_path = path.parent / "analysis-scope.json"
+    scope_report = json.loads(scope_path.read_text(encoding="utf-8")) if scope_path.exists() else {"groups": {}}
     owners = {
         entry["owner"]
         for group in scope_report["groups"].values()
@@ -125,8 +127,9 @@ def _write_summary(
     if operation_error is not None:
         payload["status"] = "operation_failed"
         payload["operation_error"] = operation_error
-    if scanner in {"pyrefly", "pysa"}:
-        prerequisites = json.loads(path.parent.joinpath("analysis-prerequisites.json").read_text(encoding="utf-8"))
+    prerequisites_path = path.parent / "analysis-prerequisites.json"
+    if scanner in {"pyrefly", "pysa"} and prerequisites_path.exists():
+        prerequisites = json.loads(prerequisites_path.read_text(encoding="utf-8"))
         payload["prerequisites"] = prerequisites
         payload["coverage_status"] = "incomplete" if prerequisites["type_diagnostics_present"] else "not_assessed"
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -226,7 +229,7 @@ def _rebase_report_paths(path: Path, replacements: dict[str, str], work: Path, r
     path.write_text(output + "\n", encoding="utf-8")
 
 
-def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output_dir: Path) -> int:
+def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output_dir: Path, executable: str | None = None) -> int:
     pyrefly_report = output_dir / "pyrefly.sarif"
     with tempfile.TemporaryDirectory(prefix="picolet-sast-") as temp_dir:
         work = Path(temp_dir)
@@ -241,7 +244,7 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
         )
         pyrefly_pysa_report = work / "pyrefly-pysa.json"
         pyrefly_command = [
-            "pyrefly",
+            executable if executable and scanner == "pyrefly" else "pyrefly",
             "check",
             "--config",
             str(pyrefly_config),
@@ -257,21 +260,22 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
             f"sarif:{pyrefly_report}",
             *map(str, staged),
         ]
-        pyrefly_rc = _invoke(
+        try:
             # Exit 1 denotes type diagnostics, not a failed invocation.
-            pyrefly_command, repo_root, pyrefly_report, output_dir / "pyrefly.log",
-            allowed_exit_codes=(0, 1),
-        )
+            pyrefly_rc = _invoke(
+                pyrefly_command, repo_root, pyrefly_report, output_dir / "pyrefly.log",
+                allowed_exit_codes=(0, 1),
+            )
+        finally:
+            _rebase_report_paths(pyrefly_report, staged, work, repo_root)
         (output_dir / "analysis-prerequisites.json").write_text(
             json.dumps({"pyrefly_exit_code": pyrefly_rc, "type_diagnostics_present": pyrefly_rc == 1}, indent=2) + "\n",
             encoding="utf-8",
         )
         if pyrefly_rc:
             print(f"Pyrefly reported diagnostics; downstream Pysa analysis may be incomplete (exit {pyrefly_rc}).", file=sys.stderr)
-        _rebase_report_paths(pyrefly_report, staged, work, repo_root)
         if scanner == "pyrefly":
             return pyrefly_rc
-
 
         pyre_config = {
             "source_directories": [str(work / "src")],
@@ -281,13 +285,13 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
         (work / ".pyre_configuration").write_text(json.dumps(pyre_config), encoding="utf-8")
         pysa_dir = output_dir / "pysa-results"
         pysa_command = [
-            "pyre",
+            executable or "pyre",
             "--noninteractive",
             "--dot-pyre-directory",
             str(work / ".pyre"),
             "analyze",
             "--taint-models-path",
-            str(repo_root / "scripts/sast/pysa"),
+            str(POLICY_DIR / "pysa"),
             "--save-results-to",
             str(pysa_dir),
             "--output-format",
@@ -295,26 +299,21 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
             "--pyrefly-results",
             str(pyrefly_pysa_report),
         ]
-        pysa_rc = _invoke(
-            pysa_command, work, pysa_dir, output_dir / "pysa.log",
-            allowed_exit_codes=(0, 1),
-        )
-        _rebase_report_paths(pyrefly_pysa_report, staged, work, repo_root)
-        _rebase_report_paths(pysa_dir, staged, work, repo_root)
+        try:
+            pysa_rc = _invoke(
+                pysa_command, work, pysa_dir, output_dir / "pysa.log",
+                allowed_exit_codes=(0, 1),
+            )
+        finally:
+            _rebase_report_paths(pysa_dir, staged, work, repo_root)
         if pyrefly_rc:
             print(f"Pysa result is incomplete because Pyrefly exited {pyrefly_rc}.", file=sys.stderr)
         return pysa_rc
 
 
 
-def run(scanner: str, repo_root: Path, target: str, variant: str, compile_database: Path | None, output_dir: Path) -> int:
-    repo_root = repo_root.resolve()
-    output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "analysis-summary.json").unlink(missing_ok=True)
-    (output_dir / "analysis-prerequisites.json").unlink(missing_ok=True)
-    resolver = _load_scope_resolver(repo_root)
-    scope = resolver(repo_root, target, variant)
+def _resolve_sources(repo_root: Path, target: str, variant: str, compile_database: Path | None, output_dir: Path):
+    scope = _load_scope_resolver(repo_root)(repo_root, target, variant)
     (output_dir / "runtime-scope.json").write_text(
         json.dumps(scope, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -373,87 +372,106 @@ def run(scanner: str, repo_root: Path, target: str, variant: str, compile_databa
         "frontend": frontend_files,
         "native": native_files,
     }
+    return scope, sources
 
-    if scanner in {"pyrefly", "pysa"}:
-        rc = _run_type_tools(scanner, scope, repo_root, output_dir)
-    else:
-        if scanner == "ruff-s":
-            scan_files = runtime_files + host_python
-            if not scan_files:
-                raise ValueError("source selection is empty")
-            sarif = output_dir / f"{scanner}.sarif"
-            command = [
-                "ruff", "check", "--isolated", "--select", "S", "--exit-zero",
-                "--output-format", "sarif", "--output-file", str(sarif), *map(str, scan_files),
-            ]
-            rc = _invoke(command, repo_root, sarif, output_dir / f"{scanner}.log")
-        else:
-            binary = "semgrep" if scanner == "semgrep-ce" else "opengrep"
-            rc = 0
-            project_files = sorted(set(runtime_files + host_python + frontend_files))
-            native_c_files = [
-                path
-                for path in native_files
-                if path.suffix.lower() in {".c", ".cc", ".cpp", ".cxx"}
-            ]
-            scans = (
-                ("project", "p/security-audit", project_files),
-                ("native-c", "p/c", native_c_files),
-            )
-            context = tempfile.TemporaryDirectory(prefix="picolet-sast-") if scanner == "opengrep-interfile-alpha" else nullcontext(None)
-            with context as temp_dir:
-                work = Path(temp_dir) if temp_dir is not None else None
-                scan_root = repo_root
-                staged = {}
+
+def _run_ruff(sources: dict[str, list[Path]], repo_root: Path, output_dir: Path, executable: str | None) -> int:
+    scan_files = sources["runtime_python"] + sources["host_and_example_python"]
+    if not scan_files:
+        raise ValueError("source selection is empty")
+    report = output_dir / "ruff-s.sarif"
+    return _invoke(
+        [executable or "ruff", "check", "--config", str(POLICY_DIR / "ruff.toml"), "--exit-zero",
+         "--output-format", "sarif", "--output-file", str(report), *map(str, scan_files)],
+        repo_root, report, output_dir / "ruff-s.log",
+    )
+
+
+def _run_pattern_scanner(scanner: str, sources: dict[str, list[Path]], repo_root: Path, output_dir: Path, executable: str | None) -> int:
+    policy = json.loads((POLICY_DIR / "scanners.json").read_text(encoding="utf-8"))
+    scans = {
+        "project": sorted(set(sources["runtime_python"] + sources["host_and_example_python"] + sources["frontend"])),
+        "native-c": [path for path in sources["native"] if path.suffix.lower() in {".c", ".cc", ".cpp", ".cxx"}],
+    }
+    if not any(scans.values()):
+        raise ValueError("source selection is empty")
+    binary = executable or ("semgrep" if scanner == "semgrep-ce" else "opengrep")
+    interfile = scanner == "opengrep-interfile-alpha"
+    context = tempfile.TemporaryDirectory(prefix="picolet-sast-") if interfile else nullcontext(None)
+    rc = 0
+    with context as temp_dir:
+        work = Path(temp_dir) if temp_dir is not None else None
+        scan_root = repo_root
+        staged = {}
+        if work is not None:
+            # Restrict companion discovery to the complete selected scope.
+            scan_root = work / "src"
+            paths = {path.relative_to(repo_root).as_posix(): path.relative_to(repo_root).as_posix()
+                     for files in sources.values() for path in files}
+            staged = _stage_sources(paths, repo_root, scan_root)
+        for name, files in scans.items():
+            if not files:
+                continue
+            report = output_dir / f"{scanner}-{name}.sarif"
+            command = [binary, "scan"]
+            for config in policy[name]:
+                config_path = POLICY_DIR / config
+                command.extend(["--config", str(config_path) if config_path.exists() else config])
+            command.extend(["--no-git-ignore", "--x-ignore-semgrepignore-files", "--sarif-output", str(report)])
+            if scanner == "semgrep-ce":
+                command.append("--no-error")
+            else:
+                command.append("--jobs=4")
+            if interfile:
+                command.append("--taint-interfile")
+            command.extend(str(scan_root / path.relative_to(repo_root)) for path in files)
+            try:
+                rc = max(rc, _invoke(command, scan_root, report, output_dir / f"{scanner}-{name}.log", allowed_exit_codes=(0, 1)))
+            finally:
                 if work is not None:
-                    # Companion discovery must see only the complete selected analysis scope.
-                    scan_root = work / "src"
-                    paths = {}
-                    for files in sources.values():
-                        for path in files:
-                            relative = path.relative_to(repo_root).as_posix()
-                            paths[relative] = relative
-                    staged = _stage_sources(paths, repo_root, scan_root)
-                for scope_name, config, scan_files in scans:
-                    if not scan_files:
-                        continue
-                    sarif = output_dir / f"{scanner}-{scope_name}.sarif"
-                    command = [binary, "scan", "--config", config]
-                    if scanner in {"opengrep-stable", "opengrep-interfile-alpha"}:
-                        if scanner == "opengrep-interfile-alpha":
-                            command.append("--taint-interfile")
-                        command.extend(
-                            ["--no-git-ignore", "--x-ignore-semgrepignore-files", "--jobs=4", "--sarif-output", str(sarif)]
-                        )
-                    else:
-                        command.extend(
-                            [
-                                "--no-git-ignore",
-                                "--x-ignore-semgrepignore-files",
-                                "--no-error",
-                                "--sarif-output",
-                                str(sarif),
-                            ]
-                        )
-                    command.extend(str(scan_root / path.relative_to(repo_root)) for path in scan_files)
-                    try:
-                        try:
-                            scan_rc = _invoke(
-                                command, scan_root, sarif, output_dir / f"{scanner}-{scope_name}.log",
-                                allowed_exit_codes=(0, 1),
-                            )
-                        finally:
-                            if work is not None:
-                                _rebase_report_paths(sarif, staged, work, repo_root)
-                    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
-                        _write_summary(
-                            output_dir / "analysis-summary.json", scanner, target, variant, sources,
-                            getattr(exc, "returncode", None), str(exc),
-                        )
-                        print(str(exc), file=sys.stderr)
-                        return 1
-                    rc = max(rc, scan_rc)
+                    _rebase_report_paths(report, staged, work, repo_root)
+    return rc
 
+
+def _clear_reports(output_dir: Path) -> None:
+    names = {
+        "analysis-summary.json", "analysis-prerequisites.json", "runtime-scope.json", "analysis-scope.json",
+        "pyrefly.sarif", "pyrefly.log", "pysa.log", "pysa-results", "ruff-s.sarif", "ruff-s.log",
+    }
+    for scanner in ("opengrep-stable", "opengrep-interfile-alpha", "semgrep-ce"):
+        for scope in ("project", "native-c"):
+            names.update({f"{scanner}-{scope}.sarif", f"{scanner}-{scope}.log"})
+    for name in names:
+        path = output_dir / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+
+
+def run(scanner: str, repo_root: Path, target: str, variant: str, compile_database: Path | None, output_dir: Path, executable: str | None = None) -> int:
+    repo_root = repo_root.resolve()
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sources = {}
+    try:
+        _clear_reports(output_dir)
+        if scanner not in SCANNERS:
+            raise ValueError(f"unknown scanner: {scanner}")
+        if executable and ("/" in executable or "\\" in executable):
+            executable = str(Path(executable).expanduser().resolve())
+        scope, sources = _resolve_sources(repo_root, target, variant, compile_database, output_dir)
+        if scanner in {"pyrefly", "pysa"}:
+            rc = _run_type_tools(scanner, scope, repo_root, output_dir, executable)
+        elif scanner == "ruff-s":
+            rc = _run_ruff(sources, repo_root, output_dir, executable)
+        else:
+            rc = _run_pattern_scanner(scanner, sources, repo_root, output_dir, executable)
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
+        _write_summary(output_dir / "analysis-summary.json", scanner, target, variant, sources,
+                       getattr(exc, "returncode", None), str(exc))
+        print(str(exc), file=sys.stderr)
+        return 1
     _write_summary(output_dir / "analysis-summary.json", scanner, target, variant, sources, rc)
     status = _tool_status(scanner, rc)
     if status != "clean":
@@ -469,6 +487,7 @@ def main() -> int:
     parser.add_argument("--compile-database", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output-dir", type=Path, default=Path("sast-results"))
+    parser.add_argument("--executable", help="Override the selected analyser executable (Pysa: pyre; prerequisite: pyrefly on PATH)")
     args = parser.parse_args()
     repo_root = args.repo_root.resolve()
     output_dir = args.output_dir if args.output_dir.is_absolute() else repo_root / args.output_dir
@@ -476,7 +495,7 @@ def main() -> int:
     if compile_database is not None and not compile_database.is_absolute():
         compile_database = repo_root / compile_database
     try:
-        return run(args.scanner, repo_root, args.target, args.variant, compile_database, output_dir)
+        return run(args.scanner, repo_root, args.target, args.variant, compile_database, output_dir, args.executable)
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
