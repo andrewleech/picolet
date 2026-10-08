@@ -1,0 +1,4 @@
+{
+  "unix": "build/stubs/unix",
+  "windows": "build/stubs/windows"
+}

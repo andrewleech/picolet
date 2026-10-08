@@ -206,6 +206,17 @@ jobs:
         if: env.SAST_SCANNER == 'pysa'
         run: python3 -m pip install pyre-check==0.10.0
 
+      - name: Install MicroPython type stubs
+        if: env.SAST_SCANNER == 'pyrefly' || env.SAST_SCANNER == 'pysa'
+        run: |
+          port=unix
+          if [[ "${{ matrix.target }}" == "windows-x64" ]]; then
+            port=windows
+          fi
+          python3 -m pip install --target "scripts/sast/build/stubs/$port" \
+            -r "scripts/sast/requirements-$port.txt"
+          echo "SAST_STUB_PORT=$port" >> "$GITHUB_ENV"
+
       - name: Build native runtime and record compiler inputs
         run: |
           compile_log="$PWD/packages/picolet-runtime/build/native-compile.jsonl"
@@ -224,7 +235,7 @@ jobs:
             --output sast-results/compile_commands.json
 
       - name: Check positive and negative fixtures
-        run: python3 scripts/check_sast_fixtures.py --scanner "$SAST_SCANNER"
+        run: python3 scripts/check_sast_fixtures.py --scanner "$SAST_SCANNER" --port "${SAST_STUB_PORT:-unix}"
 
       - name: Run selected static analysis
         run: |

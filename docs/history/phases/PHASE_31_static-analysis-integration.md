@@ -86,9 +86,15 @@ The trialled scanners are Semgrep CE, Opengrep stable, Opengrep interfile alpha,
 
 `scripts/run_sast.py --scanner <name> --target <target> --variant <variant>` runs exactly one selected analyzer. CI uses the same selection names through the `sast_scanner` workflow-dispatch input; pushes and pull requests default to Opengrep stable. The interfile alpha is Linux-only. Tool installation is pinned in the workflow and in the local commands below.
 
-Scanner policy lives under `scripts/sast/`: `scanners.json` selects the project and native-C rule packs for Semgrep / Opengrep, `ruff.toml` selects Ruff rules, and `pysa/` holds taint configuration and models. Local rule-file paths in `scanners.json` are relative to that directory; Registry names remain unchanged. Fixture checks use the same policy as the runner. Temporary Pyrefly / Pyre configuration describes the selected source workspace, not scanner rules.
+Scanner policy lives under `scripts/sast/`: `scanners.json` selects the project and native-C rule packs for Semgrep / Opengrep, `ruff.toml` selects Ruff rules, `typing.json` selects port-specific stub directories, and `pysa/` holds taint configuration and models. Local rule-file and stub-directory paths are relative to that directory; Registry names remain unchanged. Fixture checks use the same policy as the runner. Temporary Pyrefly / Pyre configuration describes the selected source workspace, not scanner rules.
 
 Use `--executable /path/to/analyser` to select a particular installed binary without changing `PATH`. For Pysa this overrides `pyre`; its Pyrefly prerequisite still comes from `PATH`. Tool installation and checksum pinning remain the caller's responsibility.
+
+Pyrefly loads MicroPython port-module stubs for every runtime scan; Pysa consumes that stub-aware Pyrefly handoff. Windows targets use Windows stubs, Linux / macOS targets use Unix stubs. Missing stubs fail the invocation rather than silently checking against host Python alone. Prerequisite reports and summaries record the stub port, directory and installed package versions. Semgrep CE, both Opengrep engines and Ruff do not consume external Python type-stub packages.
+
+The pinned port stubs are `1.29.0.post1`, matching the current MicroPython 1.29.0 base; their stdlib dependency is pinned to `1.29.0.post2`. These packages describe the standard port, not every Picolet build flag or integration extension. Pyrefly retains its bundled core typeshed: replacing it with the MicroPython stdlib package crashes Pyrefly 1.3.2 during bootstrap, and adding that stdlib directory to the search path produces incompatible core type identities. Only the port-module stub root is added to import resolution. This does not provide a complete MicroPython builtins / stdlib override.
+
+Real Linux / Windows CLI scans with the port-module stubs retain 105 / 107 Pyrefly diagnostics. Pysa completes with zero issues and marks both results incomplete. Positive / negative fixtures pass for both ports, including valid MicroPython timing calls and rejection of an invalid `sleep_ms` argument. These results do not approve a type or security gate.
 
 
 
@@ -204,6 +210,19 @@ uv tool install pyre-check==0.10.0
 ```
 
 Ensure `~/.local/bin` is on `PATH`; these installs expose `semgrep`, `pyrefly`, `pyre` and `pyre.bin`. Pysa uses the `pyre` entry point.
+
+Install the pinned stubs outside the application environment. Generated stub directories are ignored build output:
+
+```sh
+uv pip install --python python3 --target scripts/sast/build/stubs/unix \
+  -r scripts/sast/requirements-unix.txt
+uv pip install --python python3 --target scripts/sast/build/stubs/windows \
+  -r scripts/sast/requirements-windows.txt
+python3 scripts/check_sast_fixtures.py --scanner pyrefly --port unix
+python3 scripts/check_sast_fixtures.py --scanner pysa --port windows
+```
+
+CI installs the requirements for the selected runtime port before running fixtures or type analysis. Update these requirement pins with the MicroPython base version.
 
 ```sh
 python3 scripts/check_sast_fixtures.py --scanner opengrep-stable

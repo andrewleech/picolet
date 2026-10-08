@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import importlib.util
 import json
 import shutil
@@ -229,8 +230,28 @@ def _rebase_report_paths(path: Path, replacements: dict[str, str], work: Path, r
     path.write_text(output + "\n", encoding="utf-8")
 
 
+def _stub_directory(port: str) -> Path:
+    policy = json.loads((POLICY_DIR / "typing.json").read_text(encoding="utf-8"))
+    directory = (POLICY_DIR / policy[port]).resolve()
+    for name in ("micropython.pyi", "stdlib/builtins.pyi"):
+        if not (directory / name).is_file():
+            raise FileNotFoundError(
+                f"MicroPython {port} stubs missing at {directory}; install scripts/sast/requirements-{port}.txt there"
+            )
+    return directory
+
+
 def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output_dir: Path, executable: str | None = None) -> int:
     pyrefly_report = output_dir / "pyrefly.sarif"
+    stubs = _stub_directory(scope["port"])
+    stub_info = {
+        "port": scope["port"],
+        "path": str(stubs),
+        "packages": {
+            distribution.metadata["Name"]: distribution.version
+            for distribution in importlib.metadata.distributions(path=[str(stubs)])
+        },
+    }
     with tempfile.TemporaryDirectory(prefix="picolet-sast-") as temp_dir:
         work = Path(temp_dir)
         staged = _stage_sources(
@@ -250,6 +271,8 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
             str(pyrefly_config),
             "--search-path",
             str(work / "src"),
+            "--search-path",
+            str(stubs),
             "--disable-search-path-heuristics",
             "true",
             "--report-pysa",
@@ -269,7 +292,7 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
         finally:
             _rebase_report_paths(pyrefly_report, staged, work, repo_root)
         (output_dir / "analysis-prerequisites.json").write_text(
-            json.dumps({"pyrefly_exit_code": pyrefly_rc, "type_diagnostics_present": pyrefly_rc == 1}, indent=2) + "\n",
+            json.dumps({"pyrefly_exit_code": pyrefly_rc, "type_diagnostics_present": pyrefly_rc == 1, "stubs": stub_info}, indent=2) + "\n",
             encoding="utf-8",
         )
         if pyrefly_rc:
@@ -279,7 +302,7 @@ def _run_type_tools(scanner: str, scope: dict[str, Any], repo_root: Path, output
 
         pyre_config = {
             "source_directories": [str(work / "src")],
-            "search_path": [str(work / "src")],
+            "search_path": [str(work / "src"), str(stubs)],
             "workers": 1,
         }
         (work / ".pyre_configuration").write_text(json.dumps(pyre_config), encoding="utf-8")

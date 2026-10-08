@@ -1,0 +1,2 @@
+micropython-unix-stubs==1.29.0.post1
+micropython-stdlib-stubs==1.29.0.post2

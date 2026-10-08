@@ -50,13 +50,15 @@ def test_pysa_surfaces_pyrefly_prerequisite_status(tmp_path, monkeypatch, capsys
         "import pathlib, sys\na=sys.argv\nout=pathlib.Path(a[a.index('--save-results-to')+1]); out.mkdir(parents=True); (out/'taint-output.json').write_text('')\nsys.exit(0)\n",
     )
     monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
-    scope = {"python_files": []}
+    scope = {"port": "unix", "python_files": []}
+    monkeypatch.setattr(RUNNER, "_stub_directory", lambda _: tmp_path)
     output_dir = tmp_path / "out"
     output_dir.mkdir()
     result = RUNNER._run_type_tools("pysa", scope, tmp_path, output_dir)
     assert result == 0
     prerequisites = json.loads((output_dir / "analysis-prerequisites.json").read_text())
-    assert prerequisites == {"pyrefly_exit_code": 1, "type_diagnostics_present": True}
+    assert prerequisites["pyrefly_exit_code"] == 1
+    assert prerequisites["type_diagnostics_present"] is True
 
 
 @pytest.mark.parametrize("scanner", ["opengrep-stable", "opengrep-interfile-alpha", "semgrep-ce"])
@@ -94,7 +96,8 @@ def test_scan_operation_failure_records_actual_exit_status(tmp_path, monkeypatch
 def test_missing_executable_records_failure_for_every_scanner(tmp_path, monkeypatch, scanner):
     runtime = tmp_path / "runtime.py"
     runtime.write_text("value = 1\n")
-    scope = {"python_files": [{"path": "runtime.py", "target_path": "runtime.py", "owner": "runtime"}]}
+    scope = {"port": "unix", "python_files": [{"path": "runtime.py", "target_path": "runtime.py", "owner": "runtime"}]}
+    monkeypatch.setattr(RUNNER, "_stub_directory", lambda _: tmp_path)
     monkeypatch.setattr(RUNNER, "_load_scope_resolver", lambda _: lambda *_: scope)
     monkeypatch.setattr(RUNNER, "_tracked_project_files", lambda _: [])
     monkeypatch.setenv("PATH", "")
@@ -126,3 +129,26 @@ def test_scope_failure_clears_owned_reports_and_preserves_other_outputs(tmp_path
     assert not (output / "analysis-scope.json").exists()
     assert (output / "compile_commands.json").read_text() == "compiler inputs"
     assert (output / "user-notes.txt").read_text() == "keep"
+
+
+@pytest.mark.parametrize("scanner", ["pyrefly", "pysa"])
+def test_missing_stubs_fail_instead_of_using_host_typing(tmp_path, monkeypatch, scanner):
+    policy = tmp_path / "policy"
+    policy.mkdir()
+    (policy / "typing.json").write_text('{"unix": "missing"}')
+    monkeypatch.setattr(RUNNER, "POLICY_DIR", policy)
+    (tmp_path / "runtime.py").write_text("import time\n")
+    scope = {"port": "unix", "python_files": [{"path": "runtime.py", "target_path": "runtime.py", "owner": "runtime"}]}
+    monkeypatch.setattr(RUNNER, "_load_scope_resolver", lambda _: lambda *_: scope)
+    monkeypatch.setattr(RUNNER, "_tracked_project_files", lambda _: [])
+
+    def invoke_without_stubs(*_args, **_kwargs):
+        pytest.fail("Scanner invoked without MicroPython stubs")
+
+    monkeypatch.setattr(RUNNER, "_invoke", invoke_without_stubs)
+    output = tmp_path / "out"
+    assert RUNNER.run(scanner, tmp_path, "linux-x64", "cli", None, output) == 1
+    summary = json.loads((output / "analysis-summary.json").read_text())
+    assert summary["status"] == "operation_failed"
+    assert not (output / "pyrefly.sarif").exists()
+    assert not (output / "pysa-results").exists()

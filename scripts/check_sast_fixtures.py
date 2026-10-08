@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from run_sast import POLICY_DIR
+from run_sast import POLICY_DIR, _stub_directory
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests/phase-31/fixtures/sast"
 PICKLE_RULE = "python.lang.security.deserialization.pickle.avoid-pickle"
@@ -75,13 +75,15 @@ def _check_ruff(repo_root: Path, temp: Path) -> None:
         raise RuntimeError("Ruff S fixture results did not match the expected shell=True finding")
 
 
-def _check_pyrefly(repo_root: Path, temp: Path) -> None:
+def _check_pyrefly(repo_root: Path, temp: Path, port: str = "unix") -> None:
     report = temp / "pyrefly.sarif"
     pysa_report = temp / "pyrefly-pysa.json"
     config = temp / "pyrefly.toml"
     config.write_text(f'search-path = ["{FIXTURES.as_posix()}"]\n', encoding="utf-8")
+    stubs = _stub_directory(port)
     command = [
         "pyrefly", "check", "--config", str(config), "--search-path", str(FIXTURES),
+        "--search-path", str(stubs),
         "--disable-search-path-heuristics", "true", "--report-pysa", str(pysa_report),
         "--report-pysa-format", "json", "--output", f"sarif:{report}",
         str(FIXTURES / "typing_positive.py"), str(FIXTURES / "typing_negative.py"),
@@ -92,14 +94,17 @@ def _check_pyrefly(repo_root: Path, temp: Path) -> None:
     findings = _sarif_findings(report)
     if not any(rule == "bad-assignment" and "typing_positive.py" in path for rule, path in findings):
         raise RuntimeError("Pyrefly did not report the deliberately incompatible assignment")
+    if not any(rule == "bad-argument-type" and "typing_positive.py" in path for rule, path in findings):
+        raise RuntimeError("Pyrefly did not reject the invalid MicroPython sleep_ms argument")
     if any("typing_negative.py" in path for _, path in findings):
         raise RuntimeError("Pyrefly reported a diagnostic on the valid typing fixture")
 
 
-def _check_pysa(repo_root: Path, temp: Path) -> None:
+def _check_pysa(repo_root: Path, temp: Path, port: str = "unix") -> None:
     from run_sast import _run_type_tools
 
     scope: dict[str, Any] = {
+        "port": port,
         "python_files": [
             {
                 "path": (FIXTURES / name).relative_to(repo_root).as_posix(),
@@ -125,6 +130,7 @@ def main() -> int:
         choices=("opengrep-stable", "opengrep-interfile-alpha", "semgrep-ce", "ruff-s", "pysa", "pyrefly"),
         required=True,
     )
+    parser.add_argument("--port", choices=("unix", "windows"), default="unix")
     args = parser.parse_args()
     repo_root = Path(__file__).resolve().parents[1]
     try:
@@ -135,9 +141,9 @@ def main() -> int:
             elif args.scanner == "ruff-s":
                 _check_ruff(repo_root, temp)
             elif args.scanner == "pyrefly":
-                _check_pyrefly(repo_root, temp)
+                _check_pyrefly(repo_root, temp, args.port)
             else:
-                _check_pysa(repo_root, temp)
+                _check_pysa(repo_root, temp, args.port)
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
