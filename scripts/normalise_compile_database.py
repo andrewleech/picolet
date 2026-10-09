@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 
+PROVENANCE_FORMAT = "picolet-normalised-compile-database"
+
+
 def normalise(repo_root: Path, source: Path) -> list[dict[str, Any]]:
     entries = []
     for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
@@ -19,11 +22,20 @@ def normalise(repo_root: Path, source: Path) -> list[dict[str, Any]]:
         if not isinstance(entry.get("arguments"), list) or not entry["arguments"]:
             raise ValueError(f"missing compiler arguments at {source}:{line_number}")
         file_path = Path(entry["file"]).resolve()
+        directory = str(Path(entry["directory"]).resolve())
         try:
             entry["file"] = file_path.relative_to(repo_root).as_posix()
         except ValueError as exc:
             raise ValueError(f"compiler input is outside the repository: {file_path}") from exc
-        entry["directory"] = str(Path(entry["directory"]).resolve())
+        entry["directory"] = directory
+        # `file` is relative to the repository root, not to `directory`; consumers must not
+        # reinterpret it without this receipt of what the build recorded.
+        entry["provenance"] = {
+            "format": PROVENANCE_FORMAT,
+            "file_base": "repo-root",
+            "original_file": str(file_path),
+            "original_directory": directory,
+        }
         entries.append(entry)
     if not entries:
         raise ValueError(f"compiler capture is empty: {source}")

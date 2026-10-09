@@ -104,7 +104,6 @@ jobs:
           tests/phase-27/
           tests/phase-28/
           tests/phase-29/
-          tests/phase-31/
           -q
 
       - name: Test MicroPython IPC runtime
@@ -163,7 +162,18 @@ jobs:
             fi
           fi
 
-      - name: Test source scope and analysis status
+      # The shared analysis core is pinned in scripts/sast/shared-core.json to a commit that is
+      # not on any remote and is not registered in packages/picolet-runtime/mbm.toml, so the
+      # composed integration checkout does not contain it. This step fails with that reason
+      # until the commit is published, registered and the submodule gitlink references it;
+      # scanning never falls back to an unpinned or absent core.
+      - name: Install pinned shared analysis core
+        run: |
+          python3 scripts/install_sast_core.py \
+            --source packages/picolet-runtime/micropython \
+            --receipt sast-results/shared-core-receipt.json
+
+      - name: Test source scope and fixture configuration
         run: python3 -m pytest tests/phase-31/ -q
 
       - name: Install Opengrep stable
@@ -215,7 +225,6 @@ jobs:
           fi
           python3 -m pip install --target "scripts/sast/build/stubs/$port" \
             -r "scripts/sast/requirements-$port.txt"
-          echo "SAST_STUB_PORT=$port" >> "$GITHUB_ENV"
 
       - name: Build native runtime and record compiler inputs
         run: |
@@ -235,7 +244,11 @@ jobs:
             --output sast-results/compile_commands.json
 
       - name: Check positive and negative fixtures
-        run: python3 scripts/check_sast_fixtures.py --scanner "$SAST_SCANNER" --port "${SAST_STUB_PORT:-unix}"
+        run: |
+          python3 scripts/check_sast_fixtures.py \
+            --scanner "$SAST_SCANNER" \
+            --target "${{ matrix.target }}" \
+            --variant "${{ matrix.variant }}"
 
       - name: Run selected static analysis
         run: |

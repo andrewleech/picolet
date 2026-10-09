@@ -1,154 +1,152 @@
 #!/usr/bin/env python3
-"""Check that the selected analysis tool distinguishes its positive and negative fixtures."""
+"""Check Picolet's scanner policy against the shared packaged fixtures.
+
+Picolet selects the fixtures, expected rule ids and callables for each scanner in
+scripts/sast/fixtures.json. Scanning, coverage accounting and expectation matching
+are the shared mpy_analysis fixture checker's; policy is scripts/sast, the same policy
+scripts/run_sast.py uses.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
+from types import ModuleType
 from typing import Any
+from static_analysis_scope import RUNTIME_TARGETS, runtime_port
 
-from run_sast import POLICY_DIR, _stub_directory
-
-FIXTURES = Path(__file__).resolve().parents[1] / "tests/phase-31/fixtures/sast"
-PICKLE_RULE = "python.lang.security.deserialization.pickle.avoid-pickle"
-
-
-def _run(command: list[str], repo_root: Path) -> None:
-    subprocess.run(command, cwd=repo_root, check=True)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+POLICY_DIR = Path(__file__).resolve().parent / "sast"
+FIXTURE_ROOT = "fixtures"
+FIXTURE_OWNER = "picolet-sast-fixtures"
+GROUPS = ("runtime_frozen_python", "host_and_example_python", "frontend", "native")
 
 
-def _sarif_findings(path: Path) -> list[tuple[str, str]]:
-    report = json.loads(path.read_text(encoding="utf-8"))
-    return [
-        (item["ruleId"], item["locations"][0]["physicalLocation"]["artifactLocation"]["uri"])
-        for run in report["runs"]
-        for item in run.get("results", [])
-    ]
+def _shared_fixtures() -> ModuleType:
+    try:
+        from mpy_analysis import fixtures
+    except ImportError as exc:
+        raise RuntimeError(
+            "shared mpy_analysis core is not installed in this interpreter "
+            f"({exc}); install the revision pinned in {POLICY_DIR / 'shared-core.json'} with "
+            "scripts/install_sast_core.py --source <MicroPython checkout containing it>"
+        ) from exc
+    return fixtures
 
 
-def _check_sast(scanner: str, repo_root: Path, temp: Path) -> None:
-    report = temp / "sast.sarif"
-    binary = "semgrep" if scanner == "semgrep-ce" else "opengrep"
-    command = [binary, "scan"]
-    policy = json.loads((POLICY_DIR / "scanners.json").read_text(encoding="utf-8"))
-    for config in policy["project"]:
-        config_path = POLICY_DIR / config
-        command.extend(["--config", str(config_path) if config_path.exists() else config])
-    if scanner == "semgrep-ce":
-        command.extend(["--no-error", "--sarif-output", str(report)])
-    else:
-        command.extend(["--sarif-output", str(report)])
-        if scanner == "opengrep-interfile-alpha":
-            command.append("--taint-interfile")
-    command.extend(
-        str(FIXTURES / name)
-        for name in ("deserialization_positive.py", "deserialization_negative.py")
-    )
-    _run(command, repo_root)
-    findings = _sarif_findings(report)
-    positive = "deserialization_positive.py"
-    negative = "deserialization_negative.py"
-    if not any(rule == PICKLE_RULE and positive in path for rule, path in findings):
-        raise RuntimeError(f"{scanner} did not flag the pickle positive fixture")
-    if any(rule == PICKLE_RULE and negative in path for rule, path in findings):
-        raise RuntimeError(f"{scanner} flagged the JSON negative fixture")
+def _load_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return payload
 
 
-def _check_ruff(repo_root: Path, temp: Path) -> None:
-    report = temp / "ruff.json"
-    _run(
-        [
-            "ruff", "check", "--config", str(POLICY_DIR / "ruff.toml"), "--exit-zero", "--output-format", "json",
-            "--output-file", str(report), str(FIXTURES / "shell_positive.py"),
-            str(FIXTURES / "shell_negative.py"),
-        ],
-        repo_root,
-    )
-    findings = json.loads(report.read_text(encoding="utf-8"))
-    positive = [item for item in findings if item["filename"].endswith("shell_positive.py")]
-    negative = [item for item in findings if item["filename"].endswith("shell_negative.py")]
-    if not any(item["code"] == "S602" for item in positive) or negative:
-        raise RuntimeError("Ruff S fixture results did not match the expected shell=True finding")
+
+def _profile(policy_dir: Path, scanner: str) -> dict[str, Any]:
+    config = _load_json(policy_dir / "fixtures.json")
+    if config.get("schema_version") != 1:
+        raise ValueError("fixtures.json requires schema_version 1")
+    name = config["scanners"].get(scanner)
+    if name is None:
+        raise ValueError(f"fixtures.json selects no fixtures for scanner {scanner!r}")
+    return config["profiles"][name]
 
 
-def _check_pyrefly(repo_root: Path, temp: Path, port: str = "unix") -> None:
-    report = temp / "pyrefly.sarif"
-    pysa_report = temp / "pyrefly-pysa.json"
-    config = temp / "pyrefly.toml"
-    config.write_text(f'search-path = ["{FIXTURES.as_posix()}"]\n', encoding="utf-8")
-    stubs = _stub_directory(port)
-    command = [
-        "pyrefly", "check", "--config", str(config), "--search-path", str(FIXTURES),
-        "--search-path", str(stubs),
-        "--disable-search-path-heuristics", "true", "--report-pysa", str(pysa_report),
-        "--report-pysa-format", "json", "--output", f"sarif:{report}",
-        str(FIXTURES / "typing_positive.py"), str(FIXTURES / "typing_negative.py"),
-    ]
-    result = subprocess.run(command, cwd=repo_root, check=False)
-    if result.returncode and not report.is_file():
-        raise RuntimeError(f"Pyrefly failed without writing SARIF (exit {result.returncode})")
-    findings = _sarif_findings(report)
-    if not any(rule == "bad-assignment" and "typing_positive.py" in path for rule, path in findings):
-        raise RuntimeError("Pyrefly did not report the deliberately incompatible assignment")
-    if not any(rule == "bad-argument-type" and "typing_positive.py" in path for rule, path in findings):
-        raise RuntimeError("Pyrefly did not reject the invalid MicroPython sleep_ms argument")
-    if any("typing_negative.py" in path for _, path in findings):
-        raise RuntimeError("Pyrefly reported a diagnostic on the valid typing fixture")
-
-
-def _check_pysa(repo_root: Path, temp: Path, port: str = "unix") -> None:
-    from run_sast import _run_type_tools
-
-    scope: dict[str, Any] = {
-        "port": port,
-        "python_files": [
-            {
-                "path": (FIXTURES / name).relative_to(repo_root).as_posix(),
-                "target_path": name,
-                "owner": "fixture",
-            }
-            for name in ("pysa_positive.py", "pysa_negative.py")
-        ]
+def build_inputs(
+    scanner: str, target: str, variant: str, fixture_directory: Path, policy_dir: Path, core: dict[str, str]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the explicit shared scope and expectations for one scanner and selection."""
+    profile = _profile(policy_dir, scanner)
+    if target not in RUNTIME_TARGETS or variant not in RUNTIME_TARGETS[target]:
+        raise ValueError(f"unsupported target/variant combination: {target}/{variant}")
+    paths = list(dict.fromkeys(item["path"] for kind in ("positive", "negative") for item in profile[kind]))
+    for path in paths:
+        if not (fixture_directory / path).is_file():
+            raise FileNotFoundError(f"selected shared fixture is not packaged: {fixture_directory / path}")
+    scope = {
+        "schema_version": 1,
+        "roots": {FIXTURE_ROOT: str(fixture_directory)},
+        "target": target,
+        "variant": variant,
+        "port": runtime_port(target),
+        "groups": {
+            **{group: [] for group in GROUPS},
+            "runtime_frozen_python": [
+                {
+                    "root": FIXTURE_ROOT,
+                    "path": path,
+                    "target_path": path,
+                    "owner": FIXTURE_OWNER,
+                    "provenance": {"fixture_directory": "mpy_analysis.fixtures.fixture_directory", **core},
+                }
+                for path in paths
+            ],
+        },
     }
-    _run_type_tools("pysa", scope, repo_root, temp)
-    report = temp / "pysa-results" / "taint-output.json"
-    results = [json.loads(line) for line in report.read_text(encoding="utf-8").splitlines() if line]
-    if not any("pysa_positive.py" in json.dumps(item) for item in results):
-        raise RuntimeError("Pysa did not report input() flowing to eval()")
-    if any("pysa_negative.py" in json.dumps(item) for item in results):
-        raise RuntimeError("Pysa reported a finding for the constant eval() negative fixture")
+    expectations = {
+        "schema_version": 1,
+        **{
+            kind: [{"root": FIXTURE_ROOT, **item} for item in profile[kind]]
+            for kind in ("positive", "negative")
+        },
+    }
+    return scope, expectations
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scanner",
         choices=("opengrep-stable", "opengrep-interfile-alpha", "semgrep-ce", "ruff-s", "pysa", "pyrefly"),
         required=True,
     )
-    parser.add_argument("--port", choices=("unix", "windows"), default="unix")
-    args = parser.parse_args()
-    repo_root = Path(__file__).resolve().parents[1]
+    parser.add_argument("--port", choices=("unix", "windows"), help="MicroPython port; selects the default target (unix: linux-x64, windows: windows-x64)")
+    parser.add_argument("--target", choices=sorted(RUNTIME_TARGETS), help="Runtime target; default derived from --port, else linux-x64")
+    parser.add_argument("--variant", default="cli")
+    parser.add_argument("--output-dir", type=Path, help="Default: sast-results/fixtures/<scanner>-<target>-<variant> under the repository")
+    parser.add_argument("--executable", help="Selected analyser executable (Pysa: pyre)")
+    parser.add_argument("--pyrefly-executable", help="Pysa's explicit Pyrefly prerequisite executable")
+    args = parser.parse_args(argv)
+    target = args.target or {"unix": "linux-x64", "windows": "windows-x64"}.get(args.port, "linux-x64")
+    if args.port and runtime_port(target) != args.port:
+        parser.error(f"--port {args.port} does not match target {target} ({runtime_port(target)})")
+    args.target = target
+    output_dir = (
+        args.output_dir or REPO_ROOT / "sast-results" / "fixtures" / f"{args.scanner}-{args.target}-{args.variant}"
+    ).resolve()
     try:
-        with tempfile.TemporaryDirectory(prefix="picolet-sast-fixtures-") as temp_dir:
-            temp = Path(temp_dir)
-            if args.scanner in {"opengrep-stable", "opengrep-interfile-alpha", "semgrep-ce"}:
-                _check_sast(args.scanner, repo_root, temp)
-            elif args.scanner == "ruff-s":
-                _check_ruff(repo_root, temp)
-            elif args.scanner == "pyrefly":
-                _check_pyrefly(repo_root, temp, args.port)
-            else:
-                _check_pysa(repo_root, temp, args.port)
-    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        shared = _shared_fixtures()
+        core = {
+            "requested_core_revision": _load_json(POLICY_DIR / "shared-core.json")["revision"],
+            "installed_core_path": str(Path(shared.__file__).resolve().parent),
+        }
+        scope, expectations = build_inputs(
+            args.scanner, args.target, args.variant, shared.fixture_directory(), POLICY_DIR, core
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        scope_path = output_dir / "fixture-scope.json"
+        expectations_path = output_dir / "fixture-expectations.json"
+        scope_path.write_text(json.dumps(scope, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        expectations_path.write_text(json.dumps(expectations, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except (OSError, RuntimeError, ValueError, KeyError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    print(f"{args.scanner}: positive and negative fixtures passed")
-    return 0
+    status = shared.check(
+        args.scanner,
+        scope_path,
+        expectations_path,
+        POLICY_DIR,
+        output_dir,
+        args.executable,
+        args.pyrefly_executable,
+    )
+    if status == 0:
+        print(f"{args.scanner}: positive and negative fixtures passed")
+    else:
+        print(f"{args.scanner}: fixture check did not pass; see {output_dir / 'fixture-summary.json'}", file=sys.stderr)
+    return status
 
 
 if __name__ == "__main__":

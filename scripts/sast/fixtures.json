@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "owner": "picolet-sast-fixtures",
+  "scanners": {
+    "opengrep-stable": "deserialization",
+    "opengrep-interfile-alpha": "deserialization",
+    "semgrep-ce": "deserialization",
+    "ruff-s": "shell",
+    "pyrefly": "typing",
+    "pysa": "pysa"
+  },
+  "profiles": {
+    "deserialization": {
+      "positive": [
+        {"path": "deserialization_positive.py", "rule": "python.lang.security.deserialization.pickle.avoid-pickle"}
+      ],
+      "negative": [
+        {"path": "deserialization_negative.py", "rule": "python.lang.security.deserialization.pickle.avoid-pickle"}
+      ]
+    },
+    "shell": {
+      "positive": [
+        {"path": "shell_positive.py", "rule": "S602"}
+      ],
+      "negative": [
+        {"path": "shell_negative.py", "rule": "S602"}
+      ]
+    },
+    "typing": {
+      "positive": [
+        {"path": "typing_positive.py", "rule": "bad-assignment"},
+        {"path": "typing_positive.py", "rule": "bad-argument-type"}
+      ],
+      "negative": [
+        {"path": "typing_negative.py"}
+      ]
+    },
+    "pysa": {
+      "positive": [
+        {"path": "pysa_positive.py", "rule": "3101", "callable": "pysa_positive.evaluate_input"}
+      ],
+      "negative": [
+        {"path": "pysa_negative.py", "callable": "pysa_negative.evaluate_literal"}
+      ]
+    }
+  }
+}

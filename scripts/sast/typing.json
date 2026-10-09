@@ -1,4 +1,319 @@
 {
-  "unix": "build/stubs/unix",
-  "windows": "build/stubs/windows"
+  "environments": [
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "linux-x64",
+      "variant": "cli",
+      "python_version": "3.9",
+      "python_platform": "linux",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "linux-x64",
+      "variant": "webview",
+      "python_version": "3.9",
+      "python_platform": "linux",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "linux-x64",
+      "variant": "lvgl",
+      "python_version": "3.9",
+      "python_platform": "linux",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "linux-x64",
+      "variant": "mcp",
+      "python_version": "3.9",
+      "python_platform": "linux",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "linux-x64",
+      "variant": "tui",
+      "python_version": "3.9",
+      "python_platform": "linux",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "windows",
+      "directory": "build/stubs/windows",
+      "typeshed": "build/typeshed/windows",
+      "target": "windows-x64",
+      "variant": "cli",
+      "python_version": "3.9",
+      "python_platform": "win32",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-windows-stubs",
+      "packages": {
+        "micropython-windows-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-windows.txt"
+      }
+    },
+    {
+      "port": "windows",
+      "directory": "build/stubs/windows",
+      "typeshed": "build/typeshed/windows",
+      "target": "windows-x64",
+      "variant": "webview",
+      "python_version": "3.9",
+      "python_platform": "win32",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-windows-stubs",
+      "packages": {
+        "micropython-windows-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-windows.txt"
+      }
+    },
+    {
+      "port": "windows",
+      "directory": "build/stubs/windows",
+      "typeshed": "build/typeshed/windows",
+      "target": "windows-x64",
+      "variant": "lvgl",
+      "python_version": "3.9",
+      "python_platform": "win32",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-windows-stubs",
+      "packages": {
+        "micropython-windows-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-windows.txt"
+      }
+    },
+    {
+      "port": "windows",
+      "directory": "build/stubs/windows",
+      "typeshed": "build/typeshed/windows",
+      "target": "windows-x64",
+      "variant": "tui",
+      "python_version": "3.9",
+      "python_platform": "win32",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-windows-stubs",
+      "packages": {
+        "micropython-windows-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-windows.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "macos-x64",
+      "variant": "cli",
+      "python_version": "3.9",
+      "python_platform": "darwin",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "macos-x64",
+      "variant": "webview",
+      "python_version": "3.9",
+      "python_platform": "darwin",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "macos-x64",
+      "variant": "lvgl",
+      "python_version": "3.9",
+      "python_platform": "darwin",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "macos-arm64",
+      "variant": "cli",
+      "python_version": "3.9",
+      "python_platform": "darwin",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "macos-arm64",
+      "variant": "webview",
+      "python_version": "3.9",
+      "python_platform": "darwin",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    },
+    {
+      "port": "unix",
+      "directory": "build/stubs/unix",
+      "typeshed": "build/typeshed/unix",
+      "target": "macos-arm64",
+      "variant": "lvgl",
+      "python_version": "3.9",
+      "python_platform": "darwin",
+      "pyrefly_version": "1.3.2",
+      "target_package": "micropython-unix-stubs",
+      "packages": {
+        "micropython-unix-stubs": "1.29.0.post1",
+        "micropython-stdlib-stubs": "1.29.0.post2"
+      },
+      "provenance": {
+        "firmware_version": "1.29.0",
+        "source_revision": "unrecorded: static policy cannot name the composed integration commit",
+        "gitlink_revision": "7dabbd9bb56411f2e4cf7c169c963dc61e52a5b3",
+        "requirements": "requirements-unix.txt"
+      }
+    }
+  ]
 }
