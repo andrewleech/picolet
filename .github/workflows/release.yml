@@ -427,6 +427,7 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: runtime-*
           path: dist/
 
       # 3. List what arrived (visible in the Actions log for debugging).

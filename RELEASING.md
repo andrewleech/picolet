@@ -33,6 +33,12 @@ runtime-v1.0.0
 Pushing a tag matching `runtime-v*` to the remote triggers
 `.github/workflows/release.yml`.
 
+The tag-triggered workflow owns release creation and asset uploads, using
+GitHub CLI with `GITHUB_TOKEN` on the runner. Only `runtime-*` build artifacts
+are downloaded by the publication job; diagnostic screenshots stay in Actions.
+Do not repair a failed release by uploading local files. Fix the workflow and
+cut a new tag containing the fix so CI proves the full release path.
+
 ## What gets published
 
 The release workflow builds a 3 × 2 matrix:
