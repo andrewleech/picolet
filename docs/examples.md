@@ -4,6 +4,14 @@ Four worked applications, each covering a distinct use case and visual direction
 These are not generic SaaS templates — each commits to a specific aesthetic and
 demonstrates a specific set of framework capabilities.
 
+## Build and release
+
+Each `picolet init` template includes a GitHub Actions workflow. Pushes and
+pull requests targeting `main` build the Windows x64 app and retain the
+executable plus sidecars as workflow artifacts; pushing a `v*` tag publishes
+those files as a GitHub Release. Templates with a web frontend build it with
+Node.js before packaging.
+
 Spec coverage: FR-EX-1, FR-EX-2, FR-EX-3, FR-EX-4, FR-EX-5, FR-EX-6.
 
 ---

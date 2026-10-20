@@ -31,6 +31,12 @@ class TemplateWorkflowTests(unittest.TestCase):
                 self.assertIn("uv tool install mpy-cross", workflow)
                 self.assertIn("picolet build --target windows-x64", workflow)
                 self.assertIn("path: target/windows-x64/**", workflow)
+                self.assertIn("tags: ['v*']", workflow)
+                self.assertIn("branches: [main]", workflow)
+                self.assertIn("  release:", workflow)
+                self.assertIn("needs: build", workflow)
+                self.assertIn("contents: write", workflow)
+                self.assertIn("gh release create", workflow)
                 self.assertEqual("node-version: '22'" in workflow, template in _FRONTEND_TEMPLATES)
                 self.assertEqual("npm run build" in workflow, template in _FRONTEND_TEMPLATES)
 
