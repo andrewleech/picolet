@@ -1,0 +1,25 @@
+name: Build Windows app
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install Picolet from the current development branch
+        run: uv tool install --from "git+https://github.com/andrewleech/picolet.git@dev#subdirectory=packages/picolet" picolet
+      - name: Install mpy-cross
+        run: uv tool install mpy-cross
+      - name: Build app
+        run: picolet build --target windows-x64
+      - name: Upload executable and sidecars
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: target/windows-x64/**
+          if-no-files-found: error
