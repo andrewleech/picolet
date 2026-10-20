@@ -466,10 +466,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          # Collect every file under dist/ into a flat list.
-          # The download-artifact step creates one subdirectory per artifact name.
-          mapfile -t FILES < <(find dist/ -type f | sort)
-          echo "Uploading ${#FILES[@]} files to release $TAG"
+          # Keep runner diagnostics and screenshot evidence out of the runtime release.
+          mapfile -t FILES < <(find dist/ -type f -name 'picolet-runtime-*' | sort)
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "No runtime artifacts were downloaded." >&2
+            exit 1
+          fi
+          echo "Uploading ${#FILES[@]} runtime files to release $TAG"
           gh release upload "$TAG" "${FILES[@]}" --clobber
 
   # ---------------------------------------------------------------------------
