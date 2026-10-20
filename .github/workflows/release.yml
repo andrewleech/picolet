@@ -317,12 +317,40 @@ jobs:
           "packages/picolet-runtime/build/picolet-runtime-macos-${ARCH}-${{ matrix.variant }}" \
             -c 'import sys, gc, ffi; assert sys.platform == "darwin"; assert callable(gc.add_heap); assert ffi.open(None).func("i", "getpid", "")() > 0; print("runtime smoke:", sys.platform)'
 
+      - name: Install Node.js for bridge smoke
+        if: matrix.variant == 'webview'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Exercise native WKWebView messaging and snapshot
         if: matrix.variant == 'webview'
         run: |
           ARCH=$([ "${{ runner.arch }}" = "X64" ] && echo "x64" || echo "arm64")
-          "packages/picolet-runtime/build/picolet-runtime-macos-${ARCH}-webview" \
-            scripts/mac-webview-smoke.py /tmp/mac-webview-smoke.png
+          ARTIFACT="packages/picolet-runtime/build/picolet-runtime-macos-${ARCH}-webview"
+
+          # The distributable runtime stays blank-slate. Build a separate
+          # smoke-test runtime with the real bridge bundle so Webview can
+          # exercise its document-start injection path.
+          npm ci --prefix packages/picolet-bridge-js
+          npm run build --prefix packages/picolet-bridge-js
+          FIXTURE="packages/picolet-runtime/tests/phase-30/mac-webview-smoke"
+          mkdir -p "$FIXTURE/picolet"
+          cp packages/picolet-bridge-js/dist/picolet-bridge.js \
+            "$FIXTURE/picolet/picolet-bridge.js"
+
+          cp "$ARTIFACT" /tmp/picolet-runtime-release
+          cp "${ARTIFACT}.cdx.json" /tmp/picolet-runtime-release.cdx.json
+          cp "${ARTIFACT}.version" /tmp/picolet-runtime-release.version
+          bash packages/picolet-runtime/scripts/build-runtime.sh \
+            --target "macos-${ARCH}" \
+            --variant webview \
+            --test-romfs mac-webview-smoke
+          "$ARTIFACT" scripts/mac-webview-smoke.py /tmp/mac-webview-smoke.png
+          cp /tmp/picolet-runtime-release "$ARTIFACT"
+          cp /tmp/picolet-runtime-release.cdx.json "${ARTIFACT}.cdx.json"
+          cp /tmp/picolet-runtime-release.version "${ARTIFACT}.version"
+
           python3 -m pip install Pillow
           python3 -c 'from PIL import Image; im = Image.open("/tmp/mac-webview-smoke.png").convert("RGB"); w, h = im.size; assert w * 240 == h * 320; assert im.getpixel((w // 2, h // 2)) == (51, 102, 153); print("native WKWebView rendered expected colour:", im.size)'
 
@@ -471,7 +499,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install Playwright Chromium
-        run: uv run --with playwright playwright install chromium --with-deps
+        run: uv run --no-project --with playwright --with pillow playwright install chromium --with-deps
 
       - name: Build and regenerate screenshots (pydfu)
         run: |
