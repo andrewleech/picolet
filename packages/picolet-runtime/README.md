@@ -85,6 +85,50 @@ CI installs the same toolchain — see `.github/workflows/release.yml`
 (`Install libffi bootstrap toolchain` on the linux job, `brew install
 libtool` on the macOS job).
 
+## Windows asyncio sockets and stdio (integration tree)
+
+The local MicroPython integration tree includes work in progress for Windows
+`socket`/`ssl`, socket polling, scheduler wakeups, and redirected stdio.
+These changes are not a claim about any published runtime binary or its hash.
+The `cli` manifest freezes MicroPython's `extmod/asyncio`.
+
+Local build evidence: branch `windows-asyncio-stdio` at commit
+`d17b1ed0bbc3c236dfc2946b9bbec158d0067bf3` was rebuilt twice from
+identical sources with deterministic integration. Both Windows CLI runtime
+builds had SHA-256
+`c2843411abe30b678c2a29dab1383827e35395b9ad9b4dec3e92b78ac785871e`.
+This is evidence for a local build only, not the released v0.0.4 runtime;
+there is no release or artifact URL for this build.
+
+From the repository root, with the integration branch already checked out
+and the desired local changes present, build the Windows CLI runtime with:
+
+```sh
+./packages/picolet-runtime/scripts/build-runtime.sh \
+    --target windows-x64 --variant cli
+```
+
+The output is `packages/picolet-runtime/build/picolet-runtime-windows-x64-cli.exe`.
+The script uses dockcross, checks out `integration`, and updates nested
+submodules. Do not pass `--clean` when preserving local integration work:
+it reruns the integration rebuild. Build prerequisites above still apply,
+including the package's `lib/micropython-lib` submodule.
+
+The Windows socket poller uses `WSAPoll`; a loopback wake socket interrupts
+the wait for scheduled events. Redirected stdin and piped stdout use native
+workers and bounded 16 KiB queues because synchronous Windows pipes cannot
+be passed to `WSAPoll`. Reads can report `EAGAIN` until input arrives;
+stdout writes can be short or report `EAGAIN` under backpressure. `print`
+and stdout flush may wait for queue space or draining, and a broken pipe can
+raise `EPIPE`. Applications using stream writes must handle partial writes
+and backpressure.
+
+This is not general asynchronous Windows file I/O: console input retains its
+existing calling-thread behavior, non-pipe stdout uses normal writes, and
+stderr is not routed through the stdout queue. A reader worker may remain
+blocked in `ReadFile` at shutdown. The implementation is local integration
+work and should be validated on the target Windows environment before use.
+
 ## Webview variant (linux-x64, PH07)
 
 The `picolet-runtime-linux-x64-webview` variant adds a WebKitGTK 4.1

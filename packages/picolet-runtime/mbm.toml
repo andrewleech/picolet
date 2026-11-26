@@ -103,6 +103,37 @@ pr_url = "https://github.com/andrewleech/micropython/pull/52"
 pr_number = 52
 title = "extmod/modselect: Let a stream declare its own wake source and readiness."
 
+# Real open upstream PR (stinos): Windows socket/ssl modules.  Mirrored to the
+# fork as branch `winsock` (workflow file included, pushed over ssh).  Tracked
+# by branch name only, never pin a SHA.  Gives the windows port `socket`/`ssl`
+# so the cli runtime no longer needs ffi-to-Winsock workarounds.
+[[submodules.branches]]
+name = "winsock"
+pr_url = "https://github.com/micropython/micropython/pull/12810"
+pr_number = 12810
+title = "windows: Implement socket/ssl modules"
+
+# Own branch, on top of winsock: WSAPoll-backed MP_STREAM_POLL for sockets and an
+# event-driven wait in the generic select loop (otherwise it sleeps out the
+# whole timeout and readiness is only noticed when it expires).
+[[submodules.branches]]
+name = "windows-select-sockets"
+title = "extmod/modselect: Wait on sockets with WSAPoll on Windows."
+
+# On top of select-event-source (needs its wake event): also makes that wake event
+# readable on a loopback socket, so mp_hal_signal_event() from a callback, Ctrl-C or a
+# reader thread ends the WSAPoll wait at once.  Merge after windows-select-sockets,
+# which polls it.
+[[submodules.branches]]
+name = "windows-wake-socket"
+title = "ports/windows: Make the wake event also readable on a loopback socket."
+
+# Redirected stdio workers and Windows asyncio socket fixes, based on the
+# integration tree above. Merge last so it sees the same wake-source stack.
+[[submodules.branches]]
+name = "windows-asyncio-stdio"
+title = "ports/windows: Add event-driven asyncio stdio streams."
+
 # --- Renderer-specific PRs added here as they're written ---
 # - picolet webview bridge bootstrap
 # - LVGL binding integration

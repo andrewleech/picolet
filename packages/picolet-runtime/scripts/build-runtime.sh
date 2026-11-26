@@ -24,6 +24,10 @@
 # land under the bind-mounted repo tree so they persist across container
 # runs.
 #
+# SOURCE_DATE_EPOCH defaults to the integration commit's timestamp and is
+# passed to the build containers. Set it explicitly to override that date.
+# MicroPython still embeds the actual integration revision in its version.
+#
 # Prerequisites (linux-x64/cli):
 #   - docker (runs compilation inside ubuntu:22.04; image is built on first run)
 #   - python3 + mpremote (pip install mpremote)  — host-side romfs assembly only
@@ -226,6 +230,7 @@ docker_linux() {
     docker run --rm \
         -v "$REPO_ROOT:$REPO_ROOT" \
         -w "$workdir" \
+        -e SOURCE_DATE_EPOCH \
         --user "$(id -u):$(id -g)" \
         "$LINUX_BUILD_IMAGE" \
         "$@"
@@ -249,9 +254,17 @@ docker_windows() {
     docker run --rm \
         -v "$REPO_ROOT:$REPO_ROOT" \
         -w "$workdir" \
+        -e SOURCE_DATE_EPOCH \
         --user "$(id -u):$(id -g)" \
         "$DOCKCROSS_IMAGE" \
         "$@"
+}
+
+# MicroPython embeds a build date, and toolchains can use the same standard
+# variable for reproducible output. Derive it from the checked-out source,
+# unless the caller supplied one, rather than using the wall clock.
+set_source_date_epoch() {
+    export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$SUBMODULE" show -s --format=%ct HEAD)}"
 }
 
 CAPTURE_MAKE_ARGS=()
@@ -431,6 +444,7 @@ build_linux_x64() {
     fi
 
     git -C "$SUBMODULE" checkout integration --quiet
+    set_source_date_epoch
     echo "  updating nested submodules"
     git -C "$SUBMODULE" submodule update --init --recursive --quiet
 
@@ -632,6 +646,7 @@ build_macos() {
     fi
 
     git -C "$SUBMODULE" checkout integration --quiet
+    set_source_date_epoch
     echo "  updating nested submodules"
     git -C "$SUBMODULE" submodule update --init --recursive --quiet
 
@@ -807,6 +822,7 @@ build_windows_x64() {
     fi
 
     git -C "$SUBMODULE" checkout integration --quiet
+    set_source_date_epoch
     echo "  updating nested submodules"
     git -C "$SUBMODULE" submodule update --init --recursive --quiet
 

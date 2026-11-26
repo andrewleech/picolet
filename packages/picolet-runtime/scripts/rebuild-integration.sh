@@ -161,25 +161,44 @@ git -C "$SUBMODULE" checkout -B integration_update upstream/master
 PR_BRANCHES=("${ALL_BRANCHES[@]}")
 
 for branch in "${PR_BRANCHES[@]}"; do
-    msg="Merge branch '$branch'"
-    echo "    merging $branch"
-    if git -C "$SUBMODULE" merge --no-ff -m "$msg" "$branch" 2>&1 | sed 's/^/      /' ; then
-        merge_rc=${PIPESTATUS[0]}
-    else
-        merge_rc=${PIPESTATUS[0]}
+    # The merge commit represents these exact parents, not the time or machine
+    # that composed them. Use the later parent timestamp for both identities;
+    # a changed parent still changes the merge's identity.
+    head_time="$(git -C "$SUBMODULE" show -s --format=%ct HEAD)"
+    branch_time="$(git -C "$SUBMODULE" show -s --format=%ct "$branch")"
+    if (( branch_time > head_time )); then
+        head_time="$branch_time"
     fi
-    if [ "$merge_rc" -eq 0 ]; then
-        continue
-    fi
-    unmerged_count=$(git -C "$SUBMODULE" ls-files --unmerged | wc -l)
-    if [ "$unmerged_count" -eq 0 ] && [ -f "$SUBMODULE_GITDIR/MERGE_HEAD" ]; then
-        echo "      rerere auto-resolved; finalising merge commit"
-        git -C "$SUBMODULE" -c core.hooksPath=/dev/null commit --no-edit -s --no-verify >/dev/null
-    else
-        echo "      error: unresolved conflict in $branch" >&2
-        git -C "$SUBMODULE" status >&2
-        exit 1
-    fi
+    (
+        export GIT_AUTHOR_NAME="Picolet rebuild-integration"
+        export GIT_AUTHOR_EMAIL="rebuild-integration@picolet.local"
+        export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+        export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+        export GIT_AUTHOR_DATE="@$head_time +0000"
+        export GIT_COMMITTER_DATE="$GIT_AUTHOR_DATE"
+
+        msg="Merge branch '$branch'"
+        echo "    merging $branch"
+        if git -C "$SUBMODULE" -c core.hooksPath=/dev/null -c commit.gpgsign=false \
+            merge --no-ff -m "$msg" "$branch" 2>&1 | sed 's/^/      /'; then
+            merge_rc=${PIPESTATUS[0]}
+        else
+            merge_rc=${PIPESTATUS[0]}
+        fi
+        if [ "$merge_rc" -eq 0 ]; then
+            exit 0
+        fi
+        unmerged_count=$(git -C "$SUBMODULE" ls-files --unmerged | wc -l)
+        if [ "$unmerged_count" -eq 0 ] && [ -f "$SUBMODULE_GITDIR/MERGE_HEAD" ]; then
+            echo "      rerere auto-resolved; finalising merge commit"
+            git -C "$SUBMODULE" -c core.hooksPath=/dev/null -c commit.gpgsign=false \
+                commit --no-edit --no-verify >/dev/null
+        else
+            echo "      error: unresolved conflict in $branch" >&2
+            git -C "$SUBMODULE" status >&2
+            exit 1
+        fi
+    )
 done
 
 echo "[2/2] Promote integration_update -> integration"
