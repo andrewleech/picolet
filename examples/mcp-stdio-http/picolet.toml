@@ -1,0 +1,4 @@
+[app]
+name = "mcp-stdio-http"
+version = "0.1.0"
+entry = "src/main.py"

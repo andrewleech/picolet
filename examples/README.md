@@ -1,7 +1,7 @@
 # Picolet examples
 
-Four worked applications demonstrating the Picolet framework across distinct
-use cases and visual directions.
+Worked applications demonstrating the Picolet framework across distinct
+use cases.
 
 | Example | What it demonstrates | Aesthetic |
 |---|---|---|
@@ -9,6 +9,7 @@ use cases and visual directions.
 | [notes](notes/) | Host filesystem persistence + multi-route Vue Router + markdown rendering | Editorial / refined |
 | [config-editor](config-editor/) | Structured-data read/validate/write pipeline + diff confirmation flow | Brutalist terminal |
 | [dashboard](dashboard/) | 1 Hz event push + history ring buffer + custom SVG dataviz | Data-dense dark UI |
+| [mcp-stdio-http](mcp-stdio-http/) | Async MCP stdio-to-HTTP bridge in a Windows CLI executable | CLI |
 
 ## Screenshots
 
@@ -38,7 +39,7 @@ use cases and visual directions.
 
 ## Using these as templates
 
-Each example is available as a `picolet init` template:
+The following examples are available as `picolet init` templates:
 
 ```
 picolet init my-app --template pydfu
